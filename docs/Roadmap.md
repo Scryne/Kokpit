@@ -19,8 +19,8 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 1 | Yürüyen iskelet: pencere + gerçek veri | ✅ Tamamlandı | `npm start` ile pencere açılıyor, `durum.py --json` çıktısı ham da olsa ekranda |
 | 2 | PTY sunucusu + tek terminal | ✅ Tamamlandı | Pencere içinde `claude` çalışıyor, yazılıp okunuyor, resize doğru, kapanışta yetim süreç yok |
 | 3 | DESIGN.md + Pano'nun gerçek hali | ✅ Tamamlandı | Kartlar tasarım kimliğine uygun; aşama/roadmap/git/"nerede kaldın" okunaklı |
-| 4 | Sekmeler, bölmeler + canlı oturum farkındalığı | 🔄 Devam Ediyor | Birden fazla oturum sekmesi, "hangi proje / ne kadar süredir açık" doğru |
-| 5 | Sertleştirme + günlük kullanıma alma | ⏳ Bekliyor | Erişilebilirlik/animasyon pasları geçti, `kokpit` komutu çalışıyor, bir hafta gerçekten kullanıldı |
+| 4 | Sekmeler, bölmeler + canlı oturum farkındalığı | ✅ Tamamlandı | Birden fazla oturum sekmesi, "hangi proje / ne kadar süredir açık" doğru |
+| 5 | Sertleştirme + günlük kullanıma alma | 🔄 Devam Ediyor | Erişilebilirlik/animasyon pasları geçti, `kokpit` komutu çalışıyor, bir hafta gerçekten kullanıldı |
 
 ## Faz Detayları
 
@@ -110,8 +110,14 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 - **İşler:** Birden fazla PTY sekmesi; sekme başlığı = proje adı; açık kalma süresi sayacı;
   Pano kartında "şu an açık" göstergesi; sekme kapatınca PTY'nin temiz ölmesi.
 - **Bitti Kriteri:** İki proje aynı anda açık, hangisi ne kadar süredir açık doğru görünüyor,
-  sekmeler kapanınca süreç sızıntısı yok.
-- **Notlar:** Bu eşzamanlı çalışma özelliği DEĞİL — süreklilik göstergesi.
+  sekmeler kapanınca süreç sızıntısı yok. ✅ (2026-09-10)
+- **Notlar:** Kapsam planın ötesine geçti (Scryne'ın isteği): sekme = grup, grup içinde
+  **yan yana bölmeler**, sürüklenebilir ayırıcı. Kenar çubuğu terminale geçince daralıyor.
+  Klavye: Ctrl+B / Ctrl+1 / Ctrl+2 / Ctrl+Shift+W.
+  **Mimari zorunluluk olarak çıkan ders:** oturumlar App seviyesinde yaşamak ve görünüm
+  değişince unmount olmamak zorunda. Önceki halde Pano'ya her bakış WS'i kapatıp PTY'yi
+  öldürüyordu — yani çalışan bir oturum, ona bakmak için bile kayboluyordu.
+  Bu eşzamanlı çalışma özelliği DEĞİL — süreklilik göstergesi.
 
 ### Faz 5: Sertleştirme + günlük kullanıma alma
 - **İşler:** `fixing-accessibility` (klavye, focus, kontrast — glassmorphism kontrastı
@@ -119,5 +125,16 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
   zorunlu geçiş), `frontend-ui-engineering` pası; PowerShell profiline `kokpit` fonksiyonu;
   README'ye kurulum tuzakları.
 - **Bitti Kriteri:** Denetim pasları geçti; bir hafta boyunca gerçekten günlük kullanıldı.
+- **Durum (2026-09-10):** Günlük kullanımı mümkün kılan dilim bitti.
+  - ✅ Üretim modu çalışıyor ve doğrulandı (`npm run kokpit`). İlk çalıştırmada **iki sessiz
+    hata** çıktı, ikisi de yalnızca üretimde görünüyordu: CSP `file://` üzerinde hiç
+    uygulanmıyordu (→ `app://` şeması), ve gömülü font `font-src 'self'`e takılıyordu
+    (→ `assetsInlineLimit: 0`). **Ders: dev'de çalışması üretimde çalıştığı anlamına gelmez;
+    üretim yolu ayrıca test edilir.**
+  - ✅ `kokpit` komutu PowerShell profilinde (`kokpit` üretim, `kokpit -dev` geliştirme).
+  - ✅ Uygulamanın kendi terminalleri pwsh 7 açıyor, yani içeride `durum` ve `kokpit` var.
+  - ⏳ `fixing-accessibility` ve `fixing-motion-performance` pasları — **bilerek bekletiliyor**,
+    gerçek kullanımdan sonra yapılacak.
+  - ⏳ Bir hafta günlük kullanım.
 - **Notlar:** Kullanılmazsa v1.1'e (Sağlık/Envanter sayfaları) **geçilmez** — Katman 1'in
   dersi. Aracın değil ihtiyacın yanlış okunduğu anlaşılır.
