@@ -13,11 +13,27 @@ Kararlar: `docs/Final-Dokuman.md` · Yol haritası: `docs/Roadmap.md`
 ## Çalıştırma
 
 ```bash
-npm start
+kokpit          # üretim modu (günlük kullanım)
+kokpit -dev     # dev sunucusu + HMR
 ```
 
-Vite dev sunucusunu açar, hazır olunca Electron penceresini başlatır. Pencere kapanınca
-Vite de durur.
+`kokpit` PowerShell profilinde tanımlı, her dizinden çalışır. Proje kökünden doğrudan:
+`npm run kokpit` (üretim) veya `npm start` (dev).
+
+Üretimde arayüz `app://kokpit/` özel şemasından servis edilir — gerçek bir origin olduğu
+için CSP uygulanabiliyor. `file://` kullanılmaz: `onHeadersReceived` o istekler için
+tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
+
+## Test
+
+```bash
+npm run test:pty     # PTY sunucusunun uçtan uca testi (11 kontrol)
+npm run typecheck
+npm run build
+```
+
+`test:pty` elle doğrulanamayan şeyi doğrular: token reddi, cwd, yazma/okuma, resize'in
+kabuğa geçmesi, temiz kapanış ve **yetim süreç bırakmama**.
 
 ## Kurulum (temiz makinede)
 
