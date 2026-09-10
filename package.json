@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "start": "node scripts/start.cjs",
+    "kokpit": "node scripts/uretim.cjs",
     "dev:vite": "vite",
     "build": "tsc -b && vite build",
     "electron": "electron .",
