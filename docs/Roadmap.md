@@ -18,8 +18,8 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 0 | Spike: PTY + Electron + veri şeması | ✅ Tamamlandı | A-01…A-04 kapandı, `docs/Spike-Bulgulari.md` |
 | 1 | Yürüyen iskelet: pencere + gerçek veri | ✅ Tamamlandı | `npm start` ile pencere açılıyor, `durum.py --json` çıktısı ham da olsa ekranda |
 | 2 | PTY sunucusu + tek terminal | ✅ Tamamlandı | Pencere içinde `claude` çalışıyor, yazılıp okunuyor, resize doğru, kapanışta yetim süreç yok |
-| 3 | DESIGN.md + Pano'nun gerçek hali | 🔄 Devam Ediyor | Kartlar tasarım kimliğine uygun; aşama/roadmap/git/"nerede kaldın" okunaklı |
-| 4 | Sekmeler + canlı oturum farkındalığı | ⏳ Bekliyor | Birden fazla oturum sekmesi, "hangi proje / ne kadar süredir açık" doğru |
+| 3 | DESIGN.md + Pano'nun gerçek hali | ✅ Tamamlandı | Kartlar tasarım kimliğine uygun; aşama/roadmap/git/"nerede kaldın" okunaklı |
+| 4 | Sekmeler, bölmeler + canlı oturum farkındalığı | 🔄 Devam Ediyor | Birden fazla oturum sekmesi, "hangi proje / ne kadar süredir açık" doğru |
 | 5 | Sertleştirme + günlük kullanıma alma | ⏳ Bekliyor | Erişilebilirlik/animasyon pasları geçti, `kokpit` komutu çalışıyor, bir hafta gerçekten kullanıldı |
 
 ## Faz Detayları
@@ -89,8 +89,22 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
   kart/rozet/progress; aşama rozeti, roadmap ilerleme çubuğu, git durumu, "nerede kaldın"
   (`roadmap.sirada.ad` + `git.son_commit`); sistem dışı proje rozeti; `ux-writing` ile metinler.
 - **Bitti Kriteri:** Pano 10 saniyede "bugün ne var" sorusunu cevaplıyor; `DESIGN.md` lint'ten
-  geçiyor; hiçbir kart şablon gibi durmuyor.
-- **Notlar:**
+  geçiyor; hiçbir kart şablon gibi durmuyor. ✅ (2026-09-10) — lint hariç:
+  `npx @google/design.md lint` bu ortamda çalışmadı (`--help` dahil yanıtsız takılıyor),
+  dosya spec'e göre elle yazıldı, doğrulama borç.
+- **Notlar:** Tasarım üç turda oturdu, ikisi geri alınan karar:
+  1. **Şeffaflık (akrilik) denendi ve geri alındı.** Windows 11 native akriliği çalıştı, ama
+     Scryne'ın duvar kâğıdı açık gri olduğu için tüm arayüz gri çorbaya döndü ve
+     `metin-soluk` seviyesindeki her şey okunmaz oldu. **Ders:** yarı saydam bir yüzey,
+     arkasında ne olduğunu bilmediği sürece kendi kontrastını garanti edemez. Pencere opak
+     oldu, cam uygulamanın kendi zemini üzerinde kaldı.
+  2. **Gümüş palet denendi ve OsintLab sistemine geçildi.** Scryne'ın kararı: aynı görsel
+     dil. Global "reskin olmasın" kuralı bilerek esnetildi, gerekçe DESIGN.md'de yazılı.
+     Kokpit'in kendi ayırt edici kuralı korundu: **mono = ölçülmüş değer**.
+  3. **Kart ızgarası → hero+liste → dashboard tablosu.** İlk hâli beş özdeş karttı; slop
+     tablosundaki "eşit ağırlıklı kart üçlüsü, odak yok" kusurunun birebir karşılığıydı.
+  4. **`cam` sınıfı her yüzeye sürülmüştü**, OsintLab'ın kuralı tam tersi. Cam artık yalnız
+     nav ve sekme şeridinde; ölçüm kutusu, tablo, beyin ve terminal yarı saydam opak yüzey.
 
 ### Faz 4: Sekmeler + canlı oturum farkındalığı
 - **İşler:** Birden fazla PTY sekmesi; sekme başlığı = proje adı; açık kalma süresi sayacı;

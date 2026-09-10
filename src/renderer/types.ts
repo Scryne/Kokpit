@@ -66,6 +66,25 @@ export type DurumSonuc =
   | { veri: Durum; hata?: undefined }
   | { hata: string; stderr?: string; ham?: string; veri?: undefined };
 
+export type OturumDurumu = 'baglaniyor' | 'acik' | 'bitti' | 'hata';
+
+/**
+ * Bir terminal oturumu = bir PTY = bir bolme (pane).
+ * App seviyesinde yasar; gorunum degisince UNMOUNT EDILMEZ.
+ * `grupId` ayni sekmede yan yana duran bolmeleri birbirine baglar,
+ * `oran` o grup icindeki genislik payidir (toplami 1 olmak zorunda degil, normalize edilir).
+ */
+export interface Oturum {
+  id: string;
+  ad: string;
+  yol: string;
+  durumu: OturumDurumu;
+  mesaj?: string;
+  baslangic: number;
+  grupId: string;
+  oran: number;
+}
+
 export interface PtyBilgi {
   port: number;
   token: string;

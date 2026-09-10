@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, session, shell } = require('electron');
 const path = require('path');
 const { DEV_URL } = require('./config.cjs');
 const { log, logHata, LOG_DOSYA } = require('./log.cjs');
@@ -15,7 +15,10 @@ function pencereKur() {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    backgroundColor: '#0a0912',
+    // Pencere OPAK. Akrilik/seffaflik 2026-09-10'da denendi ve geri alindi:
+    // duvar kagidi acik oldugunda tum arayuz gri corbaya donuyordu ve cam yuzeyler
+    // kendi kontrastini garanti edemiyordu. Cam artik uygulamanin KENDI zemini uzerinde.
+    backgroundColor: '#090a0c',
     title: 'Kokpit',
     autoHideMenuBar: true,
     webPreferences: {
@@ -41,6 +44,24 @@ function pencereKur() {
     logHata(`preload ${dosya}`, err);
   });
   pencere.once('ready-to-show', () => pencere.show());
+
+  // Yakinlastirma KILITLI. Electron'un varsayilan menusu Ctrl+= / Ctrl+- / Ctrl+0
+  // hizlandiricilarini tasiyor; kazara basilinca tum arayuz olcekleniyordu.
+  // Bu bir masaustu uygulamasi, tarayici degil.
+  pencere.webContents.setZoomFactor(1);
+  pencere.webContents.setVisualZoomLevelLimits(1, 1).catch(() => {});
+  pencere.webContents.on('zoom-changed', () => pencere.webContents.setZoomFactor(1));
+
+  // Menu kaldirilinca F12 de gidiyor; gelistirici araclarini elle geri baglayalim.
+  pencere.webContents.on('before-input-event', (olay, girdi) => {
+    if (girdi.type !== 'keyDown') return;
+    if (girdi.key === 'F12' || (girdi.control && girdi.shift && girdi.key.toLowerCase() === 'i')) {
+      olay.preventDefault();
+      pencere.webContents.toggleDevTools();
+    }
+  });
+
+
 
   // KURAL: data: URL kullanilmaz. Opaque origin inline script ve WebSocket'i
   // sessizce engelliyor (Faz 0 spike'inda yakalandi).
@@ -93,6 +114,7 @@ function cspKur() {
 
 app.whenReady().then(() => {
   log('--- Kokpit basladi ---');
+  Menu.setApplicationMenu(null);
   cspKur();
   pencereKur();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
