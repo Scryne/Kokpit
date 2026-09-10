@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { createRequire } from 'node:module';
+
+const { DEV_PORT } = createRequire(import.meta.url)('./kokpit.config.cjs');
 
 /**
  * Vite uretim ciktisina `crossorigin` ekliyor; bu, ozel `app://` semamizda
@@ -18,9 +21,9 @@ const crossoriginKaldir = {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), crossoriginKaldir],
-  // Electron dosyayi file:// ile yukleyecek -> mutlak yol olmaz
+  // Uretimde varliklar app://kokpit/ altindan gorece yollarla cozulur.
   base: './',
-  server: { port: 5173, strictPort: true },
+  server: { port: DEV_PORT, strictPort: true },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

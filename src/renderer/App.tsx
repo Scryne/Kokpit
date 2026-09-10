@@ -125,38 +125,63 @@ export default function App() {
     [aktifGrupId, sekmeAc]
   );
 
-  const oturumKapat = useCallback((id: string) => {
-    setOturumlar((o) => {
-      const kapanan = o.find((x) => x.id === id);
-      if (!kapanan) return o;
-      const kalan = o.filter((x) => x.id !== id);
-      const grupKalan = kalan.filter((x) => x.grupId === kapanan.grupId);
+  /**
+   * Verilen oturumlari kapatir ve odagi tutarli birakir.
+   *
+   * ONEMLI: hesap `setOturumlar` guncelleyicisinin ICINDE yapilmaz. Guncelleyici saf
+   * olmali; React onu (StrictMode'da ve concurrent modda) birden fazla kez cagirabilir,
+   * ve icine konan setState'ler yan etki olur. Once yeni durum burada hesaplanir,
+   * sonra tum setter'lar bir kez cagrilir.
+   */
+  const kapat = useCallback(
+    (idler: string[]) => {
+      const kume = new Set(idler);
+      const kapanan = oturumlar.filter((x) => kume.has(x.id));
+      if (kapanan.length === 0) return;
 
-      // Ayni gruptaki kalan bolmeler bosalan payi paylasir.
-      const normalize =
-        grupKalan.length > 0
-          ? (() => {
-              const toplam = grupKalan.reduce((t, y) => t + y.oran, 0) || 1;
-              return kalan.map((x) =>
-                x.grupId === kapanan.grupId ? { ...x, oran: x.oran / toplam } : x
-              );
-            })()
-          : kalan;
+      const kalan = oturumlar.filter((x) => !kume.has(x.id));
+      const etkilenenGruplar = new Set(kapanan.map((x) => x.grupId));
 
-      if (grupKalan.length > 0) {
-        setAktifOturumId((m) => (m === id ? grupKalan[grupKalan.length - 1].id : m));
-      } else {
-        const sonraki = normalize.length > 0 ? normalize[normalize.length - 1] : null;
-        setAktifGrupId(sonraki ? sonraki.grupId : null);
-        setAktifOturumId(sonraki ? sonraki.id : null);
-        if (!sonraki) {
-          setGorunum('pano');
-          setKenarAcik(true);
-        }
+      // Etkilenen gruplarda kalan bolmeler bosalan payi paylasir.
+      const yeni = kalan.map((x) => {
+        if (!etkilenenGruplar.has(x.grupId)) return x;
+        const kardesler = kalan.filter((y) => y.grupId === x.grupId);
+        const toplam = kardesler.reduce((t, y) => t + y.oran, 0) || 1;
+        return { ...x, oran: x.oran / toplam };
+      });
+
+      setOturumlar(yeni);
+
+      // Odak: once ayni grupta kalan bir bolme, yoksa son grup, o da yoksa Pano.
+      const aktifSilindi = aktifOturumId !== null && kume.has(aktifOturumId);
+      if (!aktifSilindi) return;
+
+      const ayniGrupta = aktifGrupId ? yeni.filter((x) => x.grupId === aktifGrupId) : [];
+      if (ayniGrupta.length > 0) {
+        setAktifOturumId(ayniGrupta[ayniGrupta.length - 1].id);
+        return;
       }
-      return normalize;
-    });
-  }, []);
+      const sonraki = yeni.length > 0 ? yeni[yeni.length - 1] : null;
+      setAktifGrupId(sonraki ? sonraki.grupId : null);
+      setAktifOturumId(sonraki ? sonraki.id : null);
+      if (!sonraki) {
+        setGorunum('pano');
+        setKenarAcik(true);
+      }
+    },
+    [oturumlar, aktifOturumId, aktifGrupId]
+  );
+
+  const oturumKapat = useCallback((id: string) => kapat([id]), [kapat]);
+
+  /**
+   * Sekmenin tamami. Tek tek `oturumKapat` cagirmak YANLIS olurdu: hepsi ayni tick'te
+   * ayni `oturumlar` degerini gorur ve yalnizca sonuncusu uygulanirdi.
+   */
+  const grupKapat = useCallback(
+    (grupId: string) => kapat(oturumlar.filter((o) => o.grupId === grupId).map((o) => o.id)),
+    [kapat, oturumlar]
+  );
 
   const oturumDurumu = useCallback((id: string, durumu: OturumDurumu, mesaj?: string) => {
     setOturumlar((o) => o.map((x) => (x.id === id ? { ...x, durumu, mesaj } : x)));
@@ -339,12 +364,24 @@ export default function App() {
                     (kenarAcik ? '' : 'justify-center')
                   }
                 >
-                  <span
-                    className={
-                      'size-1.5 shrink-0 rounded-full ' + (oturum ? 'bg-aksan' : 'bg-kenar-guclu')
-                    }
-                    aria-hidden="true"
-                  />
+                  {kenarAcik ? (
+                    <span
+                      className={
+                        'size-1.5 shrink-0 rounded-full ' + (oturum ? 'bg-aksan' : 'bg-kenar-guclu')
+                      }
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    // Daraltilmisken nokta hangi proje oldugunu soylemiyor; bas harf soyluyor.
+                    <span
+                      className={
+                        'enstruman relative text-xs ' + (oturum ? 'text-aksan' : 'text-metin-soluk')
+                      }
+                      aria-hidden="true"
+                    >
+                      {p.ad.charAt(0).toUpperCase()}
+                    </span>
+                  )}
                   {kenarAcik && (
                     <>
                       <span className="enstruman truncate text-xs text-metin-ikincil group-hover:text-metin">
@@ -490,7 +527,9 @@ export default function App() {
                     <button
                       type="button"
                       role="tab"
+                      id={'sekme-' + g.id}
                       aria-selected={secili}
+                      aria-controls={'panel-' + g.id}
                       onClick={() => grubaGit(g.id, ilk.id)}
                       className="flex cursor-pointer items-center gap-2"
                     >
@@ -510,7 +549,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => g.uyeler.forEach((o) => oturumKapat(o.id))}
+                      onClick={() => grupKapat(g.id)}
                       aria-label={etiket + ' sekmesini kapat'}
                       className="cursor-pointer rounded text-metin-soluk transition-colors duration-[180ms] hover:text-metin"
                     >
@@ -553,6 +592,9 @@ export default function App() {
               {gruplar.map((g) => (
                 <div
                   key={g.id}
+                  role="tabpanel"
+                  id={'panel-' + g.id}
+                  aria-labelledby={'sekme-' + g.id}
                   className={(g.id === aktifGrupId ? 'flex' : 'hidden') + ' absolute inset-0 m-2'}
                 >
                   {g.uyeler.map((o, i) => (

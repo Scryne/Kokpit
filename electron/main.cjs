@@ -1,6 +1,6 @@
 const { app, BrowserWindow, Menu, ipcMain, session, shell } = require('electron');
 const path = require('path');
-const { DEV_URL } = require('./config.cjs');
+const { DEV_URL, DEV_PORT } = require('./config.cjs');
 const { log, logHata, LOG_DOSYA } = require('./log.cjs');
 const { durumOku } = require('./durum.cjs');
 const ptyKopru = require('./pty-kopru.cjs');
@@ -106,8 +106,10 @@ ipcMain.handle('klasor:ac', async (_e, yol) => {
 const CSP = DEV
   ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
     "style-src 'self' 'unsafe-inline'; font-src 'self' data:; " +
-    "connect-src 'self' http://localhost:5173 ws://localhost:5173 ws://127.0.0.1:*; " +
-    "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    `connect-src 'self' http://localhost:${DEV_PORT} ws://localhost:${DEV_PORT} ws://127.0.0.1:*; ` +
+    // Dev'de bir sey blob: URL'den Worker acmaya calisiyor (uretim paketinde Worker YOK,
+    // olculdu). Uretim politikasini gevsetmeden dev gurultusu susturuluyor.
+    "worker-src 'self' blob:; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-src 'none'"
   : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
     "font-src 'self'; connect-src 'self' ws://127.0.0.1:*; img-src 'self' data:; " +
     "object-src 'none'; base-uri 'none'; frame-src 'none'";

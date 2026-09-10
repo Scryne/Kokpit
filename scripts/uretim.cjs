@@ -20,4 +20,14 @@ derle.on('exit', (kod) => {
     env: { ...process.env, KOKPIT_DEV: '0' },
   });
   elektron.on('exit', (k) => process.exit(k ?? 0));
+
+  // Terminalde Ctrl+C: Electron'u yetim birakma.
+  const kapat = () => {
+    if (elektron.exitCode === null) {
+      try { elektron.kill(); } catch { /* zaten olmus */ }
+    }
+    process.exit(0);
+  };
+  process.on('SIGINT', kapat);
+  process.on('SIGTERM', kapat);
 });
