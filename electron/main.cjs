@@ -4,8 +4,12 @@ const { DEV_URL } = require('./config.cjs');
 const { log, logHata, LOG_DOSYA } = require('./log.cjs');
 const { durumOku } = require('./durum.cjs');
 const ptyKopru = require('./pty-kopru.cjs');
+const uretim = require('./uretim-protokolu.cjs');
 
 const DEV = !app.isPackaged && process.env.KOKPIT_DEV !== '0';
+
+// Sema kaydi app hazir olmadan ONCE yapilmali.
+if (!DEV) uretim.semaKaydet();
 let pencere = null;
 
 function pencereKur() {
@@ -69,9 +73,8 @@ function pencereKur() {
     log(`dev modu: ${DEV_URL} yukleniyor`);
     pencere.loadURL(DEV_URL).catch((e) => logHata('loadURL', e));
   } else {
-    const dosya = path.join(__dirname, '..', 'dist', 'index.html');
-    log(`uretim modu: ${dosya} yukleniyor`);
-    pencere.loadFile(dosya).catch((e) => logHata('loadFile', e));
+    log('uretim modu: ' + uretim.BASLANGIC_URL + ' yukleniyor');
+    pencere.loadURL(uretim.BASLANGIC_URL).catch((e) => logHata('loadURL', e));
   }
 
   pencere.on('closed', () => { pencere = null; });
@@ -94,20 +97,26 @@ ipcMain.handle('klasor:ac', async (_e, yol) => {
   return !hata;
 });
 
-// Content-Security-Policy. Dev'de Vite'in HMR'i inline script ve ws istiyor;
-// uretimde hicbiri gerekmiyor, sıkı politika uygulanir.
-function cspKur() {
-  const politika = DEV
-    ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-      "style-src 'self' 'unsafe-inline'; " +
-      "connect-src 'self' http://localhost:5173 ws://localhost:5173 ws://127.0.0.1:*; " +
-      "img-src 'self' data:; object-src 'none'; base-uri 'none'"
-    : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-      "connect-src 'self' ws://127.0.0.1:*; img-src 'self' data:; object-src 'none'; base-uri 'none'";
+// Content-Security-Policy tek kaynaktan. Dev'de Vite'in HMR'i inline script ve ws
+// istiyor; uretimde hicbiri gerekmiyor.
+//
+// DIKKAT: uretimde basligi `onHeadersReceived` DEGIL, app:// protokol handler'i
+// iliştirir -- file:// istekleri icin onHeadersReceived hic tetiklenmiyor ve politika
+// sessizce uygulanmamis oluyordu.
+const CSP = DEV
+  ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+    "style-src 'self' 'unsafe-inline'; font-src 'self' data:; " +
+    "connect-src 'self' http://localhost:5173 ws://localhost:5173 ws://127.0.0.1:*; " +
+    "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-src 'none'"
+  : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+    "font-src 'self'; connect-src 'self' ws://127.0.0.1:*; img-src 'self' data:; " +
+    "object-src 'none'; base-uri 'none'; frame-src 'none'";
 
+function cspKur() {
+  if (!DEV) return; // uretimde protokol handler'i hallediyor
   session.defaultSession.webRequest.onHeadersReceived((detay, geri) => {
     geri({
-      responseHeaders: { ...detay.responseHeaders, 'Content-Security-Policy': [politika] },
+      responseHeaders: { ...detay.responseHeaders, 'Content-Security-Policy': [CSP] },
     });
   });
 }
@@ -116,6 +125,7 @@ app.whenReady().then(() => {
   log('--- Kokpit basladi ---');
   Menu.setApplicationMenu(null);
   cspKur();
+  if (!DEV) uretim.protokolKur(path.join(__dirname, '..', 'dist'), CSP);
   pencereKur();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
 });

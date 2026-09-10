@@ -13,6 +13,7 @@ const pty = require('node-pty');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { spawnSync } = require('child_process');
 
 const TOKEN = process.env.KOKPIT_PTY_TOKEN || '';
 const LOG_DOSYA = path.join(os.homedir(), '.kokpit', 'pty-server.log');
@@ -31,9 +32,37 @@ if (!TOKEN) {
 
 // KURAL: Windows yollari path.resolve ile uretilir, string literal yazilmaz.
 const KABUK = path.resolve(process.env.ComSpec || 'C:/WINDOWS/system32/cmd.exe');
-const POWERSHELL = path.resolve(
+const POWERSHELL_5 = path.resolve(
   path.join(process.env.SystemRoot || 'C:/WINDOWS', 'System32/WindowsPowerShell/v1.0/powershell.exe')
 );
+
+/**
+ * pwsh 7 varsa ONCELIKLI. Sebep: Scryne'in PowerShell profili
+ * `Documents/PowerShell/profile.ps1` yolunda ve orayi yalnizca pwsh 7 okuyor.
+ * powershell.exe 5.1 `Documents/WindowsPowerShell/` bakiyor -> Kokpit'in kendi
+ * terminallerinde `durum` ve `kokpit` komutlari tanimsiz kaliyordu.
+ *
+ * Tespit PATH uzerinden yapilir, dosya varligiyla DEGIL: WindowsApps altindaki
+ * pwsh.exe bir uygulama-yurutme takma adi (sifir baytlik reparse point) ve
+ * fs.existsSync onun icin yanlis negatif donuyor.
+ */
+function pwshBul() {
+  try {
+    const r = spawnSync('where', ['pwsh.exe'], { encoding: 'utf8', windowsHide: true });
+    if (r.status !== 0) return null;
+    // Not: satir ayirici kacis dizisi yerine kod noktasiyla yaziliyor.
+    const SATIR_SONU = String.fromCharCode(10);
+    const ilk = String(r.stdout || '')
+      .split(SATIR_SONU)
+      .map((x) => x.trim())
+      .filter(Boolean)[0];
+    return ilk ? path.resolve(ilk) : null;
+  } catch {
+    return null;
+  }
+}
+
+const POWERSHELL = pwshBul() ?? POWERSHELL_5;
 
 const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
 
@@ -107,7 +136,7 @@ wss.on('connection', (ws, istek) => {
       // pid'i burada sabitliyoruz: onExit'e kadar p null'lanmis olabiliyor
       // (ws.close handler'i once kosuyor) ve log kor kaliyordu.
       const pid = p.pid;
-      log(`pty acildi pid=${pid} cwd=${cwd} komut=${claudeIle ? 'claude' : 'kabuk'}`);
+      log(`pty acildi pid=${pid} cwd=${cwd} komut=${claudeIle ? 'claude' : 'kabuk'} kabuk=${path.basename(dosya)}`);
       gonder({ t: 'hazir', pid });
 
       p.onData((d) => gonder({ t: 'veri', d }));
