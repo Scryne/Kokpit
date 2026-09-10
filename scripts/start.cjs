@@ -10,7 +10,7 @@ const viteBin = path.join(KOK, 'node_modules', 'vite', 'bin', 'vite.js');
 const electronBin = require('electron');
 
 const net = require('net');
-const PORT = 5173;
+const { DEV_PORT: PORT } = require('../kokpit.config.cjs');
 
 let vite = null;
 let electron = null;
