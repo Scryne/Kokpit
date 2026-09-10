@@ -68,6 +68,23 @@ Bu kablolar bilerek bırakıldı — bu projede iki kez *sessiz* hata sınıfıy
 (`data:` URL'in WebSocket'i sessizce engellemesi; Windows yol kaçışlarının `CreateProcess`
 "error 267" vermesi). Detay: `docs/Spike-Bulgulari.md`.
 
+## İkinci beyinle ilişki
+
+Kokpit **tek yönlü bir aynadır**: beyinden okur, beyne yazmaz.
+
+- **Okuma:** gösterdiği her şey `durum.py --json` çıktısından gelir, o da vault'taki
+  dosyaları okur. Kokpit'in kendi veritabanı yoktur.
+- **Yazma:** Kokpit hiçbir dosyaya yazmaz. Beyni güncelleyen şey Kokpit değil, **Claude
+  Code'un kendi hook'larıdır** — transcript, SessionEnd flush, derleyici. Bunlar oturum
+  hangi terminalde açılırsa açılsın çalışır, dolayısıyla Kokpit'in içindeki bir oturum da
+  beyni normal şekilde günceller.
+- **Kritik koşul:** Kokpit'in açtığı terminaller **tepe seviye** oturum olmalı. Kokpit bir
+  claude oturumunun içinden başlatılırsa `CLAUDE_CODE_CHILD_SESSION` gibi işaretler tüm
+  zincir boyunca miras kalıyor ve Claude Code transcript yazmayı kapatıyor
+  ("Transcript saving is off"). Transcript yoksa bütçe kalemi ve flush hook'ları o oturumu
+  görmez. Bu yüzden `pty-server.cjs` ebeveyn oturumun işaretlerini **temizliyor**
+  (`TEMIZLENECEK` listesi). Bu kural kaldırılırsa beyin sessizce eksik kayıt tutar.
+
 ## Kurallar (bozulursa proje bozulur)
 
 1. **İkinci toplayıcı yazılmaz.** Veri kaynağı `durum.py`; alan gerekiyorsa orada eklenir.
@@ -76,3 +93,5 @@ Bu kablolar bilerek bırakıldı — bu projede iki kez *sessiz* hata sınıfıy
 4. **PTY ayrı düz Node sürecinde kalır.** Electron'un içine alınırsa `electron-rebuild`
    cehennemi başlar; ayrıca sunucu çökünce pencere de gider.
 5. **v1 hiçbir dosyaya yazmaz.** Hook'lar zaten yazıyor; ikinci yazar yarış koşulu demek.
+6. **Açılan terminallerden ebeveyn oturum işaretleri temizlenir.** Yoksa transcript
+   yazılmaz ve ikinci beyin o oturumu kaydetmez.
