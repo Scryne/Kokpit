@@ -133,8 +133,11 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
     üretim yolu ayrıca test edilir.**
   - ✅ `kokpit` komutu PowerShell profilinde (`kokpit` üretim, `kokpit -dev` geliştirme).
   - ✅ Uygulamanın kendi terminalleri pwsh 7 açıyor, yani içeride `durum` ve `kokpit` var.
-  - ⏳ `fixing-accessibility` ve `fixing-motion-performance` pasları — **bilerek bekletiliyor**,
-    gerçek kullanımdan sonra yapılacak.
+  - ✅ Son denetim geçildi (2026-09-10): durum güncelleyicisinin saflığı düzeltildi (gerçek
+    doğruluk hatasıydı), sekme/panel `aria` ilişkisi kuruldu, daraltılmış kenarda proje baş
+    harfi, dev portu tek kaynağa çekildi, üretim betiği sinyalde Electron'u yetim bırakmıyor.
+  - ⏳ `fixing-accessibility` ve `fixing-motion-performance` **tam pasları** — bilerek
+    bekletiliyor, gerçek kullanımdan sonra ve onun ürettiği listeyle yapılacak.
   - ⏳ Bir hafta günlük kullanım.
 - **Notlar:** Kullanılmazsa v1.1'e (Sağlık/Envanter sayfaları) **geçilmez** — Katman 1'in
   dersi. Aracın değil ihtiyacın yanlış okunduğu anlaşılır.
