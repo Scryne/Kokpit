@@ -1,0 +1,38 @@
+{
+  "name": "kokpit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Scryne'in projelerini tek ekranda goren ve karttan claude oturumu acan yerel kokpit",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/start.cjs",
+    "dev:vite": "vite",
+    "build": "tsc -b && vite build",
+    "electron": "electron .",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "electron": "^44.3.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  },
+  "allowScripts": {
+    "electron@44.3.0": true,
+    "node-pty@1.1.0": true
+  }
+}
