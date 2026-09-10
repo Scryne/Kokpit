@@ -1,119 +1,51 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Durum, Proje } from './types';
-import Terminal from './Terminal';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AlertTriangle,
+  LayoutDashboard,
+  PanelLeft,
+  Plus,
+  RefreshCw,
+  SplitSquareHorizontal,
+  TerminalSquare,
+  X,
+} from 'lucide-react';
+import type { Durum, Oturum, OturumDurumu, Proje } from './types';
+import Pano from './Pano';
+import ProjeSecici from './ProjeSecici';
+import TerminalOturumu from './TerminalOturumu';
+import { ASAMA_SIRA, sureMetni } from './parcalar';
 
 // durum.py her cagrida ~500 ms'lik bir Python sureci demek. Iki koruma:
 // - ayni anda tek istek (StrictMode'un cift effect'ini de yutar)
 // - odak olayi bu araliktan sik tazeleyemez (alt-tab firtinasi)
 const ODAK_ASGARI_ARALIK_MS = 30_000;
+const ASGARI_ORAN = 0.15;
 
-const ASAMA_SIRA = ['fikir', 'denetim', 'finalizasyon', 'roadmap', 'uygulama', 'tamamlandi'];
-
-function asamaRengi(asama: Proje['asama']) {
-  if (!asama) return 'text-amber-300/90 bg-amber-400/10 border-amber-300/25';
-  if (asama === 'tamamlandi') return 'text-emerald-300 bg-emerald-400/10 border-emerald-300/25';
-  if (asama === 'uygulama') return 'text-violet-200 bg-violet-400/15 border-violet-300/30';
-  return 'text-sky-200 bg-sky-400/10 border-sky-300/25';
-}
-
-function gunMetni(gun: number | null | undefined) {
-  if (gun === null || gun === undefined) return null;
-  if (gun === 0) return 'bugün';
-  if (gun === 1) return 'dün';
-  return gun + ' gün önce';
-}
-
-function ProjeKarti({ p, onBaslat }: { p: Proje; onBaslat: (p: Proje) => void }) {
-  const r = p.roadmap;
-  const yuzde = r && r.toplam > 0 ? Math.round((r.tamamlandi / r.toplam) * 100) : 0;
-  const g = p.git;
-
-  return (
-    <article className="relative rounded-2xl border border-white/10 bg-white/[0.055] p-5 backdrop-blur-xl shadow-[0_1px_0_0_rgb(255_255_255/0.08)_inset]">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight text-white/95">{p.ad}</h2>
-          {r?.sirada && (
-            <p className="mt-1 text-sm text-white/55">
-              Sırada: Faz {r.sirada.no} — {r.sirada.ad}
-            </p>
-          )}
-        </div>
-        <span className={'shrink-0 rounded-full border px-2.5 py-1 text-xs ' + asamaRengi(p.asama)}>
-          {p.asama ?? 'sistem dışı'}
-        </span>
-      </header>
-
-      {r && r.toplam > 0 && (
-        <div className="mt-4">
-          <div className="flex items-baseline justify-between text-xs text-white/50">
-            <span>Roadmap</span>
-            <span className="tabular-nums">
-              {r.tamamlandi}/{r.toplam} faz
-            </span>
-          </div>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-violet-400 to-sky-400"
-              style={{ width: yuzde + '%' }}
-            />
-          </div>
-        </div>
-      )}
-
-      {g && (
-        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <div>
-            <dt className="text-xs text-white/45">Branch</dt>
-            <dd className="text-white/80">{g.branch ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-white/45">Çalışma alanı</dt>
-            <dd className={g.kirli > 0 ? 'text-amber-300' : 'text-emerald-300/90'}>
-              {g.kirli > 0 ? g.kirli + ' dosya kirli' : 'temiz'}
-            </dd>
-          </div>
-          <div className="col-span-2">
-            <dt className="text-xs text-white/45">Son commit</dt>
-            <dd className="truncate text-white/70" title={g.son_commit ?? undefined}>
-              {g.son_commit ?? '—'}
-              {gunMetni(g.son_commit_gun) && (
-                <span className="text-white/40"> · {gunMetni(g.son_commit_gun)}</span>
-              )}
-            </dd>
-          </div>
-        </dl>
-      )}
-
-      <footer className="mt-5 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onBaslat(p)}
-          title={p.yol + ' klasöründe claude oturumu açar'}
-          className="rounded-lg border border-violet-300/30 bg-violet-400/15 px-3.5 py-2 text-sm font-medium text-violet-100 hover:bg-violet-400/25"
-        >
-          Başlat
-        </button>
-        <button
-          type="button"
-          onClick={() => window.kokpit.klasorAc(p.yol)}
-          className="rounded-lg border border-white/10 px-3.5 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white/90"
-        >
-          Klasörü aç
-        </button>
-      </footer>
-    </article>
-  );
-}
+type Gorunum = 'pano' | 'terminal';
 
 export default function App() {
   const [durum, setDurum] = useState<Durum | null>(null);
   const [hata, setHata] = useState<string | null>(null);
   const [yukleniyor, setYukleniyor] = useState(true);
-  const [terminalProje, setTerminalProje] = useState<Proje | null>(null);
+  const [gorunum, setGorunum] = useState<Gorunum>('pano');
+  const [kenarAcik, setKenarAcik] = useState(true);
+
+  // Oturumlar BURADA yasar. Gorunum degisince unmount olmazlar, yoksa Pano'ya her
+  // bakista WS kapanir ve calisan claude oturumu olur.
+  const [oturumlar, setOturumlar] = useState<Oturum[]>([]);
+  const [aktifGrupId, setAktifGrupId] = useState<string | null>(null);
+  const [aktifOturumId, setAktifOturumId] = useState<string | null>(null);
+  const [simdi, setSimdi] = useState(() => Date.now());
 
   const ucusta = useRef(false);
   const sonOkuma = useRef(0);
+
+  // Tek sayac: acik oturum varsa surelerin ilerlemesi icin saniyede bir tik.
+  useEffect(() => {
+    if (!oturumlar.some((o) => o.durumu === 'acik')) return;
+    const t = setInterval(() => setSimdi(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [oturumlar]);
 
   const tazele = useCallback(async (sebep: 'acilis' | 'odak' | 'elle') => {
     if (ucusta.current) return;
@@ -145,97 +77,578 @@ export default function App() {
     return () => window.removeEventListener('focus', odak);
   }, [tazele]);
 
+  const yeniId = (p: Proje) =>
+    p.ad + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+
+  /** Yeni sekme: kendi grubunda tek bolme. */
+  const sekmeAc = useCallback((p: Proje) => {
+    const id = yeniId(p);
+    const grupId = 'g-' + id;
+    setOturumlar((o) => [
+      ...o,
+      { id, ad: p.ad, yol: p.yol, durumu: 'baglaniyor', baslangic: Date.now(), grupId, oran: 1 },
+    ]);
+    setAktifGrupId(grupId);
+    setAktifOturumId(id);
+    // Kenar terminale gecerken otomatik daralir; alani terminale birakir (Ctrl+B geri acar).
+    setGorunum('terminal');
+    setKenarAcik(false);
+  }, []);
+
+  /** Bolme: aktif sekmenin icine yan yana ikinci (ucuncu...) terminal. */
+  const bolmeAc = useCallback(
+    (p: Proje) => {
+      if (!aktifGrupId) {
+        sekmeAc(p);
+        return;
+      }
+      const id = yeniId(p);
+      setOturumlar((o) => {
+        const grup = o.filter((x) => x.grupId === aktifGrupId);
+        const yeniOran = 1 / (grup.length + 1);
+        const olcek = 1 - yeniOran;
+        return [
+          ...o.map((x) => (x.grupId === aktifGrupId ? { ...x, oran: x.oran * olcek } : x)),
+          {
+            id,
+            ad: p.ad,
+            yol: p.yol,
+            durumu: 'baglaniyor' as OturumDurumu,
+            baslangic: Date.now(),
+            grupId: aktifGrupId,
+            oran: yeniOran,
+          },
+        ];
+      });
+      setAktifOturumId(id);
+    },
+    [aktifGrupId, sekmeAc]
+  );
+
+  const oturumKapat = useCallback((id: string) => {
+    setOturumlar((o) => {
+      const kapanan = o.find((x) => x.id === id);
+      if (!kapanan) return o;
+      const kalan = o.filter((x) => x.id !== id);
+      const grupKalan = kalan.filter((x) => x.grupId === kapanan.grupId);
+
+      // Ayni gruptaki kalan bolmeler bosalan payi paylasir.
+      const normalize =
+        grupKalan.length > 0
+          ? (() => {
+              const toplam = grupKalan.reduce((t, y) => t + y.oran, 0) || 1;
+              return kalan.map((x) =>
+                x.grupId === kapanan.grupId ? { ...x, oran: x.oran / toplam } : x
+              );
+            })()
+          : kalan;
+
+      if (grupKalan.length > 0) {
+        setAktifOturumId((m) => (m === id ? grupKalan[grupKalan.length - 1].id : m));
+      } else {
+        const sonraki = normalize.length > 0 ? normalize[normalize.length - 1] : null;
+        setAktifGrupId(sonraki ? sonraki.grupId : null);
+        setAktifOturumId(sonraki ? sonraki.id : null);
+        if (!sonraki) {
+          setGorunum('pano');
+          setKenarAcik(true);
+        }
+      }
+      return normalize;
+    });
+  }, []);
+
+  const oturumDurumu = useCallback((id: string, durumu: OturumDurumu, mesaj?: string) => {
+    setOturumlar((o) => o.map((x) => (x.id === id ? { ...x, durumu, mesaj } : x)));
+  }, []);
+
+  const grubaGit = useCallback((grupId: string, oturumId?: string) => {
+    setAktifGrupId(grupId);
+    if (oturumId) setAktifOturumId(oturumId);
+    setGorunum('terminal');
+    setKenarAcik(false);
+  }, []);
+
+  // Gruplar olusturulma sirasini korur.
+  const gruplar = useMemo(() => {
+    const harita = new Map<string, Oturum[]>();
+    for (const o of oturumlar) {
+      const dizi = harita.get(o.grupId);
+      if (dizi) dizi.push(o);
+      else harita.set(o.grupId, [o]);
+    }
+    return [...harita.entries()].map(([id, uyeler]) => ({ id, uyeler }));
+  }, [oturumlar]);
+
   const siraliProjeler = durum
     ? [...durum.projeler].sort((a, b) => {
         const ai = a.asama ? ASAMA_SIRA.indexOf(a.asama) : -1;
         const bi = b.asama ? ASAMA_SIRA.indexOf(b.asama) : -1;
-        return bi - ai || a.ad.localeCompare(b.ad, 'tr');
+        return bi - ai || (b.guncellendi ?? '').localeCompare(a.guncellendi ?? '');
       })
     : [];
 
-  // Faz 2: tek terminal. Sekmeler Faz 4'un isi.
-  if (terminalProje) {
-    return (
-      <>
-        <div className="zemin-mesh" />
-        <div className="relative z-10 h-dvh p-6">
-          <Terminal
-            ad={terminalProje.ad}
-            yol={terminalProje.yol}
-            onKapat={() => setTerminalProje(null)}
-          />
-        </div>
-      </>
-    );
-  }
+  const aktifOturum = oturumlar.find((o) => o.id === aktifOturumId) ?? null;
+
+  // --- Klavye: bir terminal uygulamasinin asgarisi ---
+  useEffect(() => {
+    const tus = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey) return;
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        setKenarAcik((a) => !a);
+      } else if (e.key === '1') {
+        e.preventDefault();
+        setGorunum('pano');
+      } else if (e.key === '2') {
+        e.preventDefault();
+        setGorunum('terminal');
+      } else if (e.shiftKey && (e.key === 'W' || e.key === 'w') && aktifOturumId) {
+        // Ctrl+Shift+W bolmeyi kapatir. Ctrl+W terminalin kendisine ait, ona dokunulmaz.
+        e.preventDefault();
+        oturumKapat(aktifOturumId);
+      }
+    };
+    window.addEventListener('keydown', tus);
+    return () => window.removeEventListener('keydown', tus);
+  }, [aktifOturumId, oturumKapat]);
+
+  // --- Bolme ayiricisi surukleme ---
+  const surukleRef = useRef<{ solId: string; sagId: string; x: number; genislik: number } | null>(
+    null
+  );
+
+  useEffect(() => {
+    const hareket = (e: MouseEvent) => {
+      const s = surukleRef.current;
+      if (!s) return;
+      const fark = (e.clientX - s.x) / s.genislik;
+      setOturumlar((o) => {
+        const sol = o.find((x) => x.id === s.solId);
+        const sag = o.find((x) => x.id === s.sagId);
+        if (!sol || !sag) return o;
+        const toplam = sol.oran + sag.oran;
+        const enAz = ASGARI_ORAN * toplam;
+        const yeniSol = Math.min(Math.max(sol.oran + fark, enAz), toplam - enAz);
+        return o.map((x) =>
+          x.id === s.solId
+            ? { ...x, oran: yeniSol }
+            : x.id === s.sagId
+              ? { ...x, oran: toplam - yeniSol }
+              : x
+        );
+      });
+      surukleRef.current = { ...s, x: e.clientX };
+    };
+    const birak = () => {
+      if (!surukleRef.current) return;
+      surukleRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', hareket);
+    window.addEventListener('mouseup', birak);
+    return () => {
+      window.removeEventListener('mousemove', hareket);
+      window.removeEventListener('mouseup', birak);
+    };
+  }, []);
+
+  const surukleBasla = (e: React.MouseEvent<HTMLDivElement>, solId: string, sagId: string) => {
+    const kap = e.currentTarget.parentElement;
+    surukleRef.current = {
+      solId,
+      sagId,
+      x: e.clientX,
+      genislik: kap ? kap.getBoundingClientRect().width : window.innerWidth,
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
 
   return (
-    <>
-      <div className="zemin-mesh" />
-      <div className="relative z-10 mx-auto max-w-6xl px-6 py-8">
-        <header className="mb-8 flex items-end justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-white">Kokpit</h1>
-            <p className="mt-1 text-sm text-white/50">
-              {durum
-                ? durum.projeler.length +
-                  ' proje · ölçüldü ' +
-                  new Date(durum.olculdu).toLocaleTimeString('tr-TR')
-                : 'durum okunuyor…'}
+    <div className="flex h-dvh gap-3 p-3">
+      {/* ---- Sol kenar: terminale gecince daralir, Ctrl+B geri acar ---- */}
+      <aside
+        className={
+          'cam halka relative flex shrink-0 flex-col overflow-hidden rounded-base bg-cam transition-[width] duration-[180ms] ' +
+          (kenarAcik ? 'w-56' : 'w-14')
+        }
+      >
+        <div className={'py-4 ' + (kenarAcik ? 'px-4' : 'px-0 text-center')}>
+          <p className="enstruman text-sm font-semibold tracking-tight text-metin">
+            {kenarAcik ? 'Kokpit' : 'K'}
+          </p>
+          {kenarAcik && (
+            <p className="mt-0.5 text-xs text-metin-soluk">
+              {durum ? new Date(durum.olculdu).toLocaleTimeString('tr-TR') + ' ölçümü' : 'okunuyor'}
             </p>
+          )}
+        </div>
+
+        <nav className="px-2">
+          <button
+            type="button"
+            onClick={() => setGorunum('pano')}
+            title="Pano (Ctrl+1)"
+            aria-current={gorunum === 'pano' ? 'page' : undefined}
+            className={
+              'flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              (kenarAcik ? '' : 'justify-center ') +
+              (gorunum === 'pano'
+                ? 'bg-yuzey text-metin'
+                : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
+            }
+          >
+            <LayoutDashboard className="size-4 shrink-0" aria-hidden="true" />
+            {kenarAcik && 'Pano'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setGorunum('terminal')}
+            title="Terminaller (Ctrl+2)"
+            aria-current={gorunum === 'terminal' ? 'page' : undefined}
+            className={
+              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              (kenarAcik ? '' : 'justify-center ') +
+              (gorunum === 'terminal'
+                ? 'bg-yuzey text-metin'
+                : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
+            }
+          >
+            <TerminalSquare className="size-4 shrink-0" aria-hidden="true" />
+            {kenarAcik && 'Terminaller'}
+            {kenarAcik && oturumlar.length > 0 && (
+              <span className="enstruman ml-auto text-xs text-metin-soluk">{oturumlar.length}</span>
+            )}
+          </button>
+        </nav>
+
+        {kenarAcik && <p className="etiket mt-6 px-4">Projeler</p>}
+        <ul className={'min-h-0 flex-1 overflow-y-auto px-2 pb-3 ' + (kenarAcik ? 'mt-1' : 'mt-4')}>
+          {siraliProjeler.map((p) => {
+            const oturum = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
+            return (
+              <li key={p.ad}>
+                <button
+                  type="button"
+                  onClick={() => (oturum ? grubaGit(oturum.grupId, oturum.id) : sekmeAc(p))}
+                  title={oturum ? p.ad + ' — açık oturuma git' : p.ad + ' klasöründe oturum aç'}
+                  className={
+                    'group flex w-full cursor-pointer items-center gap-2 rounded-kontrol px-2.5 py-1.5 text-left transition-colors duration-[180ms] hover:bg-yuzey ' +
+                    (kenarAcik ? '' : 'justify-center')
+                  }
+                >
+                  <span
+                    className={
+                      'size-1.5 shrink-0 rounded-full ' + (oturum ? 'bg-aksan' : 'bg-kenar-guclu')
+                    }
+                    aria-hidden="true"
+                  />
+                  {kenarAcik && (
+                    <>
+                      <span className="enstruman truncate text-xs text-metin-ikincil group-hover:text-metin">
+                        {p.ad}
+                      </span>
+                      {!oturum && (
+                        <Plus
+                          className="ml-auto size-3.5 shrink-0 text-transparent group-hover:text-metin-soluk"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+
+        {kenarAcik && durum && (
+          <div className="border-t border-kenar px-4 py-3">
+            <p className="etiket">Bilgi tabanı</p>
+            <p className="enstruman mt-1 text-xs text-metin-ikincil">
+              {durum.beyin.makale}
+              <span className="font-arayuz text-metin-soluk"> makale · </span>
+              {durum.beyin.baglanti}
+              <span className="font-arayuz text-metin-soluk"> bağlantı</span>
+            </p>
+          </div>
+        )}
+      </aside>
+
+      {/* ---- Ana alan ---- */}
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <header className="halka relative flex shrink-0 items-center justify-between gap-4 rounded-base bg-yuzey px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setKenarAcik((a) => !a)}
+              title={
+                (kenarAcik ? 'Kenar çubuğunu daralt' : 'Kenar çubuğunu genişlet') + ' (Ctrl+B)'
+              }
+              aria-label={kenarAcik ? 'Kenar çubuğunu daralt' : 'Kenar çubuğunu genişlet'}
+              aria-expanded={kenarAcik}
+              className="shrink-0 cursor-pointer rounded-kontrol border border-kenar p-1.5 text-metin-soluk transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
+            >
+              <PanelLeft className="size-4" aria-hidden="true" />
+            </button>
+            <h1 className="shrink-0 text-sm font-medium text-metin">
+              {gorunum === 'pano' ? 'Pano' : (aktifOturum?.ad ?? 'Terminaller')}
+            </h1>
+            {gorunum === 'pano' && durum && (
+              <span className="enstruman text-xs text-metin-soluk">
+                {durum.projeler.length} proje
+              </span>
+            )}
+            {gorunum === 'terminal' && aktifOturum && (
+              <span className="enstruman truncate text-xs text-metin-soluk">{aktifOturum.yol}</span>
+            )}
           </div>
           <button
             type="button"
             onClick={() => void tazele('elle')}
             disabled={yukleniyor}
-            className="rounded-lg border border-white/15 bg-white/[0.08] px-4 py-2 text-sm text-white/85 backdrop-blur-xl hover:bg-white/[0.14] disabled:opacity-50"
+            className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-kontrol border border-kenar px-3 py-1.5 text-xs text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin disabled:opacity-50"
           >
-            {yukleniyor ? 'Okunuyor…' : 'Tazele'}
+            <RefreshCw
+              className={'size-3.5 ' + (yukleniyor ? 'animate-spin' : '')}
+              aria-hidden="true"
+            />
+            {yukleniyor ? 'Okunuyor' : 'Tazele'}
           </button>
         </header>
 
-        {hata && (
-          <div className="mb-6 rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200">
-            <p className="font-medium">Durum okunamadı.</p>
-            <pre className="mt-2 whitespace-pre-wrap text-xs text-red-200/80">{hata}</pre>
-          </div>
-        )}
-
-        <section className="grid gap-4 sm:grid-cols-2">
-          {siraliProjeler.map((p) => (
-            <ProjeKarti key={p.ad} p={p} onBaslat={setTerminalProje} />
-          ))}
-        </section>
-
-        {durum && (
-          <section className="mt-8 rounded-2xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
-            <h2 className="text-sm font-medium text-white/80">Beyin</h2>
-            <div className="mt-3 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
-              <div>
-                <div className="text-xs text-white/45">Son log</div>
-                <div className="text-white/80">
-                  {durum.beyin.son_log ?? '—'}
-                  <span className="text-white/40"> · {gunMetni(durum.beyin.son_log_gun) ?? '—'}</span>
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-white/45">Derleyici</div>
-                <div className="text-white/80">{durum.beyin.derleyici_son_durum ?? '—'}</div>
-              </div>
-              <div>
-                <div className="text-xs text-white/45">Bilgi tabanı</div>
-                <div className="tabular-nums text-white/80">
-                  {durum.beyin.makale} makale · {durum.beyin.baglanti} bağlantı
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-white/45">Açık thread</div>
-                <div className="tabular-nums text-white/80">{durum.beyin.threads?.length ?? 0}</div>
-              </div>
+        {/* Pano: gizlenir, sokulmez — tazeleme durumu korunur. */}
+        <main
+          className={
+            (gorunum === 'pano' ? 'block' : 'hidden') + ' min-h-0 flex-1 overflow-y-auto pr-1'
+          }
+        >
+          {hata && (
+            <div className="mb-5 rounded-base border border-hata/40 bg-hata/10 p-4">
+              <p className="flex items-center gap-2 text-sm font-medium text-hata-metin">
+                <AlertTriangle className="size-4" aria-hidden="true" />
+                Durum okunamadı
+              </p>
+              <p className="mt-1 text-xs text-metin-ikincil">
+                durum.py çalıştırılamadı. Ayrıntı için ~/.kokpit/kokpit.log dosyasına bak.
+              </p>
+              <pre className="enstruman mt-2 whitespace-pre-wrap text-xs text-metin-soluk">
+                {hata}
+              </pre>
             </div>
-          </section>
-        )}
+          )}
+          {durum && (
+            <Pano
+              durum={durum}
+              oturumlar={oturumlar}
+              simdi={simdi}
+              onBaslat={sekmeAc}
+              onOturumaGit={(id) => {
+                const o = oturumlar.find((x) => x.id === id);
+                if (o) grubaGit(o.grupId, o.id);
+              }}
+            />
+          )}
+        </main>
+
+        {/* Terminaller: sekmeler + yan yana bolmeler. Hepsi mount kalir, biri gorunur. */}
+        <section
+          className={
+            (gorunum === 'terminal' ? 'flex' : 'hidden') +
+            ' halka relative min-h-0 flex-1 flex-col overflow-hidden rounded-base bg-yuzey'
+          }
+        >
+          <div className="cam flex shrink-0 items-center gap-2 border-b border-kenar bg-cam px-2 py-1.5">
+            <div
+              role="tablist"
+              aria-label="Açık sekmeler"
+              className="flex min-w-0 flex-1 gap-1 overflow-x-auto"
+            >
+              {gruplar.map((g) => {
+                const secili = g.id === aktifGrupId;
+                const ilk = g.uyeler[0];
+                const etiket = g.uyeler.length > 1 ? ilk.ad + ' +' + (g.uyeler.length - 1) : ilk.ad;
+                const nokta = g.uyeler.some((o) => o.durumu === 'acik')
+                  ? 'bg-aksan'
+                  : g.uyeler.some((o) => o.durumu === 'baglaniyor')
+                    ? 'animate-pulse bg-dikkat'
+                    : g.uyeler.some((o) => o.durumu === 'hata')
+                      ? 'bg-hata'
+                      : 'bg-metin-soluk';
+                return (
+                  <div
+                    key={g.id}
+                    className={
+                      'flex shrink-0 items-center gap-2 rounded-kontrol border px-2.5 py-1.5 transition-colors duration-[180ms] ' +
+                      (secili
+                        ? 'border-kenar-guclu bg-yuzey-guclu'
+                        : 'border-transparent hover:bg-yuzey')
+                    }
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={secili}
+                      onClick={() => grubaGit(g.id, ilk.id)}
+                      className="flex cursor-pointer items-center gap-2"
+                    >
+                      <span className={'size-1.5 shrink-0 rounded-full ' + nokta} aria-hidden="true" />
+                      <span
+                        className={
+                          'enstruman text-xs ' + (secili ? 'text-metin' : 'text-metin-ikincil')
+                        }
+                      >
+                        {etiket}
+                      </span>
+                      {g.uyeler.length === 1 && ilk.durumu === 'acik' && (
+                        <span className="enstruman text-xs text-metin-soluk">
+                          {sureMetni(Math.floor((simdi - ilk.baslangic) / 1000))}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => g.uyeler.forEach((o) => oturumKapat(o.id))}
+                      aria-label={etiket + ' sekmesini kapat'}
+                      className="cursor-pointer rounded text-metin-soluk transition-colors duration-[180ms] hover:text-metin"
+                    >
+                      <X className="size-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1">
+              {aktifGrupId && (
+                <ProjeSecici
+                  projeler={siraliProjeler}
+                  ikon={SplitSquareHorizontal}
+                  baslik="Yana böl"
+                  onSec={bolmeAc}
+                />
+              )}
+              <ProjeSecici
+                projeler={siraliProjeler}
+                ikon={Plus}
+                baslik="Yeni sekme"
+                onSec={sekmeAc}
+              />
+            </div>
+          </div>
+
+          {gruplar.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+              <TerminalSquare className="size-8 text-metin-soluk" aria-hidden="true" />
+              <p className="text-sm text-metin-ikincil">Açık oturum yok.</p>
+              <p className="max-w-[46ch] text-xs text-metin-soluk">
+                Soldaki listeden bir proje seç; o klasörde bir claude oturumu açılır. Aynı sekmede
+                yan yana ikinci bir terminal için sağ üstteki böl düğmesini kullan.
+              </p>
+            </div>
+          ) : (
+            <div className="relative min-h-0 flex-1">
+              {gruplar.map((g) => (
+                <div
+                  key={g.id}
+                  className={(g.id === aktifGrupId ? 'flex' : 'hidden') + ' absolute inset-0 m-2'}
+                >
+                  {g.uyeler.map((o, i) => (
+                    <Fragment key={o.id}>
+                      {i > 0 && (
+                        <div
+                          role="separator"
+                          aria-orientation="vertical"
+                          onMouseDown={(e) => surukleBasla(e, g.uyeler[i - 1].id, o.id)}
+                          className="group w-2 shrink-0 cursor-col-resize"
+                        >
+                          <div className="mx-auto h-full w-px bg-kenar transition-colors duration-[180ms] group-hover:bg-aksan" />
+                        </div>
+                      )}
+                      <div
+                        className="flex min-w-0 flex-col"
+                        style={{ flexBasis: o.oran * 100 + '%' }}
+                      >
+                        {g.uyeler.length > 1 && (
+                          <div
+                            className={
+                              'flex shrink-0 items-center justify-between gap-2 rounded-t-kontrol border-b px-2 py-1 ' +
+                              (o.id === aktifOturumId
+                                ? 'border-kenar-guclu bg-yuzey-guclu'
+                                : 'border-kenar bg-yuzey')
+                            }
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setAktifOturumId(o.id)}
+                              className="flex min-w-0 cursor-pointer items-center gap-2"
+                            >
+                              <span
+                                className={
+                                  'size-1.5 shrink-0 rounded-full ' +
+                                  (o.durumu === 'acik'
+                                    ? 'bg-aksan'
+                                    : o.durumu === 'baglaniyor'
+                                      ? 'animate-pulse bg-dikkat'
+                                      : o.durumu === 'hata'
+                                        ? 'bg-hata'
+                                        : 'bg-metin-soluk')
+                                }
+                                aria-hidden="true"
+                              />
+                              <span className="enstruman truncate text-xs text-metin-ikincil">
+                                {o.ad}
+                              </span>
+                              {o.durumu === 'acik' && (
+                                <span className="enstruman text-xs text-metin-soluk">
+                                  {sureMetni(Math.floor((simdi - o.baslangic) / 1000))}
+                                </span>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => oturumKapat(o.id)}
+                              aria-label={o.ad + ' bölmesini kapat'}
+                              className="cursor-pointer rounded text-metin-soluk transition-colors duration-[180ms] hover:text-metin"
+                            >
+                              <X className="size-3.5" aria-hidden="true" />
+                            </button>
+                          </div>
+                        )}
+                        {o.mesaj && (
+                          <p
+                            className={
+                              'shrink-0 border-b px-2 py-1 text-xs ' +
+                              (o.durumu === 'hata'
+                                ? 'border-hata/40 bg-hata/10 text-hata-metin'
+                                : 'border-kenar bg-yuzey text-metin-ikincil')
+                            }
+                          >
+                            {o.mesaj}
+                          </p>
+                        )}
+                        <div
+                          onMouseDown={() => setAktifOturumId(o.id)}
+                          className="min-h-0 flex-1 overflow-hidden rounded-kontrol bg-terminal p-2"
+                        >
+                          <TerminalOturumu
+                            id={o.id}
+                            yol={o.yol}
+                            gorunur={g.id === aktifGrupId}
+                            onDurum={oturumDurumu}
+                          />
+                        </div>
+                      </div>
+                    </Fragment>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
-    </>
+    </div>
   );
 }
