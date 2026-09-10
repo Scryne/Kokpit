@@ -64,6 +64,51 @@ function pwshBul() {
 
 const POWERSHELL = pwshBul() ?? POWERSHELL_5;
 
+/**
+ * Ebeveyn Claude oturumunun izlerini temizle.
+ *
+ * Kokpit bir BASLATICI, ic ice bir ajan degil. Eger Kokpit'in kendisi bir claude
+ * oturumunun icinden acildiysa (`npm start` bir `claude` kabugundan calistirildiysa),
+ * bu isaretler tum zincir boyunca miras kaliyor: kabuk -> npm -> node -> electron ->
+ * pty-server -> pwsh -> claude. Sonuc olculdu ve goruldu:
+ *
+ *   "Transcript saving is off - inherited CLAUDE_CODE_CHILD_SESSION marker"
+ *
+ * Transcript yazilmazsa IKINCI BEYIN o oturumu GORMEZ: durum.py'nin butce kalemi
+ * transcript'leri okuyor, SessionEnd hook'lari konusmayi oradan aliyor.
+ *
+ * Bu yuzden Kokpit'in actigi her terminal, Kokpit nasil baslatilmis olursa olsun,
+ * tepe seviye bir oturum gibi davranir.
+ */
+const TEMIZLENECEK = [
+  'CLAUDECODE',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_BRIDGE_SESSION_ID',
+  'CLAUDE_CODE_MESSAGING_SOCKET',
+  'CLAUDE_CODE_MESSAGING_TOKEN',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_PID',
+  'CLAUDE_EFFORT',
+];
+
+function temizOrtam() {
+  const ortam = { ...process.env };
+  const silinen = [];
+  for (const anahtar of TEMIZLENECEK) {
+    if (anahtar in ortam) {
+      delete ortam[anahtar];
+      silinen.push(anahtar);
+    }
+  }
+  if (silinen.length > 0) {
+    log('ebeveyn oturum isaretleri temizlendi: ' + silinen.join(', '));
+  }
+  return ortam;
+}
+
+const ORTAM = temizOrtam();
+
 const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
 
 wss.on('listening', () => {
@@ -125,7 +170,7 @@ wss.on('connection', (ws, istek) => {
           cols: Number(m.cols) || 100,
           rows: Number(m.rows) || 30,
           cwd,
-          env: process.env,
+          env: ORTAM,
         });
       } catch (e) {
         log('FAIL pty acilamadi: ' + e.message);
