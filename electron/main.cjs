@@ -1,21 +1,44 @@
-const { app, BrowserWindow, Menu, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, screen, session, shell } = require('electron');
 const path = require('path');
 const { DEV_URL, DEV_PORT } = require('./config.cjs');
 const { log, logHata, LOG_DOSYA } = require('./log.cjs');
 const { durumOku } = require('./durum.cjs');
 const ptyKopru = require('./pty-kopru.cjs');
 const uretim = require('./uretim-protokolu.cjs');
+const ayarlar = require('./ayarlar.cjs');
+
+// Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
+// verilmezse bildirim sessizce hic gorunmez.
+app.setAppUserModelId('com.scryne.kokpit');
 
 const DEV = !app.isPackaged && process.env.KOKPIT_DEV !== '0';
 
 // Sema kaydi app hazir olmadan ONCE yapilmali.
 if (!DEV) uretim.semaKaydet();
 let pencere = null;
+// Kapatma korumasi: renderer "acik oturum var mi" diye bakip onay verene kadar pencere
+// kapanmaz. Renderer cevap vermezse (asili kaldiysa) 3 sn sonra yine de kapanir.
+let kapanisOnaylandi = false;
+
+/** Onceki calismadan kalan pencere konumu; ekran disinda kaldiysa yok sayilir. */
+function pencereKonumu() {
+  const p = ayarlar.oku().pencere;
+  if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.width)) return {};
+  const ekranda = screen.getAllDisplays().some((d) => {
+    const a = d.workArea;
+    return p.x + 100 < a.x + a.width && p.x + p.width - 100 > a.x &&
+      p.y + 50 < a.y + a.height && p.y + 50 > a.y;
+  });
+  if (!ekranda) return {};
+  return { x: p.x, y: p.y, width: p.width, height: p.height };
+}
 
 function pencereKur() {
+  const konum = pencereKonumu();
   pencere = new BrowserWindow({
     width: 1280,
     height: 860,
+    ...konum,
     minWidth: 900,
     minHeight: 600,
     show: false,
@@ -47,7 +70,31 @@ function pencereKur() {
   pencere.webContents.on('preload-error', (_e, dosya, err) => {
     logHata(`preload ${dosya}`, err);
   });
-  pencere.once('ready-to-show', () => pencere.show());
+  pencere.once('ready-to-show', () => {
+    if (ayarlar.oku().pencere?.maksimize) pencere.maximize();
+    pencere.show();
+  });
+
+  // Pencere konumu her kapanista kaydedilir (maksimize ise normal sinirlar saklanir).
+  pencere.on('close', (olay) => {
+    try {
+      const maksimize = pencere.isMaximized();
+      const b = pencere.getNormalBounds();
+      ayarlar.yaz({ pencere: { x: b.x, y: b.y, width: b.width, height: b.height, maksimize } });
+    } catch (e) {
+      log('pencere konumu kaydedilemedi: ' + e.message);
+    }
+    if (kapanisOnaylandi) return;
+    olay.preventDefault();
+    pencere.webContents.send('kapanis:sor');
+    setTimeout(() => {
+      if (!kapanisOnaylandi && pencere) {
+        log('kapanis: renderer cevap vermedi, kapatiliyor');
+        kapanisOnaylandi = true;
+        pencere.close();
+      }
+    }, 3000);
+  });
 
   // Pencereye dosya birakilinca Chromium o dosyaya GITMEYE calisir (file:// gezinme) ve
   // uygulama kaybolur. Birakma isi renderer'da (terminale yol yazar); gezinme kapali.
@@ -102,6 +149,52 @@ ipcMain.handle('klasor:ac', async (_e, yol) => {
   const hata = await shell.openPath(yol);
   if (hata) log(`klasor acilamadi (${yol}): ${hata}`);
   return !hata;
+});
+// Terminaldeki link: yalniz http(s). Baska sema (file:, javascript:) tarayiciya gitmez.
+ipcMain.handle('link:ac', async (_e, url) => {
+  if (typeof url !== 'string') return false;
+  let u;
+  try { u = new URL(url); } catch { return false; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    log('link reddedildi: ' + url.slice(0, 80));
+    return false;
+  }
+  await shell.openExternal(u.toString());
+  return true;
+});
+ipcMain.handle('pencere:odakla', () => {
+  if (!pencere) return;
+  if (pencere.isMinimized()) pencere.restore();
+  pencere.show();
+  pencere.focus();
+});
+// Yerel onay diyalogu. Renderer window.confirm kullanmaz: Electron'da odak ve
+// erisilebilirlik acisindan sistem diyalogu daha dogru.
+ipcMain.handle('onay:sor', async (_e, secenek) => {
+  if (!pencere || !secenek || typeof secenek !== 'object') return false;
+  const { response } = await dialog.showMessageBox(pencere, {
+    type: 'warning',
+    title: String(secenek.baslik || 'Kokpit'),
+    message: String(secenek.mesaj || ''),
+    detail: secenek.ayrinti ? String(secenek.ayrinti) : undefined,
+    buttons: [String(secenek.onayla || 'Devam'), 'Vazgeç'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return response === 0;
+});
+ipcMain.on('kapanis:onay', () => {
+  kapanisOnaylandi = true;
+  if (pencere) pencere.close();
+});
+ipcMain.handle('ayar:getir', () => {
+  const a = ayarlar.oku();
+  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu };
+});
+ipcMain.handle('ayar:kaydet', (_e, yama) => {
+  const a = ayarlar.yaz(ayarlar.rendererYamasi(yama));
+  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu };
 });
 
 // Content-Security-Policy tek kaynaktan. Dev'de Vite'in HMR'i inline script ve ws

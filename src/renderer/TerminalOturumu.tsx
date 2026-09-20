@@ -1,34 +1,91 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
+import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import type { OturumDurumu } from './types';
+
+/** App'in bir oturuma dokunabildigi dar yuzey (kapatma onayi icin cocuk sureclere bakmak). */
+export interface OturumApi {
+  /** Kabugun altinda calisan sureclerin adlari (ornegin claude). Sunucu cevap vermezse []. */
+  cocuklar: () => Promise<string[]>;
+}
 
 interface Props {
   id: string;
   yol: string;
   gorunur: boolean;
+  yaziBoyutu: number;
   onDurum: (id: string, durumu: OturumDurumu, mesaj?: string) => void;
+  /** Terminal zili: claude bitti ya da soru soruyor. */
+  onZil: (id: string) => void;
+  onKayit: (id: string, api: OturumApi | null) => void;
 }
+
+/**
+ * Uygulamanin kendi kisayollari xterm'e ULASMAZ; yoksa hem claude'a kontrol karakteri
+ * gider hem uygulama tepki verir (xterm keydown'i stopPropagation yapmaz, olculdu).
+ * Ctrl+B bilerek listede DEGIL: Claude Code onu kullaniyor, terminal odaktayken onun.
+ * Ctrl+V de listede degil: xterm onu ^V olarak gonderir, Claude Code bununla panodaki
+ * resmi yapistirir.
+ */
+function uygulamaninKisayolu(e: KeyboardEvent) {
+  if (!e.ctrlKey || e.altKey) return false;
+  if (e.key === 'Tab') return true;
+  if (e.shiftKey) return e.key === 'W' || e.key === 'w';
+  return e.key === '1' || e.key === '2' || e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0';
+}
+
+/** Bosluk/tirnak iceren yol kabuga tek arguman olarak gitsin (Windows Terminal de boyle yapar). */
+function yolTirnakla(yol: string) {
+  return /[\s"']/.test(yol) ? '"' + yol.replace(/"/g, '\\"') + '"' : yol;
+}
+
+const ARAMA_SUSLEME = {
+  matchBackground: '#3b2a6b',
+  matchBorder: '#3b2a6b',
+  matchOverviewRuler: '#8b5cf6',
+  activeMatchBackground: '#8b5cf6',
+  activeMatchBorder: '#8b5cf6',
+  activeMatchColorOverviewRuler: '#c4b5fd',
+};
 
 /**
  * Bir PTY oturumu. KRITIK: bu bilesen oturum kapatilana kadar UNMOUNT EDILMEZ.
  * Gorunmedigi zaman gizlenir, sokulmez — yoksa Pano'ya her bakista WS kapanir,
  * PTY olur ve calisan claude oturumu kaybolur. Oturum listesi App'te yasar.
  */
-/** Bosluk/tirnak iceren yol kabuga tek arguman olarak gitsin (Windows Terminal de boyle yapar). */
-function yolTirnakla(yol: string) {
-  return /[\s"']/.test(yol) ? '"' + yol.replace(/"/g, '\\"') + '"' : yol;
-}
-
-export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
+export default function TerminalOturumu({
+  id,
+  yol,
+  gorunur,
+  yaziBoyutu,
+  onDurum,
+  onZil,
+  onKayit,
+}: Props) {
   const kutuRef = useRef<HTMLDivElement>(null);
-  const [birakiliyor, setBirakiliyor] = useState(false);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const aramaRef = useRef<SearchAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const onDurumRef = useRef(onDurum);
   onDurumRef.current = onDurum;
+  const onZilRef = useRef(onZil);
+  onZilRef.current = onZil;
+  const onKayitRef = useRef(onKayit);
+  onKayitRef.current = onKayit;
+  // Sunucuya sorulan "cocuklarin kim" sorusunun bekleyen cevabi.
+  const cocukBekleyenRef = useRef<((adlar: string[]) => void) | null>(null);
+
+  const [birakiliyor, setBirakiliyor] = useState(false);
+  const [aramaAcik, setAramaAcik] = useState(false);
+  const [arama, setArama] = useState('');
+  const aramaKutuRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const kutu = kutuRef.current;
@@ -37,7 +94,7 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
 
     const term = new XTerm({
       fontFamily: "'JetBrains Mono Variable', ui-monospace, Consolas, monospace",
-      fontSize: 13,
+      fontSize: yaziBoyutu,
       lineHeight: 1.2,
       cursorBlink: true,
       allowProposedApi: true,
@@ -53,20 +110,69 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Emoji ve kutu cizimi genislikleri: claude TUI'si ikisini de kullanir, Unicode 6
+    // tablosuyla imlec kayiyordu.
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = '11';
+    const aramaEklentisi = new SearchAddon();
+    term.loadAddon(aramaEklentisi);
+    aramaRef.current = aramaEklentisi;
+    // Link tiklamasi renderer'dan disari cikmaz; main http(s) dogrulayip tarayiciya verir.
+    term.loadAddon(new WebLinksAddon((_e, uri) => void window.kokpit.linkAc(uri)));
 
-    // Uygulamanin kendi kisayollari xterm'e ULASMAZ; yoksa hem claude'a kontrol karakteri
-    // gider hem uygulama tepki verir (xterm keydown'i stopPropagation yapmaz, olculdu).
-    // Ctrl+B bilerek listede DEGIL: Claude Code onu kullaniyor, terminal odaktayken onun.
     term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return !uygulamaninKisayolu(e);
+      if (uygulamaninKisayolu(e)) return false;
       if (!e.ctrlKey || e.altKey) return true;
-      if (e.key === '1' || e.key === '2') return false;
-      if (e.shiftKey && (e.key === 'W' || e.key === 'w')) return false;
+      // Ctrl+Shift+F: bu terminalde ara.
+      if (e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault();
+        setAramaAcik(true);
+        setTimeout(() => aramaKutuRef.current?.select(), 0);
+        return false;
+      }
+      // Ctrl+Shift+C kopyala; Ctrl+C secim VARKEN kopyalar (Windows Terminal davranisi),
+      // secim yokken ^C olarak claude'a gider.
+      if ((e.key === 'C' || e.key === 'c') && (e.shiftKey || term.hasSelection())) {
+        if (term.hasSelection()) {
+          void navigator.clipboard.writeText(term.getSelection());
+          term.clearSelection();
+        }
+        e.preventDefault();
+        return false;
+      }
+      // Ctrl+Shift+V: tarayicinin paste olayi zaten xterm'e ulasiyor; dokunma.
       return true;
     });
 
     term.open(kutu);
     termRef.current = term;
     fitRef.current = fit;
+
+    // WebGL: claude TUI'si cok cizim yapar, DOM/canvas renderer'da kaydirma takiliyordu.
+    // Baglam kaybinda eklenti kendini soker, xterm canvas'a geri duser.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        console.warn('[terminal] webgl baglami kayboldu, canvas renderer');
+        webgl.dispose();
+      });
+      term.loadAddon(webgl);
+      console.info('[terminal] webgl renderer aktif');
+    } catch (e) {
+      console.warn('[terminal] webgl yuklenemedi, canvas renderer: ' + String(e));
+    }
+
+    // Sag tik: yapistir (Windows Terminal davranisi).
+    const sagTik = (e: MouseEvent) => {
+      e.preventDefault();
+      void navigator.clipboard.readText().then((metin) => {
+        if (metin) term.paste(metin);
+      });
+    };
+    kutu.addEventListener('contextmenu', sagTik);
+
+    term.onBell(() => onZilRef.current(id));
 
     // PTY'ye boyut yalnizca DEGISINCE gider. Ayirici suruklenirken ResizeObserver her
     // mousemove'da tetikleniyor; sutun/satir sayisi ayniyken resize gondermek claude
@@ -99,6 +205,26 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
       });
     });
     gozlemci.observe(kutu);
+
+    onKayitRef.current(id, {
+      cocuklar: () =>
+        new Promise<string[]>((coz) => {
+          const ws = wsRef.current;
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
+            coz([]);
+            return;
+          }
+          cocukBekleyenRef.current = coz;
+          ws.send(JSON.stringify({ t: 'cocuk' }));
+          // Sunucu cevap vermezse kapatmayi sonsuza kadar bekletme.
+          setTimeout(() => {
+            if (cocukBekleyenRef.current === coz) {
+              cocukBekleyenRef.current = null;
+              coz([]);
+            }
+          }, 2500);
+        }),
+    });
 
     void (async () => {
       // Font yarisi: fit() yedek fontun hucre olculeriyle calisirsa satir sayisi yanlis
@@ -141,6 +267,11 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
         else if (m.t === 'bitti') {
           onDurumRef.current(id, 'bitti', 'Oturum kapandı (çıkış kodu ' + m.kod + ')');
         } else if (m.t === 'hata') onDurumRef.current(id, 'hata', m.mesaj);
+        else if (m.t === 'cocuklar') {
+          const coz = cocukBekleyenRef.current;
+          cocukBekleyenRef.current = null;
+          coz?.(Array.isArray(m.adlar) ? m.adlar : []);
+        }
       };
       ws.onerror = () => {
         if (!kapandi) onDurumRef.current(id, 'hata', 'Terminal sunucusuna bağlanılamadı');
@@ -156,8 +287,10 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
 
     return () => {
       kapandi = true;
+      onKayitRef.current(id, null);
       gozlemci.disconnect();
       if (olcumKaresi) cancelAnimationFrame(olcumKaresi);
+      kutu.removeEventListener('contextmenu', sagTik);
       try {
         wsRef.current?.close();
       } catch {
@@ -165,10 +298,25 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
       }
       term.dispose();
       termRef.current = null;
+      aramaRef.current = null;
     };
     // id/yol degismez; oturum bir kez kurulur ve kapatilana kadar yasar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Yazi boyutu tum terminallerde ortak; degisince yeniden olc.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || term.options.fontSize === yaziBoyutu) return;
+    term.options.fontSize = yaziBoyutu;
+    if (kutuRef.current?.offsetParent) {
+      try {
+        fitRef.current?.fit();
+      } catch {
+        /* sonraki resize duzeltir */
+      }
+    }
+  }, [yaziBoyutu]);
 
   // Gizliden gorunure gecerken yeniden olc: display:none iken xterm olcemez.
   useEffect(() => {
@@ -181,13 +329,33 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
         if (ws && term && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ t: 'boyut', cols: term.cols, rows: term.rows }));
         }
-        term?.focus();
+        if (!aramaAcik) term?.focus();
       } catch {
         /* olcum basarisiz, sonraki resize duzeltir */
       }
     }, 0);
     return () => clearTimeout(zaman);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gorunur]);
+
+  // Arama metni degisince artimli ara; kapaninca susleme temizlenir, odak terminale doner.
+  useEffect(() => {
+    const a = aramaRef.current;
+    if (!a) return;
+    if (!aramaAcik) {
+      a.clearDecorations();
+      return;
+    }
+    if (arama) a.findNext(arama, { incremental: true, decorations: ARAMA_SUSLEME });
+    else a.clearDecorations();
+  }, [arama, aramaAcik]);
+
+  const aramaKapat = () => {
+    setAramaAcik(false);
+    termRef.current?.focus();
+  };
+  const sonraki = () => aramaRef.current?.findNext(arama, { decorations: ARAMA_SUSLEME });
+  const onceki = () => aramaRef.current?.findPrevious(arama, { decorations: ARAMA_SUSLEME });
 
   /**
    * Dosya birakma: yol(lar) terminale yazilir, tipki Windows Terminal'e surukler gibi.
@@ -223,10 +391,64 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
       onDrop={birak}
       className={
         (gorunur ? 'block' : 'hidden') +
-        ' h-full w-full rounded-kontrol ' +
+        ' relative h-full w-full rounded-kontrol ' +
         (birakiliyor ? 'outline-2 outline-dashed outline-aksan/70 -outline-offset-2' : '')
       }
     >
+      {aramaAcik && (
+        <div
+          role="search"
+          className="halka absolute top-1 right-3 z-10 flex items-center gap-1 rounded-kontrol bg-yuzey-guclu px-1.5 py-1 shadow-lg shadow-black/40"
+        >
+          <input
+            ref={aramaKutuRef}
+            type="text"
+            value={arama}
+            onChange={(e) => setArama(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) onceki();
+                else sonraki();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                aramaKapat();
+              }
+            }}
+            placeholder="Terminalde ara"
+            aria-label="Terminalde ara"
+            spellCheck={false}
+            className="enstruman w-48 bg-transparent px-1.5 text-xs text-metin outline-none placeholder:text-metin-soluk"
+          />
+          <button
+            type="button"
+            onClick={onceki}
+            aria-label="Önceki eşleşme (Shift+Enter)"
+            title="Önceki (Shift+Enter)"
+            className="cursor-pointer rounded p-0.5 text-metin-soluk hover:text-metin"
+          >
+            <ChevronUp className="size-3.5" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={sonraki}
+            aria-label="Sonraki eşleşme (Enter)"
+            title="Sonraki (Enter)"
+            className="cursor-pointer rounded p-0.5 text-metin-soluk hover:text-metin"
+          >
+            <ChevronDown className="size-3.5" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={aramaKapat}
+            aria-label="Aramayı kapat (Escape)"
+            title="Kapat (Escape)"
+            className="cursor-pointer rounded p-0.5 text-metin-soluk hover:text-metin"
+          >
+            <X className="size-3.5" aria-hidden="true" />
+          </button>
+        </div>
+      )}
       <div ref={kutuRef} className="h-full w-full overflow-hidden" />
     </div>
   );

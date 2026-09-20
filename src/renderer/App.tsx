@@ -12,7 +12,7 @@ import {
 import type { Durum, Oturum, OturumDurumu, Proje } from './types';
 import Pano from './Pano';
 import ProjeSecici from './ProjeSecici';
-import TerminalOturumu from './TerminalOturumu';
+import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
 import { ASAMA_SIRA, sureMetni } from './parcalar';
 
 // durum.py her cagrida ~500 ms'lik bir Python sureci demek. Iki koruma:
@@ -20,6 +20,16 @@ import { ASAMA_SIRA, sureMetni } from './parcalar';
 // - odak olayi bu araliktan sik tazeleyemez (alt-tab firtinasi)
 const ODAK_ASGARI_ARALIK_MS = 30_000;
 const ASGARI_ORAN = 0.15;
+const YAZI_BOYUTU = { enAz: 9, enCok: 28, varsayilan: 13 };
+
+/** Oturum noktasinin rengi: dikkat > acik > baglaniyor > hata > bitti. */
+function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat'>) {
+  if (o.dikkat) return 'bg-dikkat ring-2 ring-dikkat/30';
+  if (o.durumu === 'acik') return 'bg-aksan';
+  if (o.durumu === 'baglaniyor') return 'animate-pulse bg-dikkat';
+  if (o.durumu === 'hata') return 'bg-hata';
+  return 'bg-metin-soluk';
+}
 
 type Gorunum = 'pano' | 'terminal';
 
@@ -29,6 +39,9 @@ export default function App() {
   const [yukleniyor, setYukleniyor] = useState(true);
   const [gorunum, setGorunum] = useState<Gorunum>('pano');
   const [kenarAcik, setKenarAcik] = useState(true);
+  const [yaziBoyutu, setYaziBoyutu] = useState(YAZI_BOYUTU.varsayilan);
+  // Ayarlar diskten gelene kadar yazma; yoksa varsayilan degerler ustune yazilir.
+  const ayarHazir = useRef(false);
 
   // Oturumlar BURADA yasar. Gorunum degisince unmount olmazlar, yoksa Pano'ya her
   // bakista WS kapanir ve calisan claude oturumu olur.
@@ -39,6 +52,38 @@ export default function App() {
 
   const ucusta = useRef(false);
   const sonOkuma = useRef(0);
+  // Her terminalin App'e actigi dar yuzey (kapatma onayi icin cocuk surec sorgusu).
+  const oturumApileri = useRef(new Map<string, OturumApi>());
+  const onKayit = useCallback((id: string, api: OturumApi | null) => {
+    if (api) oturumApileri.current.set(id, api);
+    else oturumApileri.current.delete(id);
+  }, []);
+
+  // --- Ayarlar: kenar cubugu + yazi boyutu kalici (~/.kokpit/ayarlar.json, main yazar) ---
+  useEffect(() => {
+    let iptal = false;
+    void window.kokpit.ayarGetir().then((a) => {
+      if (iptal) return;
+      setKenarAcik(a.kenarAcik);
+      setYaziBoyutu(a.yaziBoyutu);
+      ayarHazir.current = true;
+    });
+    return () => {
+      iptal = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (!ayarHazir.current) return;
+    void window.kokpit.ayarKaydet({ kenarAcik, yaziBoyutu });
+  }, [kenarAcik, yaziBoyutu]);
+
+  const yaziBoyutuDegistir = useCallback((fark: number | null) => {
+    setYaziBoyutu((b) =>
+      fark === null
+        ? YAZI_BOYUTU.varsayilan
+        : Math.min(YAZI_BOYUTU.enCok, Math.max(YAZI_BOYUTU.enAz, b + fark))
+    );
+  }, []);
 
   // Tek sayac: acik oturum varsa surelerin ilerlemesi icin saniyede bir tik.
   useEffect(() => {
@@ -172,17 +217,6 @@ export default function App() {
     [oturumlar, aktifOturumId, aktifGrupId]
   );
 
-  const oturumKapat = useCallback((id: string) => kapat([id]), [kapat]);
-
-  /**
-   * Sekmenin tamami. Tek tek `oturumKapat` cagirmak YANLIS olurdu: hepsi ayni tick'te
-   * ayni `oturumlar` degerini gorur ve yalnizca sonuncusu uygulanirdi.
-   */
-  const grupKapat = useCallback(
-    (grupId: string) => kapat(oturumlar.filter((o) => o.grupId === grupId).map((o) => o.id)),
-    [kapat, oturumlar]
-  );
-
   const oturumDurumu = useCallback((id: string, durumu: OturumDurumu, mesaj?: string) => {
     setOturumlar((o) => o.map((x) => (x.id === id ? { ...x, durumu, mesaj } : x)));
   }, []);
@@ -193,6 +227,122 @@ export default function App() {
     setGorunum('terminal');
     setKenarAcik(false);
   }, []);
+
+  /**
+   * Zil: claude bitti ya da soru soruyor. Kullanici o an o bolmeye bakiyorsa hicbir sey
+   * yapilmaz; bakmiyorsa rozet, pencere odakta degilse Windows bildirimi.
+   */
+  const onZil = useCallback(
+    (id: string) => {
+      const o = oturumlar.find((x) => x.id === id);
+      if (!o) return;
+      const bakiyor =
+        document.hasFocus() && gorunum === 'terminal' && aktifGrupId === o.grupId;
+      if (bakiyor) return;
+      setOturumlar((liste) => liste.map((x) => (x.id === id ? { ...x, dikkat: true } : x)));
+      if (!document.hasFocus() && 'Notification' in window) {
+        const goster = () => {
+          const b = new Notification(o.ad, {
+            body: 'Oturum dikkat bekliyor — claude bitti ya da soru soruyor.',
+            tag: 'kokpit-' + id,
+          });
+          b.onclick = () => {
+            void window.kokpit.pencereOdakla();
+            grubaGit(o.grupId, o.id);
+          };
+        };
+        if (Notification.permission === 'granted') goster();
+        else if (Notification.permission !== 'denied') {
+          void Notification.requestPermission().then((izin) => izin === 'granted' && goster());
+        }
+      }
+    },
+    [oturumlar, gorunum, aktifGrupId, grubaGit]
+  );
+
+  // Rozet, kullanici o bolmeye BAKINCA duser: aktif grup + terminal gorunumu + pencere odakta.
+  useEffect(() => {
+    const temizle = () => {
+      if (!document.hasFocus() || gorunum !== 'terminal' || !aktifGrupId) return;
+      setOturumlar((liste) =>
+        liste.some((x) => x.dikkat && x.grupId === aktifGrupId)
+          ? liste.map((x) => (x.grupId === aktifGrupId && x.dikkat ? { ...x, dikkat: false } : x))
+          : liste
+      );
+    };
+    temizle();
+    window.addEventListener('focus', temizle);
+    return () => window.removeEventListener('focus', temizle);
+  }, [gorunum, aktifGrupId, oturumlar]);
+
+  /**
+   * Kapatma onayi. Kabugun altinda hala bir surec (claude) varsa sor: PTY oldurulunce
+   * claude SIGHUP alir, SessionEnd hook'u calismaz ve oturum beyne dusmez.
+   */
+  const canliCocuklar = useCallback(
+    async (idler: string[]) => {
+      const sonuc: { ad: string; cocuklar: string[] }[] = [];
+      await Promise.all(
+        idler.map(async (id) => {
+          const o = oturumlar.find((x) => x.id === id);
+          const api = oturumApileri.current.get(id);
+          if (!o || o.durumu !== 'acik' || !api) return;
+          const cocuklar = await api.cocuklar();
+          if (cocuklar.length > 0) sonuc.push({ ad: o.ad, cocuklar });
+        })
+      );
+      return sonuc;
+    },
+    [oturumlar]
+  );
+
+  const kapatmaOnayi = useCallback(
+    async (idler: string[]) => {
+      const canli = await canliCocuklar(idler);
+      if (canli.length === 0) return true;
+      const adlar = canli.map((c) => c.ad + ' (' + c.cocuklar.join(', ') + ')').join(', ');
+      return window.kokpit.onayla({
+        baslik: 'Oturumu kapat',
+        mesaj:
+          canli.length === 1
+            ? canli[0].ad + ' oturumunda hâlâ bir süreç çalışıyor.'
+            : canli.length + ' oturumda hâlâ süreç çalışıyor.',
+        ayrinti:
+          'Çalışan: ' +
+          adlar +
+          '.\n\nKapatmak süreci keser; claude\'un SessionEnd hook\'u çalışmaz ve bu oturum ikinci beyne düşmez. Önce /exit ile çıkmak güvenli yol.',
+        onayla: 'Yine de kapat',
+      });
+    },
+    [canliCocuklar]
+  );
+
+  const oturumKapat = useCallback(
+    (id: string) => {
+      void kapatmaOnayi([id]).then((tamam) => tamam && kapat([id]));
+    },
+    [kapat, kapatmaOnayi]
+  );
+
+  /**
+   * Sekmenin tamami. Tek tek `oturumKapat` cagirmak YANLIS olurdu: hepsi ayni tick'te
+   * ayni `oturumlar` degerini gorur ve yalnizca sonuncusu uygulanirdi.
+   */
+  const grupKapat = useCallback(
+    (grupId: string) => {
+      const idler = oturumlar.filter((o) => o.grupId === grupId).map((o) => o.id);
+      void kapatmaOnayi(idler).then((tamam) => tamam && kapat(idler));
+    },
+    [kapat, kapatmaOnayi, oturumlar]
+  );
+
+  // Uygulama kapatilirken de ayni koruma. Main 'kapanis:sor' gonderir, cevap 'kapanis:onay'.
+  useEffect(() => {
+    return window.kokpit.kapanisSorulunca(() => {
+      const acik = oturumlar.filter((o) => o.durumu === 'acik').map((o) => o.id);
+      void kapatmaOnayi(acik).then((tamam) => tamam && window.kokpit.kapanisOnayla());
+    });
+  }, [oturumlar, kapatmaOnayi]);
 
   // Gruplar olusturulma sirasini korur.
   const gruplar = useMemo(() => {
@@ -235,11 +385,25 @@ export default function App() {
         // Ctrl+Shift+W bolmeyi kapatir. Ctrl+W terminalin kendisine ait, ona dokunulmaz.
         e.preventDefault();
         oturumKapat(aktifOturumId);
+      } else if (e.key === 'Tab') {
+        // Ctrl+Tab / Ctrl+Shift+Tab: sekme dongusu.
+        if (gruplar.length < 2) return;
+        e.preventDefault();
+        const i = gruplar.findIndex((g) => g.id === aktifGrupId);
+        const hedef = gruplar[(i + (e.shiftKey ? -1 : 1) + gruplar.length) % gruplar.length];
+        grubaGit(hedef.id, hedef.uyeler[0].id);
+      } else if (
+        (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0') &&
+        (e.target as HTMLElement | null)?.closest('.xterm')
+      ) {
+        // Yazi boyutu yalniz terminal odaktayken; uygulama zoom'u kilitli kalir.
+        e.preventDefault();
+        yaziBoyutuDegistir(e.key === '0' ? null : e.key === '-' ? -1 : 1);
       }
     };
     window.addEventListener('keydown', tus);
     return () => window.removeEventListener('keydown', tus);
-  }, [aktifOturumId, oturumKapat]);
+  }, [aktifOturumId, oturumKapat, gruplar, aktifGrupId, grubaGit, yaziBoyutuDegistir]);
 
   // --- Bolme ayiricisi surukleme ---
   const surukleRef = useRef<{ solId: string; sagId: string; x: number; genislik: number } | null>(
@@ -368,6 +532,7 @@ export default function App() {
         >
           {siraliProjeler.map((p) => {
             const oturum = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
+            const dikkat = oturumlar.some((o) => o.yol === p.yol && o.dikkat);
             return (
               <li key={p.ad}>
                 <button
@@ -383,7 +548,12 @@ export default function App() {
                   {kenarAcik ? (
                     <span
                       className={
-                        'size-1.5 shrink-0 rounded-full ' + (oturum ? 'bg-aksan' : 'bg-kenar-guclu')
+                        'size-1.5 shrink-0 rounded-full ' +
+                        (dikkat
+                          ? noktaSinifi({ durumu: 'acik', dikkat: true })
+                          : oturum
+                            ? 'bg-aksan'
+                            : 'bg-kenar-guclu')
                       }
                       aria-hidden="true"
                     />
@@ -538,13 +708,16 @@ export default function App() {
                 const secili = g.id === aktifGrupId;
                 const ilk = g.uyeler[0];
                 const etiket = g.uyeler.length > 1 ? ilk.ad + ' +' + (g.uyeler.length - 1) : ilk.ad;
-                const nokta = g.uyeler.some((o) => o.durumu === 'acik')
-                  ? 'bg-aksan'
-                  : g.uyeler.some((o) => o.durumu === 'baglaniyor')
-                    ? 'animate-pulse bg-dikkat'
-                    : g.uyeler.some((o) => o.durumu === 'hata')
-                      ? 'bg-hata'
-                      : 'bg-metin-soluk';
+                const dikkat = g.uyeler.some((o) => o.dikkat);
+                const nokta = dikkat
+                  ? noktaSinifi({ durumu: 'acik', dikkat: true })
+                  : g.uyeler.some((o) => o.durumu === 'acik')
+                    ? 'bg-aksan'
+                    : g.uyeler.some((o) => o.durumu === 'baglaniyor')
+                      ? 'animate-pulse bg-dikkat'
+                      : g.uyeler.some((o) => o.durumu === 'hata')
+                        ? 'bg-hata'
+                        : 'bg-metin-soluk';
                 return (
                   <div
                     key={g.id}
@@ -562,9 +735,11 @@ export default function App() {
                       aria-selected={secili}
                       aria-controls={'panel-' + g.id}
                       onClick={() => grubaGit(g.id, ilk.id)}
+                      title={dikkat ? etiket + ' — dikkat bekliyor' : undefined}
                       className="flex cursor-pointer items-center gap-2"
                     >
                       <span className={'size-1.5 shrink-0 rounded-full ' + nokta} aria-hidden="true" />
+                      {dikkat && <span className="sr-only">dikkat bekliyor</span>}
                       <span
                         className={
                           'enstruman text-xs ' + (secili ? 'text-metin' : 'text-metin-ikincil')
@@ -672,18 +847,10 @@ export default function App() {
                               className="flex min-w-0 cursor-pointer items-center gap-2"
                             >
                               <span
-                                className={
-                                  'size-1.5 shrink-0 rounded-full ' +
-                                  (o.durumu === 'acik'
-                                    ? 'bg-aksan'
-                                    : o.durumu === 'baglaniyor'
-                                      ? 'animate-pulse bg-dikkat'
-                                      : o.durumu === 'hata'
-                                        ? 'bg-hata'
-                                        : 'bg-metin-soluk')
-                                }
+                                className={'size-1.5 shrink-0 rounded-full ' + noktaSinifi(o)}
                                 aria-hidden="true"
                               />
+                              {o.dikkat && <span className="sr-only">dikkat bekliyor</span>}
                               <span className="enstruman truncate text-xs text-metin-ikincil">
                                 {o.ad}
                               </span>
@@ -725,7 +892,10 @@ export default function App() {
                             id={o.id}
                             yol={o.yol}
                             gorunur={g.id === aktifGrupId}
+                            yaziBoyutu={yaziBoyutu}
                             onDurum={oturumDurumu}
+                            onZil={onZil}
+                            onKayit={onKayit}
                           />
                         </div>
                       </div>
