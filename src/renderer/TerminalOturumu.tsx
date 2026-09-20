@@ -39,7 +39,7 @@ function uygulamaninKisayolu(e: KeyboardEvent) {
   if (!e.ctrlKey || e.altKey) return false;
   if (e.key === 'Tab') return true;
   if (e.shiftKey) return e.key === 'W' || e.key === 'w' || e.key === 'N' || e.key === 'n';
-  return e.key === '1' || e.key === '2' || e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0';
+  return ['1', '2', '3', '4', '=', '+', '-', '0'].includes(e.key);
 }
 
 /** Bosluk/tirnak iceren yol kabuga tek arguman olarak gitsin (Windows Terminal de boyle yapar). */

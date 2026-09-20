@@ -73,13 +73,39 @@ export interface Beyin {
   kapsama?: Kapsama;
 }
 
+export interface Envanter {
+  global_skills: string[];
+  vault_skills: string[];
+  mcp_global: string[];
+  mcp_proje: Record<string, string[]>;
+  drift_kayitsiz: string[];
+  drift_hayalet: string[];
+}
+
+export interface GunButcesi {
+  yeni_girdi: number;
+  cache_okuma: number;
+  cikti: number;
+  dusunme: number;
+  mesaj: number;
+}
+
+export interface Butce {
+  gunler: Record<string, GunButcesi>;
+  tip: Record<string, GunButcesi>;
+  oksuz: string[];
+  hook_dizin: number;
+  toplam_dizin: number;
+  pencere_gun: number;
+}
+
 export interface Durum {
   olculdu: string;
   vault: string;
   projeler: Proje[];
   beyin: Beyin;
-  envanter: Record<string, unknown>;
-  butce: Record<string, unknown>;
+  envanter: Envanter;
+  butce: Butce;
 }
 
 export type DurumSonuc =

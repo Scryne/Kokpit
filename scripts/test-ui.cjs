@@ -94,7 +94,7 @@ class Cdp {
     await this.gonder('Input.insertText', { text: metin });
   }
 }
-const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, '1': 49, '2': 50, '3': 51, '=': 187, '-': 189, '0': 48 };
+const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, '1': 49, '2': 50, '3': 51, '4': 52, '=': 187, '-': 189, '0': 48 };
 
 /** Uygulamayi acar, CDP'ye baglanir. */
 async function baslat() {
@@ -221,6 +221,11 @@ async function main() {
     kontrol('boru zinciri cizildi (4 halka)', (await cdp.js(`document.querySelectorAll('[aria-label="Beyin boru zinciri"] p.etiket').length`)) === 4);
     kontrol('butce grafigi var', await cdp.js(`!!document.querySelector('figure svg[role="img"]')`));
     kontrol('Aria ile konus dugmesi var', await cdp.js(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Aria ile konuş'))`));
+    console.log('Envanter sayfasi');
+    await cdp.tus('4', 2, 'Digit4');
+    await cdp.bekle(`document.querySelector('h1')?.textContent === 'Envanter'`, 3000, 'envanter basligi');
+    kontrol('Ctrl+4 Envanter sayfasini acti', true);
+    kontrol('drift blogu + skill listesi cizildi', (await cdp.js(`document.querySelectorAll('[aria-label="Envanter"] section').length`)) >= 5);
     await cdp.tus('1', 2, 'Digit1');
 
     console.log('Inbox notu (Ctrl+Shift+N)');
