@@ -107,6 +107,8 @@ Kokpit **tek yönlü bir aynadır**: beyinden okur, beyne yazmaz.
 3. **Windows yolları `path.resolve()` / `path.join()` ile üretilir**, string literal yazılmaz.
 4. **PTY ayrı düz Node sürecinde kalır.** Electron'un içine alınırsa `electron-rebuild`
    cehennemi başlar; ayrıca sunucu çökünce pencere de gider.
-5. **v1 hiçbir dosyaya yazmaz.** Hook'lar zaten yazıyor; ikinci yazar yarış koşulu demek.
+5. **Vault'a tek yazma: Inbox notu.** v1 hiç yazmazdı; v2 (2026-09-21) yalnız
+   `📥 000-Inbox/Dump/YYYY-MM-DD.md`'ye **sona ekler** (`electron/not.cjs`). Başka dosya yok,
+   üstüne yazma yok. Hook'lar zaten yazıyor; ikinci yazar yarış koşulu demek.
 6. **Açılan terminallerden ebeveyn oturum işaretleri temizlenir.** Yoksa transcript
    yazılmaz ve ikinci beyin o oturumu kaydetmez.

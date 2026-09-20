@@ -18,6 +18,8 @@ const PORT = 9333;
 const electronBin = require('electron');
 const AYARLAR = path.join(os.homedir(), '.kokpit', 'ayarlar.json');
 const DEFTER = path.join(os.homedir(), '.kokpit', 'oturumlar.jsonl');
+const { VAULT } = require('../electron/config.cjs');
+const INBOX = path.join(VAULT, '\u{1F4E5} 000-Inbox', 'Dump');
 
 let basarisiz = 0;
 function kontrol(ad, kosul, detay) {
@@ -92,7 +94,7 @@ class Cdp {
     await this.gonder('Input.insertText', { text: metin });
   }
 }
-const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, '1': 49, '2': 50, '=': 187, '-': 189, '0': 48 };
+const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, '1': 49, '2': 50, '3': 51, '=': 187, '-': 189, '0': 48 };
 
 /** Uygulamayi acar, CDP'ye baglanir. */
 async function baslat() {
@@ -209,6 +211,36 @@ async function main() {
     console.log('Defter: son oturum Pano\'da');
     await cdp.bekle(`[...document.querySelectorAll('table tbody th')].some(th => th.textContent.includes('son oturum'))`, 5000, 'son oturum satiri');
     kontrol('kapanan oturum Pano satirinda "son oturum" olarak goruluyor', true);
+    const beyinMetni = await cdp.js(`[...document.querySelectorAll('table tbody th')].map(th => th.textContent).find(t => t.includes('son oturum')) ?? ''`);
+    kontrol('son oturumun yaninda beyin kaydi var (test kabugu claude acmaz -> "transcript yok")', beyinMetni.includes('transcript yok'), beyinMetni.slice(0, 80));
+
+    console.log('Saglik sayfasi');
+    await cdp.tus('3', 2, 'Digit3');
+    await cdp.bekle(`document.querySelector('h1')?.textContent === 'Sağlık'`, 3000, 'saglik basligi');
+    kontrol('Ctrl+3 Saglik sayfasini acti', true);
+    kontrol('boru zinciri cizildi (4 halka)', (await cdp.js(`document.querySelectorAll('[aria-label="Beyin boru zinciri"] p.etiket').length`)) === 4);
+    kontrol('butce grafigi var', await cdp.js(`!!document.querySelector('figure svg[role="img"]')`));
+    kontrol('Aria ile konus dugmesi var', await cdp.js(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Aria ile konuş'))`));
+    await cdp.tus('1', 2, 'Digit1');
+
+    console.log('Inbox notu (Ctrl+Shift+N)');
+    const d = new Date();
+    const gun = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); // yerel gun, UTC degil
+    const inboxDosya = path.join(INBOX, gun + '.md');
+    const inboxOnce = fs.existsSync(inboxDosya) ? fs.readFileSync(inboxDosya, 'utf8') : null;
+    await cdp.tus('N', 2 | 8, 'KeyN');
+    await cdp.bekle(`!!document.querySelector('dialog[open] textarea')`, 3000, 'not kutusu');
+    kontrol('not kutusu acildi ve odak textarea\'da', await cdp.js(`document.activeElement?.tagName === 'TEXTAREA'`));
+    const isaret = 'kokpit-test-notu-' + Date.now().toString(36);
+    await cdp.yaz(isaret);
+    await cdp.tus('Enter');
+    await cdp.bekle(`!document.querySelector('dialog[open]')`, 5000, 'not kutusu kapandi');
+    const inboxSonra = fs.existsSync(inboxDosya) ? fs.readFileSync(inboxDosya, 'utf8') : '';
+    kontrol('not Inbox/Dump/' + gun + '.md dosyasina SONA eklendi', inboxSonra.includes(isaret) && (inboxOnce === null || inboxSonra.startsWith(inboxOnce)), inboxSonra.slice(-120));
+    kontrol('baslikta "Not Inbox\'a düştü" bildirimi', await cdp.js(`!!document.querySelector('header [role="status"]')`));
+    // Test notunu geri al: dosya yoksa sil, varsa eklenen satiri cikar.
+    if (inboxOnce === null) fs.unlinkSync(inboxDosya);
+    else fs.writeFileSync(inboxDosya, inboxSonra.split('\n').filter((l) => !l.includes(isaret)).join('\n'));
 
     console.log('Oturum acikken uygulamayi kapat (geri yukleme icin)');
     await cdp.js(AC_DUGMESI);
