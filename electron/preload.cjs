@@ -10,4 +10,16 @@ contextBridge.exposeInMainWorld('kokpit', {
   // Terminale birakilan dosyanin diskteki yolu. `File.path` Electron 32'de kaldirildi;
   // yol yalniz preload'daki webUtils ile alinabiliyor, renderer'a Node acilmadan.
   dosyaYolu: (dosya) => webUtils.getPathForFile(dosya),
+  linkAc: (url) => ipcRenderer.invoke('link:ac', url),
+  pencereOdakla: () => ipcRenderer.invoke('pencere:odakla'),
+  onayla: (secenek) => ipcRenderer.invoke('onay:sor', secenek),
+  ayarGetir: () => ipcRenderer.invoke('ayar:getir'),
+  ayarKaydet: (yama) => ipcRenderer.invoke('ayar:kaydet', yama),
+  // Main "kapatiliyor, acik oturum var mi bak" der; renderer onay verince kapanir.
+  kapanisSorulunca: (cb) => {
+    const dinleyici = () => cb();
+    ipcRenderer.on('kapanis:sor', dinleyici);
+    return () => ipcRenderer.removeListener('kapanis:sor', dinleyici);
+  },
+  kapanisOnayla: () => ipcRenderer.send('kapanis:onay'),
 });

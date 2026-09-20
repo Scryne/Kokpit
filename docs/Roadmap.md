@@ -21,7 +21,7 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 3 | DESIGN.md + Pano'nun gerçek hali | ✅ Tamamlandı | Kartlar tasarım kimliğine uygun; aşama/roadmap/git/"nerede kaldın" okunaklı |
 | 4 | Sekmeler, bölmeler + canlı oturum farkındalığı | ✅ Tamamlandı | Birden fazla oturum sekmesi, "hangi proje / ne kadar süredir açık" doğru |
 | 5 | Sertleştirme + günlük kullanıma alma | ✅ Tamamlandı | Erişilebilirlik/animasyon pasları geçti, `kokpit` komutu çalışıyor, bir hafta gerçekten kullanıldı |
-| 6 | Terminal: profesyonel taban | ⏳ Bekliyor | WebGL/unicode11/link/arama/pano/yazı boyutu; zil → rozet + bildirim; canlı oturumu kapatırken onay |
+| 6 | Terminal: profesyonel taban | ✅ Tamamlandı | WebGL/unicode11/link/arama/pano/yazı boyutu; zil → rozet + bildirim; canlı oturumu kapatırken onay |
 | 7 | Süreklilik: Kokpit'in kendi hafızası | ⏳ Bekliyor | Pencere/ayarlar hatırlanır; oturum defteri; açılışta geri yükleme `claude --continue` ile çalışır |
 | 8 | Beyin senkronu + Sağlık sayfası | ⏳ Bekliyor | Proje oturumları `daily/`'ye düşüyor; `durum.py` düşmemişleri sayıyor; Sağlık sayfası boru zincirini gösteriyor; Inbox'a not |
 | 9 | Envanter sayfası | ⏳ Bekliyor | Skill/MCP/drift ve bütçe dağılımı Kokpit'te okunuyor |
@@ -205,6 +205,25 @@ listelenmiş** yazmalar; cam yalnız nav ve şerit.
 - **Bitti Kriteri:** claude TUI'si WebGL'de çiziliyor (log'da hangi renderer yazıyor);
   link tıklanınca tarayıcı açılıyor; arka plandaki sekmede claude bitince rozet + bildirim
   geliyor; canlı oturum kapatılırken onay soruluyor; yazı boyutu değişip kalıyor.
+  ✅ (2026-09-21) — `npm run test:ui` 13/13: webgl aktif, zil → rozet → bakınca düşüyor,
+  Ctrl+Shift+F, Ctrl+=/0 diske yazıyor, Ctrl+1/2 terminalden, sekme kapanışı, temiz çıkış.
+- **Notlar:**
+  1. **UI test koşucusu doğdu** (`scripts/test-ui.cjs`): Electron `--remote-debugging-port`
+     + CDP, bağımlılık yok. Gerçek tuş/tıklama gönderir, DOM'dan okur. PTY sunucusunda
+     tek test seam'i: `KOKPIT_TEST_KABUK=1` → claude yerine düz pwsh (her gerçek claude
+     açılışı transcript + hook tetiklerdi). 09-10'dan beri açık olan "arayüz testi
+     otomatize değil" borcu kapandı.
+  2. Kısayol kararı: Ctrl+V xterm'de `^V` olarak claude'a gider (Claude Code'un resim
+     yapıştırması) — dokunulmadı. Ctrl+C **seçim varken** kopyalar, yokken `^C` (Windows
+     Terminal davranışı). Ctrl+Shift+C/V, sağ tık yapıştır.
+  3. Kapatma onayı yerel diyalog (`dialog.showMessageBox`), `window.confirm` değil. Çocuk
+     süreç sorgusu yalnız kapatma anında (CIM, ~300 ms), asla yoklama yok. Uygulama
+     kapanışı: main renderer'a sorar, 3 sn cevap gelmezse yine de kapanır.
+  4. Windows toast için `app.setAppUserModelId` şart; verilmezse bildirim sessizce
+     hiç görünmez. Tuzak README'ye yazıldı.
+  5. Test koşucusunun ilk tuzağı: `Browser.close`'un cevabı beklenirse tarayıcı cevap
+     veremeden kapanır, bekleyen promise olay döngüsünü boşaltır ve Node "TUMU GECTI"
+     yazmadan 0 ile çıkar. Sessiz hata sınıfı #7.
 
 ### Faz 7: Süreklilik — Kokpit'in kendi hafızası
 - **İşler:**

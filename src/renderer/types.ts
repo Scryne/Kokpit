@@ -83,6 +83,8 @@ export interface Oturum {
   baslangic: number;
   grupId: string;
   oran: number;
+  /** Zil caldi ve kullanici o sirada bakmiyordu: claude bitti ya da soru soruyor. */
+  dikkat?: boolean;
 }
 
 export interface PtyBilgi {
@@ -94,6 +96,11 @@ export type PtyBilgiSonuc =
   | { bilgi: PtyBilgi; hata?: undefined }
   | { hata: string; bilgi?: undefined };
 
+export interface Ayarlar {
+  kenarAcik: boolean;
+  yaziBoyutu: number;
+}
+
 declare global {
   interface Window {
     kokpit: {
@@ -102,6 +109,18 @@ declare global {
       klasorAc: (yol: string) => Promise<boolean>;
       ptyBilgi: () => Promise<PtyBilgiSonuc>;
       dosyaYolu: (dosya: File) => string;
+      linkAc: (url: string) => Promise<boolean>;
+      pencereOdakla: () => Promise<void>;
+      onayla: (secenek: {
+        baslik?: string;
+        mesaj: string;
+        ayrinti?: string;
+        onayla?: string;
+      }) => Promise<boolean>;
+      ayarGetir: () => Promise<Ayarlar>;
+      ayarKaydet: (yama: Partial<Ayarlar>) => Promise<Ayarlar>;
+      kapanisSorulunca: (cb: () => void) => () => void;
+      kapanisOnayla: () => void;
     };
   }
 }

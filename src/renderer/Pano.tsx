@@ -82,6 +82,7 @@ export default function Pano({ durum, oturumlar, simdi, onBaslat, onOturumaGit }
           <tbody>
             {projeler.map((p) => {
               const oturum = oturumBul(p);
+              const dikkat = oturumlar.some((o) => o.yol === p.yol && o.dikkat);
               const sirada = p.roadmap?.sirada;
               return (
                 <tr key={p.ad} className="border-b border-kenar last:border-b-0 hover:bg-yuzey-guclu">
@@ -90,10 +91,15 @@ export default function Pano({ durum, oturumlar, simdi, onBaslat, onOturumaGit }
                       <span
                         className={
                           'size-1.5 shrink-0 rounded-full ' +
-                          (oturum ? 'bg-aksan' : 'bg-transparent')
+                          (dikkat
+                            ? 'bg-dikkat ring-2 ring-dikkat/30'
+                            : oturum
+                              ? 'bg-aksan'
+                              : 'bg-transparent')
                         }
                         aria-hidden="true"
                       />
+                      {dikkat && <span className="sr-only">dikkat bekliyor</span>}
                       <span className="enstruman text-sm font-medium text-metin">{p.ad}</span>
                     </span>
                   </th>

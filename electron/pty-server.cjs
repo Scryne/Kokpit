@@ -13,7 +13,7 @@ const pty = require('node-pty');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawnSync } = require('child_process');
+const { spawnSync, execFile } = require('child_process');
 
 const TOKEN = process.env.KOKPIT_PTY_TOKEN || '';
 const LOG_DOSYA = path.join(os.homedir(), '.kokpit', 'pty-server.log');
@@ -160,9 +160,12 @@ wss.on('connection', (ws, istek) => {
 
       // Karttan "Baslat": o klasorde dogrudan claude. Kabuk sarmalayici olarak kaliyor ki
       // claude cikinca terminal olmesin, kullanici ayni yerde calismaya devam edebilsin.
-      const claudeIle = m.komut === 'claude';
-      const dosya = claudeIle ? POWERSHELL : KABUK;
-      const argumanlar = claudeIle ? ['-NoLogo', '-NoExit', '-Command', 'claude'] : [];
+      // TEST SEAM: UI testi (scripts/test-ui.cjs) gercek claude acmamali — her acilis
+      // transcript ve hook tetikler. Bu degisken yalniz test kosucusundan gelir.
+      const testKabugu = process.env.KOKPIT_TEST_KABUK === '1';
+      const claudeIle = m.komut === 'claude' && !testKabugu;
+      const dosya = claudeIle || testKabugu ? POWERSHELL : KABUK;
+      const argumanlar = claudeIle ? ['-NoLogo', '-NoExit', '-Command', 'claude'] : testKabugu ? ['-NoLogo', '-NoProfile'] : [];
 
       try {
         p = pty.spawn(dosya, argumanlar, {
@@ -196,6 +199,21 @@ wss.on('connection', (ws, istek) => {
 
     if (!p) return;
     if (m.t === 'veri' && typeof m.d === 'string') p.write(m.d);
+    else if (m.t === 'cocuk') {
+      // "Kabugun altinda hala bir sey calisiyor mu?" — kapatma onayi icin. Yalnizca
+      // istek geldiginde sorulur (CIM sorgusu ~300 ms), asla surekli yoklanmaz.
+      const pid = p.pid;
+      execFile(
+        POWERSHELL,
+        ['-NoProfile', '-NonInteractive', '-Command',
+         '(Get-CimInstance Win32_Process -Filter "ParentProcessId=' + pid + '").Name'],
+        { timeout: 2000, windowsHide: true },
+        (hata, stdout) => {
+          const adlar = hata ? [] : String(stdout).split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+          gonder({ t: 'cocuklar', adlar });
+        }
+      );
+    }
     else if (m.t === 'boyut') {
       const cols = Math.max(2, Number(m.cols) || 80);
       const rows = Math.max(2, Number(m.rows) || 24);
