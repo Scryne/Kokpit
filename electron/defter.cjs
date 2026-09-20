@@ -82,7 +82,11 @@ function sonOturumlar() {
     if (k.bitis === null) continue;
     const eski = sonuc[k.yol];
     if (!eski || eski.bitis < k.bitis) {
-      sonuc[k.yol] = { bitis: k.bitis, sureSn: Math.max(0, Math.round((k.bitis - k.baslangic) / 1000)) };
+      sonuc[k.yol] = {
+        baslangic: k.baslangic,
+        bitis: k.bitis,
+        sureSn: Math.max(0, Math.round((k.bitis - k.baslangic) / 1000)),
+      };
     }
   }
   return sonuc;

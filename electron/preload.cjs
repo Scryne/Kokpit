@@ -26,4 +26,6 @@ contextBridge.exposeInMainWorld('kokpit', {
   defterOlay: (olay) => ipcRenderer.send('defter:olay', olay),
   defterOncekiler: () => ipcRenderer.invoke('defter:oncekiler'),
   defterSonlar: () => ipcRenderer.invoke('defter:sonlar'),
+  // Vault'a tek yazma: Inbox notu.
+  notEkle: (metin, kaynak) => ipcRenderer.invoke('not:ekle', metin, kaynak),
 });

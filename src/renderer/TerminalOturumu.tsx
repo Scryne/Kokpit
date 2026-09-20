@@ -38,7 +38,7 @@ interface Props {
 function uygulamaninKisayolu(e: KeyboardEvent) {
   if (!e.ctrlKey || e.altKey) return false;
   if (e.key === 'Tab') return true;
-  if (e.shiftKey) return e.key === 'W' || e.key === 'w';
+  if (e.shiftKey) return e.key === 'W' || e.key === 'w' || e.key === 'N' || e.key === 'n';
   return e.key === '1' || e.key === '2' || e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0';
 }
 

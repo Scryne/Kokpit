@@ -41,16 +41,36 @@ export interface Proje {
   skills: string[];
 }
 
+/** Beyne dusmemis bir oturum (durum.py beyin.kapsama.dusmemis). */
+export interface DusmemisOturum {
+  proje: string;
+  session: string;
+  gun: string | null;
+  mesaj: number;
+  flush: string;
+}
+
+export interface Kapsama {
+  pencere_gun: number;
+  toplam: number;
+  dusmemis: DusmemisOturum[];
+  son_vault_oturumu_gun: number | null;
+}
+
 export interface Beyin {
   son_log: string | null;
   son_log_gun: number | null;
+  log_sayisi?: number;
   derleyici_son_durum: string | null;
   islenmemis_loglar: string[];
   health_hata: string | null;
+  health_bilesen?: string | null;
   health_yas_gun: number | null;
   makale: number;
   baglanti: number;
-  threads: { baslik: string }[];
+  threads: { baslik: string; durum?: string; isaret?: string }[];
+  /** 2026-09-21'den itibaren durum.py veriyor; eski surumde yok. */
+  kapsama?: Kapsama;
 }
 
 export interface Durum {
@@ -109,9 +129,14 @@ export interface OncekiOturum {
   baslangic: number;
 }
 
+/** Kapanan oturumun beyne dusme durumu (electron/beyin.cjs). */
+export type BeyinKaydi = 'dustu' | 'bekliyor' | 'dusmedi' | 'bos' | 'hata' | 'yok';
+
 export interface SonOturum {
+  baslangic: number;
   bitis: number;
   sureSn: number;
+  beyin: BeyinKaydi;
 }
 
 export interface Ayarlar {
@@ -142,6 +167,7 @@ declare global {
       defterOlay: (olay: DefterOlayi) => void;
       defterOncekiler: () => Promise<OncekiOturum[]>;
       defterSonlar: () => Promise<Record<string, SonOturum>>;
+      notEkle: (metin: string, kaynak: string | null) => Promise<{ dosya?: string; hata?: string }>;
     };
   }
 }

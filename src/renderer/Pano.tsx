@@ -1,6 +1,14 @@
 import { FolderOpen, Play, TerminalSquare } from 'lucide-react';
 import type { Durum, Oturum, Proje, SonOturum } from './types';
-import { AsamaRozeti, GitDurumu, Ilerleme, Olcum, gunMetni, sureMetni } from './parcalar';
+import {
+  AsamaRozeti,
+  BeyinKaydiRozeti,
+  GitDurumu,
+  Ilerleme,
+  Olcum,
+  gunMetni,
+  sureMetni,
+} from './parcalar';
 
 interface Props {
   durum: Durum;
@@ -118,7 +126,8 @@ export default function Pano({
                         son oturum{' '}
                         <span className="enstruman">
                           {gunMetni(sonGun)} · {sureMetni(son.sureSn)}
-                        </span>
+                        </span>{' '}
+                        · <BeyinKaydiRozeti kaydi={son.beyin} />
                       </span>
                     )}
                   </th>

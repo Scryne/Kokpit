@@ -10,7 +10,7 @@ import {
   ScanSearch,
   type LucideIcon,
 } from 'lucide-react';
-import type { Proje } from './types';
+import type { BeyinKaydi, Proje } from './types';
 
 export const ASAMA_SIRA = ['fikir', 'denetim', 'finalizasyon', 'roadmap', 'uygulama', 'tamamlandi'];
 
@@ -107,6 +107,28 @@ export function Ilerleme({ p }: { p: Proje }) {
           />
         </span>
       )}
+    </span>
+  );
+}
+
+/** Kapanan oturumun beyne dusme durumu: kisa metin + ton. Renk tek basina anlam tasimaz. */
+export const BEYIN_KAYDI_METIN: Record<
+  BeyinKaydi,
+  { metin: string; sinif: string; aciklama: string }
+> = {
+  dustu: { metin: 'beyne düştü ✓', sinif: 'text-metin-ikincil', aciklama: 'Oturum günlüğe yazıldı.' },
+  bekliyor: { metin: 'beyne düşüyor…', sinif: 'text-metin-soluk', aciklama: 'Flush çalışıyor ya da hook henüz tetiklenmedi.' },
+  dusmedi: { metin: 'beyne düşmedi', sinif: 'text-dikkat-metin', aciklama: 'Flush hiç tetiklenmedi; Sağlık sayfasından geri doldur.' },
+  bos: { metin: 'kısa oturum', sinif: 'text-metin-soluk', aciklama: 'Kalıcı değer bulunmadı; günlüğe girmedi, normal.' },
+  hata: { metin: 'flush hatası', sinif: 'text-hata-metin', aciklama: 'Özetleme başarısız; beyin-doktor çalıştır.' },
+  yok: { metin: 'transcript yok', sinif: 'text-metin-soluk', aciklama: 'claude bu oturumda hiç konuşma açmadı.' },
+};
+
+export function BeyinKaydiRozeti({ kaydi }: { kaydi: BeyinKaydi }) {
+  const k = BEYIN_KAYDI_METIN[kaydi];
+  return (
+    <span className={'text-xs ' + k.sinif} title={k.aciklama}>
+      {k.metin}
     </span>
   );
 }

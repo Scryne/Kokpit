@@ -7,6 +7,8 @@ const ptyKopru = require('./pty-kopru.cjs');
 const uretim = require('./uretim-protokolu.cjs');
 const ayarlar = require('./ayarlar.cjs');
 const defter = require('./defter.cjs');
+const beyin = require('./beyin.cjs');
+const inboxNotu = require('./not.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
@@ -219,7 +221,23 @@ ipcMain.handle('defter:oncekiler', () => {
   if (liste.length > 0) log('onceki calismadan acik kalan oturum: ' + liste.map((o) => o.ad).join(', '));
   return liste;
 });
-ipcMain.handle('defter:sonlar', () => defter.sonOturumlar());
+ipcMain.handle('defter:sonlar', () => {
+  // Her son oturuma "beyne dustu mu" eklenir (transcript + flush durumu, salt okuma).
+  const sonlar = defter.sonOturumlar();
+  for (const [yol, k] of Object.entries(sonlar)) {
+    try {
+      k.beyin = beyin.oturumBeyinDurumu(yol, k.baslangic);
+    } catch (e) {
+      log('beyin durumu okunamadi (' + yol + '): ' + e.message);
+      k.beyin = 'yok';
+    }
+  }
+  return sonlar;
+});
+// Vault'a TEK yazma: Inbox notu (bkz. not.cjs). Sona ekleme, ustune yazma yok.
+ipcMain.handle('not:ekle', (_e, metin, kaynak) =>
+  inboxNotu.ekle(metin, typeof kaynak === 'string' ? kaynak.slice(0, 60) : null)
+);
 ipcMain.handle('ayar:getir', () => {
   const a = ayarlar.oku();
   return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu };

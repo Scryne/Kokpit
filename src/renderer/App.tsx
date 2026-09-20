@@ -1,7 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Activity,
   AlertTriangle,
   History,
+  Inbox,
   LayoutDashboard,
   PanelLeft,
   Plus,
@@ -12,9 +14,11 @@ import {
 } from 'lucide-react';
 import type { Durum, OncekiOturum, Oturum, OturumDurumu, Proje, SonOturum } from './types';
 import Pano from './Pano';
+import Saglik from './Saglik';
+import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
-import { ASAMA_SIRA, sureMetni } from './parcalar';
+import { ASAMA_SIRA, BeyinKaydiRozeti, sureMetni } from './parcalar';
 
 // durum.py her cagrida ~500 ms'lik bir Python sureci demek. Iki koruma:
 // - ayni anda tek istek (StrictMode'un cift effect'ini de yutar)
@@ -32,7 +36,8 @@ function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat'>) {
   return 'bg-metin-soluk';
 }
 
-type Gorunum = 'pano' | 'terminal';
+type Gorunum = 'pano' | 'terminal' | 'saglik';
+const GORUNUM_BASLIK: Record<Gorunum, string> = { pano: 'Pano', terminal: 'Terminaller', saglik: 'Sağlık' };
 
 /** Onceki calismadan kalan oturumlar icin tek satirlik teklif. Bir kez gorunur. */
 function GeriYuklemeSeridi({
@@ -95,6 +100,14 @@ export default function App() {
   // Onceki calismada acik kalmis oturumlar: geri yukleme teklifi (bir kez).
   const [oncekiler, setOncekiler] = useState<OncekiOturum[]>([]);
   const [sonOturumlar, setSonOturumlar] = useState<Record<string, SonOturum>>({});
+  // Inbox notu (Ctrl+Shift+N) ve kaydedildi bildirimi (4 sn).
+  const [notAcik, setNotAcik] = useState(false);
+  const [notBildirimi, setNotBildirimi] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notBildirimi) return;
+    const t = setTimeout(() => setNotBildirimi(null), 4000);
+    return () => clearTimeout(t);
+  }, [notBildirimi]);
 
   const ucusta = useRef(false);
   const sonOkuma = useRef(0);
@@ -175,6 +188,13 @@ export default function App() {
   const sonlariYenile = useCallback(() => {
     void window.kokpit.defterSonlar().then(setSonOturumlar);
   }, []);
+  // "Beyne dusuyor..." durumundaki bir oturum varken 30 sn'de bir yeniden bak; flush
+  // arka planda ~1 dk surer. Bekleyen yoksa yoklama yok.
+  useEffect(() => {
+    if (!Object.values(sonOturumlar).some((s) => s.beyin === 'bekliyor')) return;
+    const t = setInterval(sonlariYenile, 30_000);
+    return () => clearInterval(t);
+  }, [sonOturumlar, sonlariYenile]);
   useEffect(() => {
     sonlariYenile();
     void window.kokpit.defterOncekiler().then((liste) => {
@@ -474,6 +494,13 @@ export default function App() {
       } else if (e.key === '2') {
         e.preventDefault();
         setGorunum('terminal');
+      } else if (e.key === '3') {
+        e.preventDefault();
+        setGorunum('saglik');
+      } else if (e.shiftKey && (e.key === 'N' || e.key === 'n')) {
+        // Ctrl+Shift+N: Inbox'a not. Kutu acikken tekrar basmak kapatmaz.
+        e.preventDefault();
+        setNotAcik(true);
       } else if (e.shiftKey && (e.key === 'W' || e.key === 'w') && aktifOturumId) {
         // Ctrl+Shift+W bolmeyi kapatir. Ctrl+W terminalin kendisine ait, ona dokunulmaz.
         e.preventDefault();
@@ -616,6 +643,31 @@ export default function App() {
               <span className="enstruman ml-auto text-xs text-metin-soluk">{oturumlar.length}</span>
             )}
           </button>
+          <button
+            type="button"
+            onClick={() => setGorunum('saglik')}
+            title="Sağlık (Ctrl+3)"
+            aria-label="Sağlık"
+            aria-current={gorunum === 'saglik' ? 'page' : undefined}
+            className={
+              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              (kenarAcik ? '' : 'justify-center ') +
+              (gorunum === 'saglik'
+                ? 'bg-yuzey text-metin'
+                : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
+            }
+          >
+            <Activity className="size-4 shrink-0" aria-hidden="true" />
+            {kenarAcik && 'Sağlık'}
+            {kenarAcik && durum?.beyin.kapsama && durum.beyin.kapsama.dusmemis.length > 0 && (
+              <span
+                className="enstruman ml-auto text-xs text-dikkat-metin"
+                title={durum.beyin.kapsama.dusmemis.length + ' oturum beyne düşmedi'}
+              >
+                {durum.beyin.kapsama.dusmemis.length}
+              </span>
+            )}
+          </button>
         </nav>
 
         {kenarAcik && <p className="etiket mt-6 px-4">Projeler</p>}
@@ -710,7 +762,7 @@ export default function App() {
               <PanelLeft className="size-4" aria-hidden="true" />
             </button>
             <h1 className="shrink-0 text-sm font-medium text-metin">
-              {gorunum === 'pano' ? 'Pano' : (aktifOturum?.ad ?? 'Terminaller')}
+              {gorunum === 'terminal' ? (aktifOturum?.ad ?? 'Terminaller') : GORUNUM_BASLIK[gorunum]}
             </h1>
             {gorunum === 'pano' && durum && (
               <span className="enstruman text-xs text-metin-soluk">
@@ -721,6 +773,21 @@ export default function App() {
               <span className="enstruman truncate text-xs text-metin-soluk">{aktifOturum.yol}</span>
             )}
           </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {notBildirimi && (
+              <span role="status" className="text-xs text-metin-soluk">
+                {notBildirimi}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setNotAcik(true)}
+              title="Inbox'a not (Ctrl+Shift+N)"
+              aria-label="Inbox'a not"
+              className="shrink-0 cursor-pointer rounded-kontrol border border-kenar p-1.5 text-metin-soluk transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
+            >
+              <Inbox className="size-4" aria-hidden="true" />
+            </button>
           <button
             type="button"
             onClick={() => void tazele('elle')}
@@ -733,7 +800,18 @@ export default function App() {
             />
             {yukleniyor ? 'Okunuyor' : 'Tazele'}
           </button>
+          </div>
         </header>
+
+        <NotKutusu
+          acik={notAcik}
+          kaynak={gorunum === 'terminal' && aktifOturum ? aktifOturum.ad : null}
+          onKapat={() => setNotAcik(false)}
+          onKaydedildi={() => {
+            setNotAcik(false);
+            setNotBildirimi("Not Inbox'a düştü");
+          }}
+        />
 
         {/* Pano: gizlenir, sokulmez — tazeleme durumu korunur. */}
         <main
@@ -772,6 +850,18 @@ export default function App() {
             />
           )}
         </main>
+
+        <section
+          aria-label="Sağlık"
+          className={(gorunum === 'saglik' ? 'block' : 'hidden') + ' min-h-0 flex-1 overflow-y-auto pr-1'}
+        >
+          {durum && (
+            <Saglik
+              durum={durum}
+              onVaultOturumu={() => sekmeAc({ ad: 'ScryneOS', yol: durum.vault })}
+            />
+          )}
+        </section>
 
         {/* Terminaller: sekmeler + yan yana bolmeler. Hepsi mount kalir, biri gorunur. */}
         <section
@@ -987,6 +1077,12 @@ export default function App() {
                             }
                           >
                             {o.mesaj}
+                            {o.durumu === 'bitti' && sonOturumlar[o.yol] && (
+                              <>
+                                {' · '}
+                                <BeyinKaydiRozeti kaydi={sonOturumlar[o.yol].beyin} />
+                              </>
+                            )}
                           </p>
                         )}
                         <div

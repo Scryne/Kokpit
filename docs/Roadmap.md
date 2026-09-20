@@ -23,7 +23,7 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 5 | Sertleştirme + günlük kullanıma alma | ✅ Tamamlandı | Erişilebilirlik/animasyon pasları geçti, `kokpit` komutu çalışıyor, bir hafta gerçekten kullanıldı |
 | 6 | Terminal: profesyonel taban | ✅ Tamamlandı | WebGL/unicode11/link/arama/pano/yazı boyutu; zil → rozet + bildirim; canlı oturumu kapatırken onay |
 | 7 | Süreklilik: Kokpit'in kendi hafızası | ✅ Tamamlandı | Pencere/ayarlar hatırlanır; oturum defteri; açılışta geri yükleme `claude --continue` ile çalışır |
-| 8 | Beyin senkronu + Sağlık sayfası | ⏳ Bekliyor | Proje oturumları `daily/`'ye düşüyor; `durum.py` düşmemişleri sayıyor; Sağlık sayfası boru zincirini gösteriyor; Inbox'a not |
+| 8 | Beyin senkronu + Sağlık sayfası | ✅ Tamamlandı | Proje oturumları `daily/`'ye düşüyor; `durum.py` düşmemişleri sayıyor; Sağlık sayfası boru zincirini gösteriyor; Inbox'a not |
 | 9 | Envanter sayfası | ⏳ Bekliyor | Skill/MCP/drift ve bütçe dağılımı Kokpit'te okunuyor |
 | 10 | Kimlik ve cila | ⏳ Bekliyor | Özel ikon, a11y/motion pasları yeni yüzeylerde geçti, README/DESIGN.md güncel |
 
@@ -275,6 +275,27 @@ listelenmiş** yazmalar; cam yalnız nav ve şerit.
 - **Bitti Kriteri:** Kokpit'ten açılıp `/exit` ile kapatılan bir ScryneQuant oturumu 3 dk
   içinde `daily/`'de proje etiketiyle görünüyor ve sekmede ✓ çıkıyor; Sağlık sayfası
   düşmemiş oturum sayısını `flush_kapsama.py` ile aynı veriyor.
+  ✅ (2026-09-21) — Boru gerçek bir ScryneQuant transcript'iyle uçtan uca çalıştı:
+  `proje-flush.ps1` → `flush.py --proje` → `daily/2026-09-21.md` `### Oturum (01:33) —
+  ScryneQuant` (beyin projenin R2 turuna geçtiğini ilk kez buradan öğrendi). `durum.py`
+  `beyin.kapsama` son 8 günde 11 oturumun 10'unu düşmemiş saydı (hepsi ScryneQuant);
+  `flush_kapsama.py --proje ScryneQuant --doldur` ile 17 oturum geriye dönük dolduruldu.
+  `test:ui` 27/27: Ctrl+3 Sağlık, 4 halkalı zincir, bütçe grafiği, Aria düğmesi, Pano'da
+  beyin kaydı, Ctrl+Shift+N notu Inbox dosyasına **sona** ekleniyor. Sekmede ✓'nin gerçek
+  claude oturumuyla görünmesi Scryne'ın kullanımında doğrulanacak (test kabuğu claude açmaz).
+- **Notlar:**
+  1. Vault tarafı: `.claude/hooks/proje-flush.ps1` (lib.ps1 dot-source edilmez — yüklenirken
+     proje klasörüne `.state` açıyor), 4 proje + `proje-baslat` şablonu hook'una 6 satır.
+     `flush.py --proje` başlığa ` — <ad>` ekler ve istemde projeyi söyler.
+  2. Kokpit `electron/beyin.cjs`: defterdeki başlangıç → o andan sonra doğan transcript →
+     `flush-<sha256>.json`. Durumlar: düştü / düşüyor… / düşmedi / kısa / hata / transcript
+     yok. "Düşüyor…" varken 30 sn'de bir yeniden bakılır, yoksa yoklama yok.
+  3. **Vault'a ilk ve tek yazma:** `not.cjs` yalnız `📥 000-Inbox/Dump/YYYY-MM-DD.md`, yalnız
+     sona ekleme. README kuralı "v1 yazmaz" → "v2 yalnız Inbox'a ekler".
+  4. Bütçe grafiği paleti `dataviz` doğrulayıcısıyla koyu yüzeyde test edildi: aksan
+     `#8b5cf6` + teal `#0d9488` (ilk denenen üç açık teal/mavi lightness bandını geçemedi).
+  5. Test tuzağı: `toISOString()` UTC günü verir, Inbox dosyası yerel günle açılır — gece
+     yarısından sonra test yanlış dosyaya baktı. Yerel tarih kullanılıyor.
 
 ### Faz 9: Envanter sayfası
 - **İşler:** global/vault/proje skill'leri, MCP'ler, drift (kayıtsız/hayalet), bütçe tipi
