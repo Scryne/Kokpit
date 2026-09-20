@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import {
   Activity,
   AlertTriangle,
+  Boxes,
   History,
   Inbox,
   LayoutDashboard,
@@ -15,6 +16,7 @@ import {
 import type { Durum, OncekiOturum, Oturum, OturumDurumu, Proje, SonOturum } from './types';
 import Pano from './Pano';
 import Saglik from './Saglik';
+import Envanter from './Envanter';
 import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
@@ -36,8 +38,13 @@ function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat'>) {
   return 'bg-metin-soluk';
 }
 
-type Gorunum = 'pano' | 'terminal' | 'saglik';
-const GORUNUM_BASLIK: Record<Gorunum, string> = { pano: 'Pano', terminal: 'Terminaller', saglik: 'Sağlık' };
+type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter';
+const GORUNUM_BASLIK: Record<Gorunum, string> = {
+  pano: 'Pano',
+  terminal: 'Terminaller',
+  saglik: 'Sağlık',
+  envanter: 'Envanter',
+};
 
 /** Onceki calismadan kalan oturumlar icin tek satirlik teklif. Bir kez gorunur. */
 function GeriYuklemeSeridi({
@@ -497,6 +504,9 @@ export default function App() {
       } else if (e.key === '3') {
         e.preventDefault();
         setGorunum('saglik');
+      } else if (e.key === '4') {
+        e.preventDefault();
+        setGorunum('envanter');
       } else if (e.shiftKey && (e.key === 'N' || e.key === 'n')) {
         // Ctrl+Shift+N: Inbox'a not. Kutu acikken tekrar basmak kapatmaz.
         e.preventDefault();
@@ -667,6 +677,33 @@ export default function App() {
                 {durum.beyin.kapsama.dusmemis.length}
               </span>
             )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setGorunum('envanter')}
+            title="Envanter (Ctrl+4)"
+            aria-label="Envanter"
+            aria-current={gorunum === 'envanter' ? 'page' : undefined}
+            className={
+              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              (kenarAcik ? '' : 'justify-center ') +
+              (gorunum === 'envanter'
+                ? 'bg-yuzey text-metin'
+                : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
+            }
+          >
+            <Boxes className="size-4 shrink-0" aria-hidden="true" />
+            {kenarAcik && 'Envanter'}
+            {kenarAcik &&
+              durum &&
+              durum.envanter.drift_kayitsiz.length + durum.envanter.drift_hayalet.length > 0 && (
+                <span
+                  className="enstruman ml-auto text-xs text-dikkat-metin"
+                  title="CLAUDE.md drift"
+                >
+                  {durum.envanter.drift_kayitsiz.length + durum.envanter.drift_hayalet.length}
+                </span>
+              )}
           </button>
         </nav>
 
@@ -861,6 +898,13 @@ export default function App() {
               onVaultOturumu={() => sekmeAc({ ad: 'ScryneOS', yol: durum.vault })}
             />
           )}
+        </section>
+
+        <section
+          aria-label="Envanter"
+          className={(gorunum === 'envanter' ? 'block' : 'hidden') + ' min-h-0 flex-1 overflow-y-auto pr-1'}
+        >
+          {durum && <Envanter durum={durum} />}
         </section>
 
         {/* Terminaller: sekmeler + yan yana bolmeler. Hepsi mount kalir, biri gorunur. */}

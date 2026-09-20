@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowRight, Brain, CheckCircle2, MessageSquareText } from 'lucide-react';
-import type { Durum } from './types';
+import type { Durum, GunButcesi } from './types';
 import { gunMetni } from './parcalar';
 
 interface Props {
@@ -66,7 +66,7 @@ function tk(n: number) {
 }
 
 /** Yedi gunluk token cubuklari: gun basina iki seri yan yana, tek eksen, hover basligi. */
-function ButceGrafigi({ gunler }: { gunler: Record<string, Record<string, number>> }) {
+function ButceGrafigi({ gunler }: { gunler: Record<string, GunButcesi> }) {
   const sirali = Object.entries(gunler).sort(([a], [b]) => a.localeCompare(b));
   if (sirali.length === 0) return <p className="text-xs text-metin-soluk">7 günde kayıt yok.</p>;
   const enCok = Math.max(1, ...sirali.flatMap(([, g]) => SERI.map((s) => g[s.anahtar] ?? 0)));
@@ -138,9 +138,8 @@ function ButceGrafigi({ gunler }: { gunler: Record<string, Record<string, number
 export default function Saglik({ durum, onVaultOturumu }: Props) {
   const b = durum.beyin;
   const k = b.kapsama;
-  const butce = durum.butce as { gunler?: Record<string, Record<string, number>>; tip?: Record<string, Record<string, number>> };
-  const gunler = butce.gunler ?? {};
-  const tip = butce.tip ?? {};
+  const gunler = durum.butce.gunler ?? {};
+  const tip = durum.butce.tip ?? {};
   const hookPayi = (() => {
     const o = tip.oturum?.yeni_girdi ?? 0;
     const h = tip.hook?.yeni_girdi ?? 0;

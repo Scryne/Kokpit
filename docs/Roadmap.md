@@ -24,7 +24,7 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 6 | Terminal: profesyonel taban | ✅ Tamamlandı | WebGL/unicode11/link/arama/pano/yazı boyutu; zil → rozet + bildirim; canlı oturumu kapatırken onay |
 | 7 | Süreklilik: Kokpit'in kendi hafızası | ✅ Tamamlandı | Pencere/ayarlar hatırlanır; oturum defteri; açılışta geri yükleme `claude --continue` ile çalışır |
 | 8 | Beyin senkronu + Sağlık sayfası | ✅ Tamamlandı | Proje oturumları `daily/`'ye düşüyor; `durum.py` düşmemişleri sayıyor; Sağlık sayfası boru zincirini gösteriyor; Inbox'a not |
-| 9 | Envanter sayfası | ⏳ Bekliyor | Skill/MCP/drift ve bütçe dağılımı Kokpit'te okunuyor |
+| 9 | Envanter sayfası | ✅ Tamamlandı | Skill/MCP/drift ve bütçe dağılımı Kokpit'te okunuyor |
 | 10 | Kimlik ve cila | ⏳ Bekliyor | Özel ikon, a11y/motion pasları yeni yüzeylerde geçti, README/DESIGN.md güncel |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
@@ -301,6 +301,10 @@ listelenmiş** yazmalar; cam yalnız nav ve şerit.
 - **İşler:** global/vault/proje skill'leri, MCP'ler, drift (kayıtsız/hayalet), bütçe tipi
   (oturum vs hook artığı), öksüz transcript dizinleri. Veri `durum.py --json`'da hazır.
 - **Bitti Kriteri:** `/durum` skill'inin envanter tablosuyla aynı sayılar Kokpit'te.
+  ✅ (2026-09-21) — Ctrl+4. Drift en üstte (tek "müdahale" bilgisi; yoksa sakin), skill/MCP
+  çipleri, transcript hijyeni (oturum vs hook artığı yeni girdi, hook payı ≥%20 uyarı,
+  öksüz dizinler). `Durum` tipleri artık `envanter`/`butce` için gerçek şema (`unknown`
+  değil). `test:ui` 29/29.
 
 ### Faz 10: Kimlik ve cila
 - **İşler:** özel uygulama ikonu (SVG → çok boyutlu PNG → `.ico`; pencere, görev çubuğu,
