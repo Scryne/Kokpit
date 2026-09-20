@@ -101,6 +101,7 @@ declare global {
       logYolu: () => Promise<string>;
       klasorAc: (yol: string) => Promise<boolean>;
       ptyBilgi: () => Promise<PtyBilgiSonuc>;
+      dosyaYolu: (dosya: File) => string;
     };
   }
 }

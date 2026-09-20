@@ -49,6 +49,13 @@ function pencereKur() {
   });
   pencere.once('ready-to-show', () => pencere.show());
 
+  // Pencereye dosya birakilinca Chromium o dosyaya GITMEYE calisir (file:// gezinme) ve
+  // uygulama kaybolur. Birakma isi renderer'da (terminale yol yazar); gezinme kapali.
+  pencere.webContents.on('will-navigate', (olay, url) => {
+    log(`gezinme engellendi: ${url}`);
+    olay.preventDefault();
+  });
+
   // Yakinlastirma KILITLI. Electron'un varsayilan menusu Ctrl+= / Ctrl+- / Ctrl+0
   // hizlandiricilarini tasiyor; kazara basilinca tum arayuz olcekleniyordu.
   // Bu bir masaustu uygulamasi, tarayici degil.
