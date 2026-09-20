@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -16,8 +16,14 @@ interface Props {
  * Gorunmedigi zaman gizlenir, sokulmez — yoksa Pano'ya her bakista WS kapanir,
  * PTY olur ve calisan claude oturumu kaybolur. Oturum listesi App'te yasar.
  */
+/** Bosluk/tirnak iceren yol kabuga tek arguman olarak gitsin (Windows Terminal de boyle yapar). */
+function yolTirnakla(yol: string) {
+  return /[\s"']/.test(yol) ? '"' + yol.replace(/"/g, '\\"') + '"' : yol;
+}
+
 export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
   const kutuRef = useRef<HTMLDivElement>(null);
+  const [birakiliyor, setBirakiliyor] = useState(false);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -183,8 +189,44 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
     return () => clearTimeout(zaman);
   }, [gorunur]);
 
+  /**
+   * Dosya birakma: yol(lar) terminale yazilir, tipki Windows Terminal'e surukler gibi.
+   * Claude Code yapistirilan resim yolunu kendisi taniyor; burada yalnizca yol gider.
+   * `File.path` yok (Electron 32+); yol preload'daki webUtils'ten geliyor.
+   */
+  const birak = (e: React.DragEvent) => {
+    e.preventDefault();
+    setBirakiliyor(false);
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const yollar = [...e.dataTransfer.files]
+      .map((d) => window.kokpit.dosyaYolu(d))
+      .filter((y) => y.length > 0)
+      .map(yolTirnakla);
+    if (yollar.length === 0) return;
+    ws.send(JSON.stringify({ t: 'veri', d: yollar.join(' ') + ' ' }));
+    termRef.current?.focus();
+  };
+
   return (
-    <div className={(gorunur ? 'block' : 'hidden') + ' h-full w-full'}>
+    <div
+      onDragOver={(e) => {
+        if (![...e.dataTransfer.types].includes('Files')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        if (!birakiliyor) setBirakiliyor(true);
+      }}
+      onDragLeave={(e) => {
+        // Cocuk elemanlar arasinda gecis de dragleave uretir; yalnizca kutudan cikinca kapat.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setBirakiliyor(false);
+      }}
+      onDrop={birak}
+      className={
+        (gorunur ? 'block' : 'hidden') +
+        ' h-full w-full rounded-kontrol ' +
+        (birakiliyor ? 'outline-2 outline-dashed outline-aksan/70 -outline-offset-2' : '')
+      }
+    >
       <div ref={kutuRef} className="h-full w-full overflow-hidden" />
     </div>
   );
