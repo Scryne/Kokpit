@@ -1,7 +1,7 @@
 ---
 proje: Kokpit
 created: 2026-09-10
-modified: 2026-09-20
+modified: 2026-09-21
 type: roadmap
 status: aktif
 ---
@@ -21,6 +21,18 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 3 | DESIGN.md + Pano'nun gerçek hali | ✅ Tamamlandı | Kartlar tasarım kimliğine uygun; aşama/roadmap/git/"nerede kaldın" okunaklı |
 | 4 | Sekmeler, bölmeler + canlı oturum farkındalığı | ✅ Tamamlandı | Birden fazla oturum sekmesi, "hangi proje / ne kadar süredir açık" doğru |
 | 5 | Sertleştirme + günlük kullanıma alma | ✅ Tamamlandı | Erişilebilirlik/animasyon pasları geçti, `kokpit` komutu çalışıyor, bir hafta gerçekten kullanıldı |
+| 6 | Terminal: profesyonel taban | ⏳ Bekliyor | WebGL/unicode11/link/arama/pano/yazı boyutu; zil → rozet + bildirim; canlı oturumu kapatırken onay |
+| 7 | Süreklilik: Kokpit'in kendi hafızası | ⏳ Bekliyor | Pencere/ayarlar hatırlanır; oturum defteri; açılışta geri yükleme `claude --continue` ile çalışır |
+| 8 | Beyin senkronu + Sağlık sayfası | ⏳ Bekliyor | Proje oturumları `daily/`'ye düşüyor; `durum.py` düşmemişleri sayıyor; Sağlık sayfası boru zincirini gösteriyor; Inbox'a not |
+| 9 | Envanter sayfası | ⏳ Bekliyor | Skill/MCP/drift ve bütçe dağılımı Kokpit'te okunuyor |
+| 10 | Kimlik ve cila | ⏳ Bekliyor | Özel ikon, a11y/motion pasları yeni yüzeylerde geçti, README/DESIGN.md güncel |
+
+**v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
+en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
+kapanınca unutma → beyinle gerçek senkron → planın v1.1 sayfaları → kimlik. Değişmeyen
+kurallar: veri kaynağı `durum.py` (Kokpit'in **kendi** çalışma verisi — oturum defteri,
+ayarlar — `~/.kokpit/` altında, bu toplayıcı değil); vault'a yalnızca **dar ve açıkça
+listelenmiş** yazmalar; cam yalnız nav ve şerit.
 
 ## Faz Detayları
 
@@ -173,3 +185,74 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
   dersi. Aracın değil ihtiyacın yanlış okunduğu anlaşılır. **2026-09-20: kullanım koşulu
   sağlandı**, v1.1 artık açılabilir; kapsamı `🧠 500-Knowledge/Kokpit-Plani.md`'de, ama
   hangi sayfanın önce geleceği gerçek kullanımdaki eksikten çıkmalı, plandan değil.
+
+### Faz 6: Terminal — profesyonel taban
+- **İşler:**
+  1. `@xterm/addon-webgl` (yüklenemezse canvas'a düş), `@xterm/addon-unicode11` (emoji ve
+     kutu çizimi genişlikleri — claude TUI ikisini de kullanır), `@xterm/addon-web-links`
+     (tıklama → main'de `shell.openExternal`, yalnız `http(s)`), `@xterm/addon-search`
+     (Ctrl+Shift+F arama çubuğu, Enter/Shift+Enter, Escape kapatır).
+  2. Pano: Ctrl+Shift+C kopyala (seçim varsa), Ctrl+Shift+V yapıştır, sağ tık yapıştır.
+  3. Yazı boyutu: Ctrl+= / Ctrl+- / Ctrl+0 (yalnız terminal odaktayken; uygulama zoom'u
+     kilitli kalır), tüm terminallere uygulanır, kalıcı (Faz 7 ayar dosyası).
+  4. **Zil:** `term.onBell` → sekme/bölme "dikkat" rozeti (aktif olmayan sekmede); pencere
+     odakta değilse Windows bildirimi (proje adı), tıklayınca o sekmeye gidilir. Claude Code
+     bitince/soru sorunca zil çalar (`terminal_bell`); çoklu oturumun asıl değeri bu.
+  5. Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü.
+  6. **Kapatma koruması:** kabuk hâlâ canlıyken sekme/bölme kapatılırsa yerel onay
+     diyaloğu; uygulama kapatılırken açık oturum varsa aynı. Gerekçe: PTY öldürülünce claude
+     SIGHUP alır ve **SessionEnd hook'u çalışmaz** → oturum beyne düşmez. Metin bunu söyler.
+- **Bitti Kriteri:** claude TUI'si WebGL'de çiziliyor (log'da hangi renderer yazıyor);
+  link tıklanınca tarayıcı açılıyor; arka plandaki sekmede claude bitince rozet + bildirim
+  geliyor; canlı oturum kapatılırken onay soruluyor; yazı boyutu değişip kalıyor.
+
+### Faz 7: Süreklilik — Kokpit'in kendi hafızası
+- **İşler:**
+  1. `~/.kokpit/ayarlar.json`: pencere konumu/boyutu/maksimize, kenar çubuğu, yazı boyutu.
+     Main yazar (renderer dosyaya dokunmaz), atomik yazım.
+  2. `~/.kokpit/oturumlar.jsonl`: Kokpit'in açtığı her oturum — id, proje, yol, başlangıç,
+     bitiş, çıkış kodu. PTY sunucusu değil main yazar (tek yazar).
+  3. Açılışta: önceki çalışmada açık kalmış oturumlar (bitişsiz kayıtlar) varsa Terminaller
+     boş durumunda "N oturum açıktı — geri yükle" → her klasörde `claude --continue`.
+  4. Pano proje satırına "son oturum" (defterden: ne zaman, ne kadar sürdü).
+- **Bitti Kriteri:** Kokpit kapatılıp açılınca pencere aynı yerde; iki açık oturumla
+  kapatılıp açılınca geri yükleme teklif ediyor ve `--continue` konuşmayı geri getiriyor.
+
+### Faz 8: Beyin senkronu + Sağlık sayfası
+- **Bulgu (2026-09-20):** `~/.claude/projects/` altında 10 günde 20 ScryneQuant oturumu var,
+  `daily/`'de vault dışı hiç oturum yok. Proje `session-end.ps1` yalnız `state.json` +
+  Roadmap'i güncelliyor, vault `flush.py`'ını çağırmıyor. **Kokpit'ten açılsa da açılmasa da
+  proje oturumları beyne girmiyor.** Bilgi tabanının ScryneQuant'ı "Faz 2'de" sanmasının
+  kaynağı bu.
+- **İşler:**
+  1. Vault: `flush.py --proje <ad>` → günlük başlığı `### Oturum (HH:MM) — <ad>`.
+     Proje `session-end.ps1`'leri (4 proje + `proje-baslat` şablonu) vault `lib.ps1`'deki
+     `Start-BeyinFlush`'ı ayrık süreç olarak tetikler. Geriye dönük: düşmemiş son oturumlar
+     bir kez toplu flush edilir.
+  2. `durum.py`: `beyin.kapsama` — proje transcript'leri (son 8 gün) × flush durumu →
+     düşmemiş oturum listesi; `beyin.son_vault_oturumu_gun`.
+  3. **Sağlık sayfası** (Kokpit): boru zinciri (log → flush → derleyici → bilgi tabanı) tek
+     satır durumla; düşmemiş oturumlar (proje etiketli); hook hatası; 7 günlük bütçe çubuğu
+     (yeni girdi / çıktı / cache ayrı — `dataviz` kurallarıyla); açık thread'ler (Status +
+     İzle satırı); **"Aria ile konuş"** (vault'ta claude aç; "son vault oturumu N gün önce").
+  4. Kapanan sekmede "beyne düştü ✓ / bekliyor / düşmedi": oturum defterindeki başlangıç →
+     `~/.claude/projects/<slug>/` altında o andan sonra doğan transcript → flush state.
+  5. **İlk dar yazma:** Ctrl+Shift+N → küçük not kutusu → `📥 000-Inbox/Dump/` altına tarihli
+     ekleme. Plan bunu "okuma penceresi oturduktan sonra" diye öngörmüştü; oturdu.
+- **Bitti Kriteri:** Kokpit'ten açılıp `/exit` ile kapatılan bir ScryneQuant oturumu 3 dk
+  içinde `daily/`'de proje etiketiyle görünüyor ve sekmede ✓ çıkıyor; Sağlık sayfası
+  düşmemiş oturum sayısını `flush_kapsama.py` ile aynı veriyor.
+
+### Faz 9: Envanter sayfası
+- **İşler:** global/vault/proje skill'leri, MCP'ler, drift (kayıtsız/hayalet), bütçe tipi
+  (oturum vs hook artığı), öksüz transcript dizinleri. Veri `durum.py --json`'da hazır.
+- **Bitti Kriteri:** `/durum` skill'inin envanter tablosuyla aynı sayılar Kokpit'te.
+
+### Faz 10: Kimlik ve cila
+- **İşler:** özel uygulama ikonu (SVG → çok boyutlu PNG → `.ico`; pencere, görev çubuğu,
+  kısayol); pencere başlığı "Kokpit — <aktif proje>"; `fixing-accessibility` +
+  `fixing-motion-performance` yeni yüzeylerde; `ux-writing` ile diyalog/bildirim metinleri;
+  README ve DESIGN.md.
+- **Bitti Kriteri:** görev çubuğunda Electron atomu değil Kokpit ikonu; pasların bulgu listesi
+  boş; README yeni kısayolları ve dosyaları anlatıyor.
+
