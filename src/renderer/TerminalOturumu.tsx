@@ -19,6 +19,8 @@ interface Props {
   id: string;
   yol: string;
   gorunur: boolean;
+  /** Geri yukleme: claude --continue. */
+  devam?: boolean;
   yaziBoyutu: number;
   onDurum: (id: string, durumu: OturumDurumu, mesaj?: string) => void;
   /** Terminal zili: claude bitti ya da soru soruyor. */
@@ -63,6 +65,7 @@ export default function TerminalOturumu({
   id,
   yol,
   gorunur,
+  devam = false,
   yaziBoyutu,
   onDurum,
   onZil,
@@ -255,7 +258,13 @@ export default function TerminalOturumu({
 
       ws.onopen = () => {
         ws.send(
-          JSON.stringify({ t: 'ac', cwd: yol, komut: 'claude', cols: term.cols, rows: term.rows })
+          JSON.stringify({
+            t: 'ac',
+            cwd: yol,
+            komut: devam ? 'claude-devam' : 'claude',
+            cols: term.cols,
+            rows: term.rows,
+          })
         );
       };
       ws.onmessage = (ev) => {

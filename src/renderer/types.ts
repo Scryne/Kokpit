@@ -85,6 +85,8 @@ export interface Oturum {
   oran: number;
   /** Zil caldi ve kullanici o sirada bakmiyordu: claude bitti ya da soru soruyor. */
   dikkat?: boolean;
+  /** Geri yukleme: `claude --continue` ile acilir (onceki calismadan kalan oturum). */
+  devam?: boolean;
 }
 
 export interface PtyBilgi {
@@ -95,6 +97,22 @@ export interface PtyBilgi {
 export type PtyBilgiSonuc =
   | { bilgi: PtyBilgi; hata?: undefined }
   | { hata: string; bilgi?: undefined };
+
+export type DefterOlayi =
+  | { olay: 'acildi'; id: string; ad: string; yol: string }
+  | { olay: 'kapandi'; id: string; kod?: number | null; sebep: 'kullanici' | 'kabuk' };
+
+/** Onceki calismada acik kalmis oturum: geri yukleme teklifi. */
+export interface OncekiOturum {
+  ad: string;
+  yol: string;
+  baslangic: number;
+}
+
+export interface SonOturum {
+  bitis: number;
+  sureSn: number;
+}
 
 export interface Ayarlar {
   kenarAcik: boolean;
@@ -121,6 +139,9 @@ declare global {
       ayarKaydet: (yama: Partial<Ayarlar>) => Promise<Ayarlar>;
       kapanisSorulunca: (cb: () => void) => () => void;
       kapanisOnayla: () => void;
+      defterOlay: (olay: DefterOlayi) => void;
+      defterOncekiler: () => Promise<OncekiOturum[]>;
+      defterSonlar: () => Promise<Record<string, SonOturum>>;
     };
   }
 }

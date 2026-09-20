@@ -22,4 +22,8 @@ contextBridge.exposeInMainWorld('kokpit', {
     return () => ipcRenderer.removeListener('kapanis:sor', dinleyici);
   },
   kapanisOnayla: () => ipcRenderer.send('kapanis:onay'),
+  // Oturum defteri: acilis/kapanis olaylari main'e, main diske (tek yazar).
+  defterOlay: (olay) => ipcRenderer.send('defter:olay', olay),
+  defterOncekiler: () => ipcRenderer.invoke('defter:oncekiler'),
+  defterSonlar: () => ipcRenderer.invoke('defter:sonlar'),
 });
