@@ -37,6 +37,10 @@ export default function ProjeSecici({ projeler, ikon: Ikon, baslik, onSec }: Pro
 
   useEffect(() => {
     if (!acik) return;
+    // Menu portal'da, DOM'da butonun yaninda degil: Tab ile ulasilamaz. Bu yuzden
+    // acilinca odak ilk ogeye tasinir, kapaninca (Escape) dugmeye geri verilir.
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+
     const disari = (e: MouseEvent) => {
       const hedef = e.target as Node;
       if (butonRef.current?.contains(hedef)) return;
@@ -44,7 +48,13 @@ export default function ProjeSecici({ projeler, ikon: Ikon, baslik, onSec }: Pro
       setAcik(false);
     };
     const kacis = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setAcik(false);
+      if (e.key === 'Escape') {
+        setAcik(false);
+        butonRef.current?.focus();
+      } else if (e.key === 'Tab') {
+        // Menu deseni: Tab menuyu terk eder, icinde dolasmaz.
+        setAcik(false);
+      }
     };
     const kapat = () => setAcik(false);
 
@@ -86,7 +96,23 @@ export default function ProjeSecici({ projeler, ikon: Ikon, baslik, onSec }: Pro
             role="menu"
             aria-label={baslik}
             style={{ top: konum.ust, right: konum.sag }}
-            className="halka fixed z-50 w-56 overflow-hidden rounded-base bg-yuzey-guclu py-1 shadow-xl shadow-black/50 backdrop-blur-xl"
+            onKeyDown={(e) => {
+              const ogeler = [
+                ...(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+              ];
+              if (ogeler.length === 0) return;
+              const i = ogeler.indexOf(document.activeElement as HTMLElement);
+              let hedef: number;
+              if (e.key === 'ArrowDown') hedef = (i + 1) % ogeler.length;
+              else if (e.key === 'ArrowUp') hedef = (i - 1 + ogeler.length) % ogeler.length;
+              else if (e.key === 'Home') hedef = 0;
+              else if (e.key === 'End') hedef = ogeler.length - 1;
+              else return;
+              e.preventDefault();
+              ogeler[hedef].focus();
+            }}
+            // Cam degil (DESIGN.md: cam yalniz nav ve sekme seridinde); zemin zaten %85 opak.
+            className="halka fixed z-50 w-56 overflow-hidden rounded-base bg-yuzey-guclu py-1 shadow-xl shadow-black/50"
           >
             <p className="etiket px-3 py-1.5">{baslik}</p>
             {projeler.map((p) => (
@@ -98,7 +124,7 @@ export default function ProjeSecici({ projeler, ikon: Ikon, baslik, onSec }: Pro
                   onSec(p);
                   setAcik(false);
                 }}
-                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left transition-colors duration-[180ms] hover:bg-yuzey"
+                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left transition-colors duration-[180ms] hover:bg-yuzey focus-visible:bg-yuzey focus-visible:outline-none"
               >
                 <span className="enstruman truncate text-xs text-metin-ikincil">{p.ad}</span>
               </button>

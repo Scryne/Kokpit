@@ -20,6 +20,16 @@ kokpit -dev     # dev sunucusu + HMR
 `kokpit` PowerShell profilinde tanımlı, her dizinden çalışır. Proje kökünden doğrudan:
 `npm run kokpit` (üretim) veya `npm start` (dev).
 
+**Başlat menüsü kısayolu:** `npm run kisayol` (masaüstüne de: `npm run kisayol -- -Masaustu`).
+Kısayol `scripts/kokpit-sessiz.vbs`'i hedefler; `node` konsol uygulaması olduğu için `.lnk`
+doğrudan onu hedefleseydi Electron'un yanında boş bir siyah pencere kalırdı. Bu yoldan
+açılınca derleme çıktısı görünmez — bir şey açılmıyorsa terminalden `kokpit` çalıştır.
+
+**Klavye:** Ctrl+1 Pano, Ctrl+2 Terminaller, Ctrl+B kenar çubuğu, Ctrl+Shift+W bölmeyi
+kapat; sekme şeridinde ← → , bölme ayırıcısında ← → (%5). Terminal odaktayken **Ctrl+B
+claude'a gider** (Claude Code'un "arka plana at" kısayolu), kenar çubuğunu başlık
+çubuğundaki düğme açar. Diğer üç kısayol terminale hiç ulaşmaz.
+
 Üretimde arayüz `app://kokpit/` özel şemasından servis edilir — gerçek bir origin olduğu
 için CSP uygulanabiliyor. `file://` kullanılmaz: `onHeadersReceived` o istekler için
 tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
@@ -30,7 +40,12 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 npm run test:pty     # PTY sunucusunun uçtan uca testi (11 kontrol)
 npm run typecheck
 npm run build
+npm run design:lint  # DESIGN.md spec denetimi
 ```
+
+`design:lint` bilerek `npx -p @google/design.md designmd` der: paket adı `npx @google/design.md`
+diye çağrılınca bin adındaki nokta yüzünden **sessizce hiçbir şey yapmıyor** (çıkış 0, çıktı
+yok). Bin adı açık verilince çalışıyor.
 
 `test:pty` elle doğrulanamayan şeyi doğrular: token reddi, cwd, yazma/okuma, resize'in
 kabuğa geçmesi, temiz kapanış ve **yetim süreç bırakmama**.

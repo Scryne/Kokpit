@@ -220,6 +220,9 @@ export default function App() {
     const tus = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey) return;
       if (e.key === 'b' || e.key === 'B') {
+        // Claude Code'un kendi Ctrl+B'si var (arka plana at). Odak terminaldeyse tus onundur;
+        // kenar cubugu icin baslik cubugundaki dugme ya da terminal disindan Ctrl+B kalir.
+        if ((e.target as HTMLElement | null)?.closest('.xterm')) return;
         e.preventDefault();
         setKenarAcik((a) => !a);
       } else if (e.key === '1') {
@@ -243,26 +246,31 @@ export default function App() {
     null
   );
 
+  /** Iki komsu bolme arasindaki payi `fark` kadar (grubun orani cinsinden) kaydirir. */
+  const oranKaydir = useCallback((solId: string, sagId: string, fark: number) => {
+    setOturumlar((o) => {
+      const sol = o.find((x) => x.id === solId);
+      const sag = o.find((x) => x.id === sagId);
+      if (!sol || !sag) return o;
+      const toplam = sol.oran + sag.oran;
+      const enAz = ASGARI_ORAN * toplam;
+      const yeniSol = Math.min(Math.max(sol.oran + fark, enAz), toplam - enAz);
+      if (yeniSol === sol.oran) return o;
+      return o.map((x) =>
+        x.id === solId
+          ? { ...x, oran: yeniSol }
+          : x.id === sagId
+            ? { ...x, oran: toplam - yeniSol }
+            : x
+      );
+    });
+  }, []);
+
   useEffect(() => {
     const hareket = (e: MouseEvent) => {
       const s = surukleRef.current;
       if (!s) return;
-      const fark = (e.clientX - s.x) / s.genislik;
-      setOturumlar((o) => {
-        const sol = o.find((x) => x.id === s.solId);
-        const sag = o.find((x) => x.id === s.sagId);
-        if (!sol || !sag) return o;
-        const toplam = sol.oran + sag.oran;
-        const enAz = ASGARI_ORAN * toplam;
-        const yeniSol = Math.min(Math.max(sol.oran + fark, enAz), toplam - enAz);
-        return o.map((x) =>
-          x.id === s.solId
-            ? { ...x, oran: yeniSol }
-            : x.id === s.sagId
-              ? { ...x, oran: toplam - yeniSol }
-              : x
-        );
-      });
+      oranKaydir(s.solId, s.sagId, (e.clientX - s.x) / s.genislik);
       surukleRef.current = { ...s, x: e.clientX };
     };
     const birak = () => {
@@ -277,7 +285,7 @@ export default function App() {
       window.removeEventListener('mousemove', hareket);
       window.removeEventListener('mouseup', birak);
     };
-  }, []);
+  }, [oranKaydir]);
 
   const surukleBasla = (e: React.MouseEvent<HTMLDivElement>, solId: string, sagId: string) => {
     const kap = e.currentTarget.parentElement;
@@ -296,7 +304,9 @@ export default function App() {
       {/* ---- Sol kenar: terminale gecince daralir, Ctrl+B geri acar ---- */}
       <aside
         className={
-          'cam halka relative flex shrink-0 flex-col overflow-hidden rounded-base bg-cam transition-[width] duration-[180ms] ' +
+          // Genislik BILEREK anime edilmiyor: blur'lu bir yuzeyin boyutunu anime etmek her karede
+          // yeniden blur + ana alanda layout + xterm fit + PTY resize demek (DESIGN.md kurali).
+          'cam halka relative flex shrink-0 flex-col overflow-hidden rounded-base bg-cam ' +
           (kenarAcik ? 'w-56' : 'w-14')
         }
       >
@@ -316,6 +326,7 @@ export default function App() {
             type="button"
             onClick={() => setGorunum('pano')}
             title="Pano (Ctrl+1)"
+            aria-label="Pano"
             aria-current={gorunum === 'pano' ? 'page' : undefined}
             className={
               'flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
@@ -332,6 +343,7 @@ export default function App() {
             type="button"
             onClick={() => setGorunum('terminal')}
             title="Terminaller (Ctrl+2)"
+            aria-label="Terminaller"
             aria-current={gorunum === 'terminal' ? 'page' : undefined}
             className={
               'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
@@ -350,7 +362,10 @@ export default function App() {
         </nav>
 
         {kenarAcik && <p className="etiket mt-6 px-4">Projeler</p>}
-        <ul className={'min-h-0 flex-1 overflow-y-auto px-2 pb-3 ' + (kenarAcik ? 'mt-1' : 'mt-4')}>
+        <ul
+          aria-label="Projeler"
+          className={'min-h-0 flex-1 overflow-y-auto px-2 pb-3 ' + (kenarAcik ? 'mt-1' : 'mt-4')}
+        >
           {siraliProjeler.map((p) => {
             const oturum = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
             return (
@@ -359,6 +374,7 @@ export default function App() {
                   type="button"
                   onClick={() => (oturum ? grubaGit(oturum.grupId, oturum.id) : sekmeAc(p))}
                   title={oturum ? p.ad + ' — açık oturuma git' : p.ad + ' klasöründe oturum aç'}
+                  aria-label={oturum ? p.ad + ' — açık oturuma git' : p.ad + ' klasöründe oturum aç'}
                   className={
                     'group flex w-full cursor-pointer items-center gap-2 rounded-kontrol px-2.5 py-1.5 text-left transition-colors duration-[180ms] hover:bg-yuzey ' +
                     (kenarAcik ? '' : 'justify-center')
@@ -463,7 +479,7 @@ export default function App() {
           }
         >
           {hata && (
-            <div className="mb-5 rounded-base border border-hata/40 bg-hata/10 p-4">
+            <div role="alert" className="mb-5 rounded-base border border-hata/40 bg-hata/10 p-4">
               <p className="flex items-center gap-2 text-sm font-medium text-hata-metin">
                 <AlertTriangle className="size-4" aria-hidden="true" />
                 Durum okunamadı
@@ -501,6 +517,21 @@ export default function App() {
             <div
               role="tablist"
               aria-label="Açık sekmeler"
+              onKeyDown={(e) => {
+                // Sekme deseni: sol/sag ok komsu sekmeye gecer. Tab sirasi bozulmaz.
+                if (!aktifGrupId || gruplar.length < 2) return;
+                const i = gruplar.findIndex((g) => g.id === aktifGrupId);
+                let hedef: number;
+                if (e.key === 'ArrowLeft') hedef = (i - 1 + gruplar.length) % gruplar.length;
+                else if (e.key === 'ArrowRight') hedef = (i + 1) % gruplar.length;
+                else if (e.key === 'Home') hedef = 0;
+                else if (e.key === 'End') hedef = gruplar.length - 1;
+                else return;
+                e.preventDefault();
+                const g = gruplar[hedef];
+                grubaGit(g.id, g.uyeler[0].id);
+                document.getElementById('sekme-' + g.id)?.focus();
+              }}
               className="flex min-w-0 flex-1 gap-1 overflow-x-auto"
             >
               {gruplar.map((g) => {
@@ -603,10 +634,23 @@ export default function App() {
                         <div
                           role="separator"
                           aria-orientation="vertical"
+                          aria-label={g.uyeler[i - 1].ad + ' / ' + o.ad + ' bölme genişliği'}
+                          aria-valuenow={Math.round(g.uyeler[i - 1].oran * 100)}
+                          aria-valuemin={Math.round(ASGARI_ORAN * 100)}
+                          aria-valuemax={100 - Math.round(ASGARI_ORAN * 100)}
+                          tabIndex={0}
                           onMouseDown={(e) => surukleBasla(e, g.uyeler[i - 1].id, o.id)}
-                          className="group w-2 shrink-0 cursor-col-resize"
+                          onKeyDown={(e) => {
+                            // Fareyle surukleme klavyede ok tuslariyla: her basim %5.
+                            const solId = g.uyeler[i - 1].id;
+                            if (e.key === 'ArrowLeft') oranKaydir(solId, o.id, -0.05);
+                            else if (e.key === 'ArrowRight') oranKaydir(solId, o.id, 0.05);
+                            else return;
+                            e.preventDefault();
+                          }}
+                          className="group w-2 shrink-0 cursor-col-resize rounded-sm focus-visible:outline-offset-0"
                         >
-                          <div className="mx-auto h-full w-px bg-kenar transition-colors duration-[180ms] group-hover:bg-aksan" />
+                          <div className="mx-auto h-full w-px bg-kenar transition-colors duration-[180ms] group-hover:bg-aksan group-focus-visible:bg-aksan" />
                         </div>
                       )}
                       <div
@@ -661,6 +705,7 @@ export default function App() {
                         )}
                         {o.mesaj && (
                           <p
+                            role="status"
                             className={
                               'shrink-0 border-b px-2 py-1 text-xs ' +
                               (o.durumu === 'hata'
@@ -673,6 +718,7 @@ export default function App() {
                         )}
                         <div
                           onMouseDown={() => setAktifOturumId(o.id)}
+                          onFocus={() => setAktifOturumId(o.id)}
                           className="min-h-0 flex-1 overflow-hidden rounded-kontrol bg-terminal p-2"
                         >
                           <TerminalOturumu
