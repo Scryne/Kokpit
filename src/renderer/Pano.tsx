@@ -22,7 +22,7 @@ export default function Pano({ durum, oturumlar, simdi, onBaslat, onOturumaGit }
   return (
     <div className="space-y-6">
       {/* Olcum seridi: dort sayi, hepsi bir bakista. */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <section aria-label="Ölçümler" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Olcum
           etiket="Aktif proje"
           deger={aktifProjeler.length}
@@ -157,7 +157,7 @@ export default function Pano({ durum, oturumlar, simdi, onBaslat, onOturumaGit }
 
       {/* Beyin: olcum seridiyle ayni dil, ama ayri bir blok. */}
       <section className="halka relative rounded-base bg-yuzey px-5 py-4">
-        <p className="etiket">Beyin</p>
+        <h2 className="etiket">Beyin</h2>
         <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
           <div>
             <dt className="text-xs text-metin-soluk">Derleyici</dt>

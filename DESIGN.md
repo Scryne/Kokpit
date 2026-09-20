@@ -3,6 +3,8 @@ version: alpha
 name: Kokpit
 description: Scryne'in projelerini tek ekranda gosteren ve satirdan claude oturumu acan kisisel yer kontrol uygulamasi.
 colors:
+  # Spec `primary` ister; degeri tekrar etmemek icin referans (ayni token iki yerde yasamaz).
+  primary: "{colors.birincil}"
   bg-base: "#090A0C"
   yuzey: "rgb(24 26 32 / 0.72)"
   yuzey-guclu: "rgb(30 33 40 / 0.85)"
@@ -31,9 +33,6 @@ rounded:
   base: "0.75rem"
   kontrol: "0.5rem"
   rozet: "0.375rem"
-motion:
-  geri-bildirim: "120ms"
-  gecis: "180ms"
 ---
 
 # Kokpit
@@ -110,6 +109,19 @@ Panellerin kenarinda duz tek renk border yerine ustten parlayip alta sonumlenen 
 "light-catcher" halka (`.halka`) var; isik kaynagi tutarli bicimde sol-usttedir.
 
 `backdrop-filter` **asla anime edilmez.**
+
+## Motion
+
+Spec'in `motion` token bolumu yok (lint: bilinmeyen anahtar export'ta sessizce yutulur), bu
+yuzden sureler burada, kodda Tailwind sinifi olarak (`duration-[180ms]`) yasar.
+
+- **Geri bildirim: 120 ms** — basma, odak, hover rengi.
+- **Gecis: 180 ms** — gorunum degisimi, sekme secimi; yalniz `transition-colors`.
+- **Anime edilmeyen:** `backdrop-filter` ve blur'lu yuzeylerin **boyutu**. Kenar cubugu
+  daralirken genislik anime edilmiyordu diye degil, edilince her karede yeniden blur + ana
+  alanda layout + xterm `fit()` + PTY resize zinciri tetiklendigi icin (2026-09-20'de olculup
+  kaldirildi). Layout hareketi ani olur; hareket yalniz `transform`/`opacity`/renk uzerinde.
+- `prefers-reduced-motion: reduce` altinda tum gecisler kapanir.
 
 ## Components
 

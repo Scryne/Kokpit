@@ -47,26 +47,50 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+
+    // Uygulamanin kendi kisayollari xterm'e ULASMAZ; yoksa hem claude'a kontrol karakteri
+    // gider hem uygulama tepki verir (xterm keydown'i stopPropagation yapmaz, olculdu).
+    // Ctrl+B bilerek listede DEGIL: Claude Code onu kullaniyor, terminal odaktayken onun.
+    term.attachCustomKeyEventHandler((e) => {
+      if (!e.ctrlKey || e.altKey) return true;
+      if (e.key === '1' || e.key === '2') return false;
+      if (e.shiftKey && (e.key === 'W' || e.key === 'w')) return false;
+      return true;
+    });
+
     term.open(kutu);
     termRef.current = term;
     fitRef.current = fit;
 
+    // PTY'ye boyut yalnizca DEGISINCE gider. Ayirici suruklenirken ResizeObserver her
+    // mousemove'da tetikleniyor; sutun/satir sayisi ayniyken resize gondermek claude
+    // TUI'sini bosuna yeniden cizdiriyordu.
+    let sonCols = -1;
+    let sonRows = -1;
     const boyutGonder = () => {
       const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ t: 'boyut', cols: term.cols, rows: term.rows }));
-      }
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (term.cols === sonCols && term.rows === sonRows) return;
+      sonCols = term.cols;
+      sonRows = term.rows;
+      ws.send(JSON.stringify({ t: 'boyut', cols: term.cols, rows: term.rows }));
     };
 
+    // Olcum kare basina en fazla bir kez: pes pese RO tetiklemeleri tek fit'e iner.
+    let olcumKaresi = 0;
     const gozlemci = new ResizeObserver(() => {
-      // Gizliyken olcum 0 doner ve satir sayisi bozulur.
-      if (!kutu.offsetParent) return;
-      try {
-        fit.fit();
-        boyutGonder();
-      } catch {
-        /* olcum sirasinda gizlenmis olabilir */
-      }
+      if (olcumKaresi) return;
+      olcumKaresi = requestAnimationFrame(() => {
+        olcumKaresi = 0;
+        // Gizliyken olcum 0 doner ve satir sayisi bozulur.
+        if (!kutu.offsetParent) return;
+        try {
+          fit.fit();
+          boyutGonder();
+        } catch {
+          /* olcum sirasinda gizlenmis olabilir */
+        }
+      });
     });
     gozlemci.observe(kutu);
 
@@ -127,6 +151,7 @@ export default function TerminalOturumu({ id, yol, gorunur, onDurum }: Props) {
     return () => {
       kapandi = true;
       gozlemci.disconnect();
+      if (olcumKaresi) cancelAnimationFrame(olcumKaresi);
       try {
         wsRef.current?.close();
       } catch {
