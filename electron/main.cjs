@@ -6,6 +6,7 @@ const { durumOku } = require('./durum.cjs');
 const ptyKopru = require('./pty-kopru.cjs');
 const uretim = require('./uretim-protokolu.cjs');
 const ayarlar = require('./ayarlar.cjs');
+const defter = require('./defter.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
@@ -19,6 +20,11 @@ let pencere = null;
 // Kapatma korumasi: renderer "acik oturum var mi" diye bakip onay verene kadar pencere
 // kapanmaz. Renderer cevap vermezse (asili kaldiysa) 3 sn sonra yine de kapanir.
 let kapanisOnaylandi = false;
+// Uygulama kapanirken PTY sunucusu olur ve renderer hala hayattaysa her kabuk icin
+// "bitti" gorur. Bu gercek bir kapanis degil: defterde 'kabuk' olarak kaydedilirse geri
+// yukleme teklifi kaybolur (Browser.close / oturum kapatma yolunda before-quit pencereden
+// once calisir; olculdu).
+let uygulamaKapaniyor = false;
 
 /** Onceki calismadan kalan pencere konumu; ekran disinda kaldiysa yok sayilir. */
 function pencereKonumu() {
@@ -188,6 +194,32 @@ ipcMain.on('kapanis:onay', () => {
   kapanisOnaylandi = true;
   if (pencere) pencere.close();
 });
+// Oturum defteri (Kokpit'in kendi verisi; bkz. defter.cjs).
+const DEFTER_SEBEP = new Set(['kullanici', 'kabuk']);
+ipcMain.on('defter:olay', (_e, o) => {
+  if (!o || typeof o !== 'object' || typeof o.id !== 'string') return;
+  if (o.olay === 'acildi' && typeof o.ad === 'string' && typeof o.yol === 'string') {
+    defter.ekle({ olay: 'acildi', id: o.id, ad: o.ad, yol: o.yol });
+  } else if (o.olay === 'kapandi') {
+    if (uygulamaKapaniyor && o.sebep === 'kabuk') return;
+    defter.ekle({
+      olay: 'kapandi',
+      id: o.id,
+      kod: Number.isInteger(o.kod) ? o.kod : null,
+      sebep: DEFTER_SEBEP.has(o.sebep) ? o.sebep : 'kullanici',
+    });
+  }
+});
+let oncekilerVerildi = false;
+ipcMain.handle('defter:oncekiler', () => {
+  // Bir kez: ayni calismada ikinci sorgu bos doner (StrictMode cift effect'i dahil).
+  if (oncekilerVerildi) return [];
+  oncekilerVerildi = true;
+  const liste = defter.oncekiAcikOturumlar();
+  if (liste.length > 0) log('onceki calismadan acik kalan oturum: ' + liste.map((o) => o.ad).join(', '));
+  return liste;
+});
+ipcMain.handle('defter:sonlar', () => defter.sonOturumlar());
 ipcMain.handle('ayar:getir', () => {
   const a = ayarlar.oku();
   return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu };
@@ -232,7 +264,10 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
 });
 
-app.on('before-quit', () => ptyKopru.durdur());
+app.on('before-quit', () => {
+  uygulamaKapaniyor = true;
+  ptyKopru.durdur();
+});
 app.on('window-all-closed', () => { log('tum pencereler kapandi, cikiliyor'); app.quit(); });
 process.on('uncaughtException', (e) => logHata('uncaughtException', e));
 process.on('unhandledRejection', (e) => logHata('unhandledRejection', e));

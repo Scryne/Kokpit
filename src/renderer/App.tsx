@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  History,
   LayoutDashboard,
   PanelLeft,
   Plus,
@@ -9,7 +10,7 @@ import {
   TerminalSquare,
   X,
 } from 'lucide-react';
-import type { Durum, Oturum, OturumDurumu, Proje } from './types';
+import type { Durum, OncekiOturum, Oturum, OturumDurumu, Proje, SonOturum } from './types';
 import Pano from './Pano';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
@@ -33,6 +34,48 @@ function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat'>) {
 
 type Gorunum = 'pano' | 'terminal';
 
+/** Onceki calismadan kalan oturumlar icin tek satirlik teklif. Bir kez gorunur. */
+function GeriYuklemeSeridi({
+  oncekiler,
+  onYukle,
+  onYoksay,
+}: {
+  oncekiler: OncekiOturum[];
+  onYukle: () => void;
+  onYoksay: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="halka relative mb-5 flex flex-wrap items-center gap-3 rounded-base border border-aksan/30 bg-aksan/10 px-4 py-3"
+    >
+      <History className="size-4 shrink-0 text-aksan-metin" aria-hidden="true" />
+      <p className="min-w-0 flex-1 text-sm text-metin">
+        Önceki çalışmada {oncekiler.length} oturum açıktı:{' '}
+        <span className="enstruman text-metin-ikincil">{oncekiler.map((o) => o.ad).join(', ')}</span>
+        <span className="block text-xs text-metin-soluk">
+          Geri yüklemek her klasörde <span className="enstruman">claude --continue</span> ile son
+          konuşmayı sürdürür.
+        </span>
+      </p>
+      <button
+        type="button"
+        onClick={onYukle}
+        className="cursor-pointer rounded-kontrol bg-birincil px-3 py-1.5 text-xs font-medium text-birincil-uzeri transition-colors duration-[180ms] hover:bg-metin-ikincil"
+      >
+        Geri yükle
+      </button>
+      <button
+        type="button"
+        onClick={onYoksay}
+        className="cursor-pointer rounded-kontrol border border-kenar px-3 py-1.5 text-xs text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
+      >
+        Yoksay
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const [durum, setDurum] = useState<Durum | null>(null);
   const [hata, setHata] = useState<string | null>(null);
@@ -49,6 +92,9 @@ export default function App() {
   const [aktifGrupId, setAktifGrupId] = useState<string | null>(null);
   const [aktifOturumId, setAktifOturumId] = useState<string | null>(null);
   const [simdi, setSimdi] = useState(() => Date.now());
+  // Onceki calismada acik kalmis oturumlar: geri yukleme teklifi (bir kez).
+  const [oncekiler, setOncekiler] = useState<OncekiOturum[]>([]);
+  const [sonOturumlar, setSonOturumlar] = useState<Record<string, SonOturum>>({});
 
   const ucusta = useRef(false);
   const sonOkuma = useRef(0);
@@ -122,16 +168,48 @@ export default function App() {
     return () => window.removeEventListener('focus', odak);
   }, [tazele]);
 
-  const yeniId = (p: Proje) =>
+  const yeniId = (p: Pick<Proje, 'ad'>) =>
     p.ad + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
-  /** Yeni sekme: kendi grubunda tek bolme. */
-  const sekmeAc = useCallback((p: Proje) => {
+  // --- Oturum defteri: acilis/kapanis main'e bildirilir, "son oturum" oradan okunur ---
+  const sonlariYenile = useCallback(() => {
+    void window.kokpit.defterSonlar().then(setSonOturumlar);
+  }, []);
+  useEffect(() => {
+    sonlariYenile();
+    void window.kokpit.defterOncekiler().then((liste) => {
+      if (liste.length > 0) setOncekiler(liste);
+    });
+  }, [sonlariYenile]);
+  // Ayni oturum icin iki 'kapandi' yazilmasin (kullanici kapatti + kabuk bitti).
+  const defterKapananlar = useRef(new Set<string>());
+  const defterKapandi = useCallback(
+    (id: string, sebep: 'kullanici' | 'kabuk', kod?: number | null) => {
+      if (defterKapananlar.current.has(id)) return;
+      defterKapananlar.current.add(id);
+      window.kokpit.defterOlay({ olay: 'kapandi', id, kod: kod ?? null, sebep });
+      sonlariYenile();
+    },
+    [sonlariYenile]
+  );
+
+  /** Yeni sekme: kendi grubunda tek bolme. `devam` geri yukleme (claude --continue). */
+  const sekmeAc = useCallback((p: Pick<Proje, 'ad' | 'yol'>, devam = false) => {
     const id = yeniId(p);
     const grupId = 'g-' + id;
+    window.kokpit.defterOlay({ olay: 'acildi', id, ad: p.ad, yol: p.yol });
     setOturumlar((o) => [
       ...o,
-      { id, ad: p.ad, yol: p.yol, durumu: 'baglaniyor', baslangic: Date.now(), grupId, oran: 1 },
+      {
+        id,
+        ad: p.ad,
+        yol: p.yol,
+        durumu: 'baglaniyor',
+        baslangic: Date.now(),
+        grupId,
+        oran: 1,
+        devam,
+      },
     ]);
     setAktifGrupId(grupId);
     setAktifOturumId(id);
@@ -148,6 +226,7 @@ export default function App() {
         return;
       }
       const id = yeniId(p);
+      window.kokpit.defterOlay({ olay: 'acildi', id, ad: p.ad, yol: p.yol });
       setOturumlar((o) => {
         const grup = o.filter((x) => x.grupId === aktifGrupId);
         const yeniOran = 1 / (grup.length + 1);
@@ -186,6 +265,7 @@ export default function App() {
 
       const kalan = oturumlar.filter((x) => !kume.has(x.id));
       const etkilenenGruplar = new Set(kapanan.map((x) => x.grupId));
+      for (const x of kapanan) defterKapandi(x.id, 'kullanici');
 
       // Etkilenen gruplarda kalan bolmeler bosalan payi paylasir.
       const yeni = kalan.map((x) => {
@@ -214,12 +294,25 @@ export default function App() {
         setKenarAcik(true);
       }
     },
-    [oturumlar, aktifOturumId, aktifGrupId]
+    [oturumlar, aktifOturumId, aktifGrupId, defterKapandi]
   );
 
-  const oturumDurumu = useCallback((id: string, durumu: OturumDurumu, mesaj?: string) => {
-    setOturumlar((o) => o.map((x) => (x.id === id ? { ...x, durumu, mesaj } : x)));
-  }, []);
+  const oturumDurumu = useCallback(
+    (id: string, durumu: OturumDurumu, mesaj?: string) => {
+      setOturumlar((o) => o.map((x) => (x.id === id ? { ...x, durumu, mesaj } : x)));
+      if (durumu === 'bitti') {
+        const kod = mesaj ? Number(/çıkış kodu (-?\d+)/.exec(mesaj)?.[1]) : NaN;
+        defterKapandi(id, 'kabuk', Number.isInteger(kod) ? kod : null);
+      }
+    },
+    [defterKapandi]
+  );
+
+  const geriYukle = useCallback(() => {
+    const liste = oncekiler;
+    setOncekiler([]);
+    for (const o of liste) sekmeAc(o, true);
+  }, [oncekiler, sekmeAc]);
 
   const grubaGit = useCallback((grupId: string, oturumId?: string) => {
     setAktifGrupId(grupId);
@@ -648,6 +741,9 @@ export default function App() {
             (gorunum === 'pano' ? 'block' : 'hidden') + ' min-h-0 flex-1 overflow-y-auto pr-1'
           }
         >
+          {oncekiler.length > 0 && (
+            <GeriYuklemeSeridi oncekiler={oncekiler} onYukle={geriYukle} onYoksay={() => setOncekiler([])} />
+          )}
           {hata && (
             <div role="alert" className="mb-5 rounded-base border border-hata/40 bg-hata/10 p-4">
               <p className="flex items-center gap-2 text-sm font-medium text-hata-metin">
@@ -666,6 +762,7 @@ export default function App() {
             <Pano
               durum={durum}
               oturumlar={oturumlar}
+              sonOturumlar={sonOturumlar}
               simdi={simdi}
               onBaslat={sekmeAc}
               onOturumaGit={(id) => {
@@ -786,6 +883,15 @@ export default function App() {
 
           {gruplar.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+              {oncekiler.length > 0 && (
+                <div className="mb-3 w-full max-w-xl text-left">
+                  <GeriYuklemeSeridi
+                    oncekiler={oncekiler}
+                    onYukle={geriYukle}
+                    onYoksay={() => setOncekiler([])}
+                  />
+                </div>
+              )}
               <TerminalSquare className="size-8 text-metin-soluk" aria-hidden="true" />
               <p className="text-sm text-metin-ikincil">Açık oturum yok.</p>
               <p className="max-w-[46ch] text-xs text-metin-soluk">
@@ -892,6 +998,7 @@ export default function App() {
                             id={o.id}
                             yol={o.yol}
                             gorunur={g.id === aktifGrupId}
+                            devam={o.devam}
                             yaziBoyutu={yaziBoyutu}
                             onDurum={oturumDurumu}
                             onZil={onZil}

@@ -17,6 +17,7 @@ const KOK = path.join(__dirname, '..');
 const PORT = 9333;
 const electronBin = require('electron');
 const AYARLAR = path.join(os.homedir(), '.kokpit', 'ayarlar.json');
+const DEFTER = path.join(os.homedir(), '.kokpit', 'oturumlar.jsonl');
 
 let basarisiz = 0;
 function kontrol(ad, kosul, detay) {
@@ -93,13 +94,8 @@ class Cdp {
 }
 const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, '1': 49, '2': 50, '=': 187, '-': 189, '0': 48 };
 
-async function main() {
-  if (!fs.existsSync(path.join(KOK, 'dist', 'index.html'))) {
-    console.error('dist yok: once npm run build');
-    process.exit(2);
-  }
-  const ayarOnce = fs.existsSync(AYARLAR) ? fs.readFileSync(AYARLAR, 'utf8') : null;
-
+/** Uygulamayi acar, CDP'ye baglanir. */
+async function baslat() {
   const app = spawn(electronBin, [KOK, '--remote-debugging-port=' + PORT], {
     cwd: KOK,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -122,7 +118,35 @@ async function main() {
   await new Promise((r) => ws.once('open', r));
   const cdp = new Cdp(ws);
   await cdp.gonder('Runtime.enable');
+  return { app, cdp };
+}
 
+/**
+ * Kapanis. Browser.close'un cevabi beklenmez — tarayici cevap veremeden kapanir ve
+ * bekleyen promise olay dongusunu bosaltip sureci sessizce bitirir (ilk kosuda oldu).
+ */
+async function kapat(app, cdp, ad) {
+  const cikisSozu = new Promise((r) => {
+    const t = setTimeout(() => r('zaman-asimi'), 8000);
+    app.on('exit', (k) => { clearTimeout(t); r(k); });
+  });
+  void cdp.gonder('Browser.close').catch(() => {});
+  const cikis = await cikisSozu;
+  kontrol(ad, cikis !== 'zaman-asimi', cikis);
+  if (cikis === 'zaman-asimi') try { app.kill(); } catch { /* */ }
+}
+
+const AC_DUGMESI = `(() => { const b = [...document.querySelectorAll('table tbody tr button')].find(x => x.textContent.trim() === 'Aç'); b.click(); return true; })()`;
+
+async function main() {
+  if (!fs.existsSync(path.join(KOK, 'dist', 'index.html'))) {
+    console.error('dist yok: once npm run build');
+    process.exit(2);
+  }
+  const ayarOnce = fs.existsSync(AYARLAR) ? fs.readFileSync(AYARLAR, 'utf8') : null;
+  const defterOnce = fs.existsSync(DEFTER) ? fs.readFileSync(DEFTER, 'utf8') : null;
+
+  let { app, cdp } = await baslat();
   try {
     console.log('Pano');
     await cdp.bekle(`document.querySelectorAll('table tbody tr').length > 0`, 20000, 'proje tablosu');
@@ -130,7 +154,7 @@ async function main() {
     kontrol('proje tablosu dolu', satir > 0, satir);
 
     console.log('Terminal ac');
-    await cdp.js(`(() => { const b = [...document.querySelectorAll('table tbody tr button')].find(x => x.textContent.trim() === 'Aç'); b.click(); return true; })()`);
+    await cdp.js(AC_DUGMESI);
     await cdp.bekle(`!!document.querySelector('.xterm')`, 10000, 'xterm');
     await cdp.bekle(`!!document.querySelector('[role="tab"] .bg-aksan')`, 20000, 'oturum acik');
     kontrol('oturum acildi (sekme noktasi aksan)', true);
@@ -181,23 +205,47 @@ async function main() {
     await cdp.js(`(() => { document.querySelector('[aria-label$="sekmesini kapat"]').click(); return true; })()`);
     await cdp.bekle(`document.querySelectorAll('[role="tab"]').length === 0`, 5000, 'sekme kapandi');
     kontrol('sekme kapandi, Pano\'ya donuldu', await cdp.js(`document.querySelector('h1')?.textContent === 'Pano'`));
+
+    console.log('Defter: son oturum Pano\'da');
+    await cdp.bekle(`[...document.querySelectorAll('table tbody th')].some(th => th.textContent.includes('son oturum'))`, 5000, 'son oturum satiri');
+    kontrol('kapanan oturum Pano satirinda "son oturum" olarak goruluyor', true);
+
+    console.log('Oturum acikken uygulamayi kapat (geri yukleme icin)');
+    await cdp.js(AC_DUGMESI);
+    await cdp.bekle(`!!document.querySelector('[role="tab"] .bg-aksan')`, 20000, 'oturum acik');
   } catch (e) {
     kontrol('senaryo', false, e.message);
   }
+  await kapat(app, cdp, 'uygulama temiz kapandi (oturum acikken, cocuk yok)');
 
-  // Kapanis: acik oturum yok, renderer onayi hemen verir. Browser.close'un cevabi
-  // beklenmez — tarayici cevap veremeden kapanir ve bekleyen promise olay dongusunu
-  // bosaltip sureci sessizce bitirir (ilk kosuda oldu).
-  const cikisSozu = new Promise((r) => {
-    const t = setTimeout(() => r('zaman-asimi'), 8000);
-    app.on('exit', (k) => { clearTimeout(t); r(k); });
-  });
-  void cdp.gonder('Browser.close').catch(() => {});
-  const cikis = await cikisSozu;
-  kontrol('uygulama temiz kapandi', cikis !== 'zaman-asimi', cikis);
-  if (cikis === 'zaman-asimi') try { app.kill(); } catch { /* */ }
-  // Ayar dosyasini testten onceki haline getir.
-  if (ayarOnce !== null) fs.writeFileSync(AYARLAR, ayarOnce);
+  console.log('Ikinci acilis: geri yukleme teklifi');
+  ({ app, cdp } = await baslat());
+  try {
+    await cdp.bekle(`!!document.querySelector('[role="status"] button')`, 20000, 'geri yukleme seridi');
+    const metin = await cdp.js(`document.querySelector('[role="status"]')?.textContent ?? ''`);
+    kontrol('serit 1 oturumu teklif ediyor', metin.includes('1 oturum açıktı'), metin.slice(0, 80));
+    await cdp.js(`(() => { [...document.querySelectorAll('[role="status"] button')].find(b => b.textContent.trim() === 'Geri yükle').click(); return true; })()`);
+    await cdp.bekle(`!!document.querySelector('[role="tab"] .bg-aksan')`, 20000, 'geri yuklenen oturum acik');
+    kontrol('Geri yukle sekmeyi acti (test kabugu; gercekte claude --continue)', true);
+    kontrol('serit kayboldu', await cdp.js(`!document.querySelector('[role="status"] button')`));
+    await cdp.js(`(() => { document.querySelector('[aria-label$="sekmesini kapat"]').click(); return true; })()`);
+    await cdp.bekle(`document.querySelectorAll('[role="tab"]').length === 0`, 5000, 'sekme kapandi');
+  } catch (e) {
+    kontrol('geri yukleme senaryosu', false, e.message);
+  }
+  await kapat(app, cdp, 'ikinci calisma temiz kapandi');
+
+  // Ayar ve defter dosyalarini testten onceki haline getir: test oturumlari gercek
+  // "son oturum" verisini kirletmesin.
+  if (process.env.KOKPIT_TEST_KEEP === '1') {
+    // Teshis: dosyalari geri alma, defteri goster.
+    console.log('--- oturumlar.jsonl ---');
+    console.log(fs.existsSync(DEFTER) ? fs.readFileSync(DEFTER, 'utf8') : '(yok)');
+  } else {
+    if (ayarOnce !== null) fs.writeFileSync(AYARLAR, ayarOnce);
+    if (defterOnce !== null) fs.writeFileSync(DEFTER, defterOnce);
+    else if (fs.existsSync(DEFTER)) fs.unlinkSync(DEFTER);
+  }
 
   console.log(basarisiz === 0 ? '\nTUMU GECTI' : `\n${basarisiz} KONTROL BASARISIZ`);
   process.exit(basarisiz === 0 ? 0 : 1);

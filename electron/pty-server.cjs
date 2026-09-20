@@ -163,9 +163,11 @@ wss.on('connection', (ws, istek) => {
       // TEST SEAM: UI testi (scripts/test-ui.cjs) gercek claude acmamali — her acilis
       // transcript ve hook tetikler. Bu degisken yalniz test kosucusundan gelir.
       const testKabugu = process.env.KOKPIT_TEST_KABUK === '1';
-      const claudeIle = m.komut === 'claude' && !testKabugu;
+      // 'claude-devam': onceki calismadan geri yukleme, o klasordeki son konusmayi surdurur.
+      const claudeIle = (m.komut === 'claude' || m.komut === 'claude-devam') && !testKabugu;
+      const claudeKomutu = m.komut === 'claude-devam' ? 'claude --continue' : 'claude';
       const dosya = claudeIle || testKabugu ? POWERSHELL : KABUK;
-      const argumanlar = claudeIle ? ['-NoLogo', '-NoExit', '-Command', 'claude'] : testKabugu ? ['-NoLogo', '-NoProfile'] : [];
+      const argumanlar = claudeIle ? ['-NoLogo', '-NoExit', '-Command', claudeKomutu] : testKabugu ? ['-NoLogo', '-NoProfile'] : [];
 
       try {
         p = pty.spawn(dosya, argumanlar, {
@@ -184,7 +186,7 @@ wss.on('connection', (ws, istek) => {
       // pid'i burada sabitliyoruz: onExit'e kadar p null'lanmis olabiliyor
       // (ws.close handler'i once kosuyor) ve log kor kaliyordu.
       const pid = p.pid;
-      log(`pty acildi pid=${pid} cwd=${cwd} komut=${claudeIle ? 'claude' : 'kabuk'} kabuk=${path.basename(dosya)}`);
+      log(`pty acildi pid=${pid} cwd=${cwd} komut=${claudeIle ? claudeKomutu : 'kabuk'} kabuk=${path.basename(dosya)}`);
       gonder({ t: 'hazir', pid });
 
       p.onData((d) => gonder({ t: 'veri', d }));

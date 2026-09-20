@@ -1,16 +1,25 @@
 import { FolderOpen, Play, TerminalSquare } from 'lucide-react';
-import type { Durum, Oturum, Proje } from './types';
+import type { Durum, Oturum, Proje, SonOturum } from './types';
 import { AsamaRozeti, GitDurumu, Ilerleme, Olcum, gunMetni, sureMetni } from './parcalar';
 
 interface Props {
   durum: Durum;
   oturumlar: Oturum[];
+  /** Kokpit'in defterinden: yol -> son kapanan oturum. */
+  sonOturumlar: Record<string, SonOturum>;
   simdi: number;
   onBaslat: (p: Proje) => void;
   onOturumaGit: (id: string) => void;
 }
 
-export default function Pano({ durum, oturumlar, simdi, onBaslat, onOturumaGit }: Props) {
+export default function Pano({
+  durum,
+  oturumlar,
+  sonOturumlar,
+  simdi,
+  onBaslat,
+  onOturumaGit,
+}: Props) {
   const projeler = durum.projeler;
   const kirliToplam = projeler.reduce((t, p) => t + (p.git?.kirli ?? 0), 0);
   const acikOturum = oturumlar.filter((o) => o.durumu === 'acik');
@@ -84,6 +93,8 @@ export default function Pano({ durum, oturumlar, simdi, onBaslat, onOturumaGit }
               const oturum = oturumBul(p);
               const dikkat = oturumlar.some((o) => o.yol === p.yol && o.dikkat);
               const sirada = p.roadmap?.sirada;
+              const son = sonOturumlar[p.yol];
+              const sonGun = son ? Math.floor((simdi - son.bitis) / 86_400_000) : null;
               return (
                 <tr key={p.ad} className="border-b border-kenar last:border-b-0 hover:bg-yuzey-guclu">
                   <th scope="row" className="px-4 py-3 font-normal">
@@ -102,6 +113,14 @@ export default function Pano({ durum, oturumlar, simdi, onBaslat, onOturumaGit }
                       {dikkat && <span className="sr-only">dikkat bekliyor</span>}
                       <span className="enstruman text-sm font-medium text-metin">{p.ad}</span>
                     </span>
+                    {son && !oturum && (
+                      <span className="mt-0.5 block pl-3.5 text-xs text-metin-soluk">
+                        son oturum{' '}
+                        <span className="enstruman">
+                          {gunMetni(sonGun)} · {sureMetni(son.sureSn)}
+                        </span>
+                      </span>
+                    )}
                   </th>
                   <td className="px-3 py-3">
                     <AsamaRozeti asama={p.asama} />

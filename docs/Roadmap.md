@@ -22,7 +22,7 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 4 | Sekmeler, bölmeler + canlı oturum farkındalığı | ✅ Tamamlandı | Birden fazla oturum sekmesi, "hangi proje / ne kadar süredir açık" doğru |
 | 5 | Sertleştirme + günlük kullanıma alma | ✅ Tamamlandı | Erişilebilirlik/animasyon pasları geçti, `kokpit` komutu çalışıyor, bir hafta gerçekten kullanıldı |
 | 6 | Terminal: profesyonel taban | ✅ Tamamlandı | WebGL/unicode11/link/arama/pano/yazı boyutu; zil → rozet + bildirim; canlı oturumu kapatırken onay |
-| 7 | Süreklilik: Kokpit'in kendi hafızası | ⏳ Bekliyor | Pencere/ayarlar hatırlanır; oturum defteri; açılışta geri yükleme `claude --continue` ile çalışır |
+| 7 | Süreklilik: Kokpit'in kendi hafızası | ✅ Tamamlandı | Pencere/ayarlar hatırlanır; oturum defteri; açılışta geri yükleme `claude --continue` ile çalışır |
 | 8 | Beyin senkronu + Sağlık sayfası | ⏳ Bekliyor | Proje oturumları `daily/`'ye düşüyor; `durum.py` düşmemişleri sayıyor; Sağlık sayfası boru zincirini gösteriyor; Inbox'a not |
 | 9 | Envanter sayfası | ⏳ Bekliyor | Skill/MCP/drift ve bütçe dağılımı Kokpit'te okunuyor |
 | 10 | Kimlik ve cila | ⏳ Bekliyor | Özel ikon, a11y/motion pasları yeni yüzeylerde geçti, README/DESIGN.md güncel |
@@ -236,6 +236,20 @@ listelenmiş** yazmalar; cam yalnız nav ve şerit.
   4. Pano proje satırına "son oturum" (defterden: ne zaman, ne kadar sürdü).
 - **Bitti Kriteri:** Kokpit kapatılıp açılınca pencere aynı yerde; iki açık oturumla
   kapatılıp açılınca geri yükleme teklif ediyor ve `--continue` konuşmayı geri getiriyor.
+  ✅ (2026-09-21) — `test:ui` 19/19: oturum açıkken kapat → ikinci açılışta şerit "1 oturum
+  açıktı" → Geri yükle sekmeyi açıyor → şerit kayboluyor; kapanan oturum Pano'da "son oturum".
+  `--continue`'nun konuşmayı gerçekten getirmesi Scryne'ın gerçek kullanımında doğrulanacak
+  (test kabuğu claude açmaz).
+- **Notlar:**
+  1. Defter (`electron/defter.cjs`) append-only JSONL, tek yazar main, son 2000 satır
+     okunur. Çalışma kimliği (`calisma`) sayesinde "önceki çalışmada açık kalanlar"
+     bulunur; teklif bir kez verilir, aynı anda `uygulama-kapandi` ile kapatılır.
+  2. **Bulunan tuzak:** `app.quit` yolunda (`Browser.close`, Windows oturum kapatma)
+     `before-quit` pencereden **önce** çalışıyor → PTY sunucusu ölüyor → renderer hâlâ
+     hayattayken her kabuk için "bitti" görüp defteri `kabuk` ile kapatıyordu → geri
+     yükleme teklifi kayboluyordu. X ile kapatmada sıra ters (pencere önce). Main artık
+     kapanış sırasında gelen `kabuk` kapanışlarını yok sayıyor.
+  3. Pencere konumu ekran dışında kaldıysa (monitör söküldü) yok sayılır; maksimize ayrı.
 
 ### Faz 8: Beyin senkronu + Sağlık sayfası
 - **Bulgu (2026-09-20):** `~/.claude/projects/` altında 10 günde 20 ScryneQuant oturumu var,
