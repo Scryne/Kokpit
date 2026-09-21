@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, Brain, CheckCircle2, MessageSquareText } from 'lucide-react';
 import type { Durum, GunButcesi } from './types';
 import { gunMetni } from './parcalar';
@@ -65,61 +66,120 @@ function tk(n: number) {
   return String(n);
 }
 
-/** Yedi gunluk token cubuklari: gun basina iki seri yan yana, tek eksen, hover basligi. */
+/** Kapsayicinin piksel genisligi; grafik viewBox esnetmek yerine gercek olcuyle cizilir. */
+function useGenislik<T extends HTMLElement>(ref: React.RefObject<T | null>) {
+  const [genislik, setGenislik] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const g = new ResizeObserver(([giris]) => setGenislik(Math.round(giris.contentRect.width)));
+    g.observe(el);
+    return () => g.disconnect();
+  }, [ref]);
+  return genislik;
+}
+
+/** Eksen tavani: 1-2-5 katlari (4.5M -> 5M) ki izgara cizgileri okunur sayilara otursun. */
+function guzelTavan(n: number) {
+  if (n <= 0) return 1;
+  const us = Math.pow(10, Math.floor(Math.log10(n)));
+  for (const k of [1, 2, 2.5, 5, 10]) if (k * us >= n) return k * us;
+  return 10 * us;
+}
+
+/** Ustu yuvarlak, tabana oturan cubuk (dataviz: veri ucu 4 px yuvarlak, taban duz). */
+function cubukYolu(x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, w / 2, h);
+  if (h <= 0) return '';
+  return (
+    `M ${x} ${y + h} V ${y + rr} a ${rr} ${rr} 0 0 1 ${rr} -${rr} ` +
+    `h ${w - 2 * rr} a ${rr} ${rr} 0 0 1 ${rr} ${rr} V ${y + h} Z`
+  );
+}
+
+/**
+ * Yedi gunluk token cubuklari. Piksel uzayinda cizilir (viewBox esnetilince yazilar yatay
+ * yayilip cubuklar hantallasiyordu — 2026-09-21 ekran goruntusu). Tek eksen, iki seri yan
+ * yana, ince cubuk, sessiz izgara, hover basligi, ekran okuyucu icin tablo.
+ */
 function ButceGrafigi({ gunler }: { gunler: Record<string, GunButcesi> }) {
+  const kapRef = useRef<HTMLDivElement>(null);
+  const W = useGenislik(kapRef);
   const sirali = Object.entries(gunler).sort(([a], [b]) => a.localeCompare(b));
   if (sirali.length === 0) return <p className="text-xs text-metin-soluk">7 günde kayıt yok.</p>;
-  const enCok = Math.max(1, ...sirali.flatMap(([, g]) => SERI.map((s) => g[s.anahtar] ?? 0)));
-  const H = 96;
-  const genislik = 100 / sirali.length;
+
+  const H = 150;
+  const SOL = 40; // y etiketleri
+  const ALT = 22; // gun etiketleri
+  const UST = 8;
+  const enCok = Math.max(...sirali.flatMap(([, g]) => SERI.map((s) => g[s.anahtar] ?? 0)));
+  const tavan = guzelTavan(enCok);
+  const plotW = Math.max(0, W - SOL - 8);
+  const plotH = H - UST - ALT;
+  const grup = sirali.length > 0 ? plotW / sirali.length : 0;
+  const cubuk = Math.max(4, Math.min(22, Math.floor(grup * 0.28)));
+  const ara = 3;
+  const ikiliW = SERI.length * cubuk + (SERI.length - 1) * ara;
+  const y = (v: number) => UST + plotH - (v / tavan) * plotH;
+  const izgara = [tavan / 2, tavan];
+
   return (
     <figure className="m-0">
-      <svg
-        viewBox={`0 0 100 ${H + 18}`}
-        preserveAspectRatio="none"
-        className="block h-36 w-full"
-        role="img"
-        aria-label={'Son ' + sirali.length + ' günün token kullanımı, gün başına yeni girdi ve çıktı'}
-      >
-        {sirali.map(([gun, g], i) => {
-          const x0 = i * genislik;
-          const ic = genislik * 0.7;
-          const bar = ic / SERI.length;
-          return (
-            <g key={gun}>
-              <title>
-                {gun}: {SERI.map((s) => s.ad + ' ' + tk(g[s.anahtar] ?? 0)).join(' · ')}
-              </title>
-              {SERI.map((s, j) => {
-                const v = g[s.anahtar] ?? 0;
-                const h = (v / enCok) * H;
-                return (
-                  <rect
-                    key={s.anahtar}
-                    x={x0 + genislik * 0.15 + j * bar + 0.4}
-                    y={H - h}
-                    width={Math.max(0.5, bar - 0.8)}
-                    height={h}
-                    rx={0.8}
-                    fill={s.renk}
-                  />
-                );
-              })}
-              <text
-                x={x0 + genislik / 2}
-                y={H + 12}
-                textAnchor="middle"
-                fontSize="5"
-                fill="#86868f"
-                fontFamily="JetBrains Mono Variable, ui-monospace, monospace"
-              >
-                {gun.slice(5)}
-              </text>
-            </g>
-          );
-        })}
-        <line x1="0" y1={H} x2="100" y2={H} stroke="rgba(244,244,245,0.16)" strokeWidth="0.4" />
-      </svg>
+      <div ref={kapRef} className="w-full">
+        {W > 0 && (
+          <svg
+            width={W}
+            height={H}
+            className="block"
+            role="img"
+            aria-label={'Son ' + sirali.length + ' günün token kullanımı, gün başına yeni girdi ve çıktı'}
+            fontFamily="'JetBrains Mono Variable', ui-monospace, monospace"
+            fontSize="10"
+          >
+            {/* Sessiz izgara: iki cizgi, sol etiket. */}
+            {izgara.map((v) => (
+              <g key={v}>
+                <line
+                  x1={SOL}
+                  x2={W - 8}
+                  y1={y(v)}
+                  y2={y(v)}
+                  stroke="rgba(244,244,245,0.08)"
+                  strokeWidth="1"
+                />
+                <text x={SOL - 6} y={y(v) + 3.5} textAnchor="end" fill="#86868f">
+                  {tk(v)}
+                </text>
+              </g>
+            ))}
+            <line x1={SOL} x2={W - 8} y1={UST + plotH} y2={UST + plotH} stroke="rgba(244,244,245,0.16)" strokeWidth="1" />
+            {sirali.map(([gun, g], i) => {
+              const x0 = SOL + i * grup + (grup - ikiliW) / 2;
+              return (
+                <g key={gun}>
+                  <title>{gun}: {SERI.map((s) => s.ad + ' ' + tk(g[s.anahtar] ?? 0)).join(' · ')}</title>
+                  {/* Hover hedefi cubuktan genis: butun gun sutunu. */}
+                  <rect x={SOL + i * grup} y={UST} width={grup} height={plotH} fill="transparent" />
+                  {SERI.map((s, j) => {
+                    const v = g[s.anahtar] ?? 0;
+                    const h = (v / tavan) * plotH;
+                    return (
+                      <path
+                        key={s.anahtar}
+                        d={cubukYolu(x0 + j * (cubuk + ara), y(v), cubuk, h, 4)}
+                        fill={s.renk}
+                      />
+                    );
+                  })}
+                  <text x={SOL + i * grup + grup / 2} y={H - 6} textAnchor="middle" fill="#86868f">
+                    {gun.slice(5).replace('-', '.')}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        )}
+      </div>
       <figcaption className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-metin-soluk">
         {SERI.map((s) => (
           <span key={s.anahtar} className="inline-flex items-center gap-1.5">
@@ -222,12 +282,16 @@ export default function Saglik({ durum, onVaultOturumu }: Props) {
       {/* Dusmemis oturumlar: bu sayfanin varlik sebebi. */}
       <section className="halka relative rounded-base bg-yuzey">
         <div className="flex items-center justify-between gap-4 border-b border-kenar px-5 py-3">
-          <h2 className="etiket">Beyne düşmemiş oturumlar</h2>
+          <h2 className="etiket shrink-0 whitespace-nowrap">Beyne düşmemiş oturumlar</h2>
           {hookSeviye === 'dikkat' && (
-            <span className="inline-flex items-center gap-1.5 text-xs text-dikkat-metin">
-              <AlertTriangle className="size-3.5" aria-hidden="true" />
-              hook hatası: <span className="enstruman">{b.health_hata}</span>
-              {b.health_bilesen && <span className="text-metin-soluk">({b.health_bilesen})</span>}
+            // Hata metni uzun olabilir (yol iceren Errno); tek satirda kirpilir, tamami title'da.
+            <span
+              className="inline-flex min-w-0 items-center gap-1.5 text-xs text-dikkat-metin"
+              title={'hook hatası' + (b.health_bilesen ? ' (' + b.health_bilesen + ')' : '') + ': ' + b.health_hata}
+            >
+              <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="shrink-0">hook hatası{b.health_bilesen ? ' (' + b.health_bilesen + ')' : ''}:</span>
+              <span className="enstruman min-w-0 truncate">{b.health_hata}</span>
             </span>
           )}
         </div>
