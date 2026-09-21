@@ -15,6 +15,7 @@
     "test:pty": "node scripts/test-pty.cjs",
     "test:ui": "node scripts/test-ui.cjs",
     "ikon": "electron scripts/ikon-uret.cjs",
+    "ekran": "node scripts/ekran.cjs",
     "kisayol": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/kisayol.ps1",
     "design:lint": "npx -p @google/design.md designmd lint DESIGN.md"
   },
