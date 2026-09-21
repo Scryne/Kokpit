@@ -485,6 +485,14 @@ export default function App() {
 
   const aktifOturum = oturumlar.find((o) => o.id === aktifOturumId) ?? null;
 
+  // Pencere basligi Alt+Tab'da hangi projede oldugunu soyler; dikkat bekleyen varsa sayar.
+  useEffect(() => {
+    const dikkat = oturumlar.filter((o) => o.dikkat).length;
+    const on = dikkat > 0 ? '(' + dikkat + ') ' : '';
+    const yer = gorunum === 'terminal' && aktifOturum ? aktifOturum.ad : GORUNUM_BASLIK[gorunum];
+    document.title = on + 'Kokpit — ' + yer;
+  }, [gorunum, aktifOturum, oturumlar]);
+
   // --- Klavye: bir terminal uygulamasinin asgarisi ---
   useEffect(() => {
     const tus = (e: KeyboardEvent) => {

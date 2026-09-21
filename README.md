@@ -25,10 +25,29 @@ Kısayol `scripts/kokpit-sessiz.vbs`'i hedefler; `node` konsol uygulaması oldu�
 doğrudan onu hedefleseydi Electron'un yanında boş bir siyah pencere kalırdı. Bu yoldan
 açılınca derleme çıktısı görünmez — bir şey açılmıyorsa terminalden `kokpit` çalıştır.
 
-**Klavye:** Ctrl+1 Pano, Ctrl+2 Terminaller, Ctrl+B kenar çubuğu, Ctrl+Shift+W bölmeyi
-kapat; sekme şeridinde ← → , bölme ayırıcısında ← → (%5). Terminal odaktayken **Ctrl+B
-claude'a gider** (Claude Code'un "arka plana at" kısayolu), kenar çubuğunu başlık
-çubuğundaki düğme açar. Diğer üç kısayol terminale hiç ulaşmaz.
+**Sayfalar:** Pano (Ctrl+1) · Terminaller (Ctrl+2) · Sağlık (Ctrl+3: beyin boru zinciri,
+beyne düşmemiş oturumlar, 7 günlük bütçe, thread'ler, "Aria ile konuş") · Envanter (Ctrl+4:
+CLAUDE.md drift, skill/MCP, transcript hijyeni).
+
+**Klavye:** Ctrl+B kenar çubuğu · Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü · Ctrl+Shift+W
+bölmeyi kapat · Ctrl+Shift+N Inbox'a not · sekme şeridinde ← →, bölme ayırıcısında ← →
+(%5). **Terminalde:** Ctrl+Shift+F ara (Enter / Shift+Enter / Esc) · Ctrl+C seçim varken
+kopyalar, yokken `^C` · Ctrl+Shift+C/V · sağ tık yapıştır · Ctrl+= / Ctrl+- / Ctrl+0 yazı
+boyutu (kalıcı) · dosyayı sürükleyip bırakınca yolu yazılır. Terminal odaktayken **Ctrl+B
+claude'a gider** (Claude Code'un "arka plana at" kısayolu; Ctrl+V de `^V` olarak gider,
+resim yapıştırma). Uygulamanın öbür kısayolları terminale hiç ulaşmaz.
+
+**Zil:** claude bitince/soru sorunca sekme, bölme, kenar ve Pano noktası amber olur;
+pencere odakta değilse Windows bildirimi gelir, tıklayınca o sekmeye gidilir. Bakınca düşer.
+
+**Kapatma koruması:** kabuğun altında süreç varken (claude çalışıyorken) sekme/bölme/uygulama
+kapatılırsa yerel onay diyaloğu çıkar. Sebep: PTY öldürülünce claude'un SessionEnd hook'u
+çalışmaz, oturum beyne düşmez. `/exit` ile çıkmak güvenli yol.
+
+**Süreklilik:** pencere konumu, kenar çubuğu ve yazı boyutu `~/.kokpit/ayarlar.json`'da;
+açılan her oturum `~/.kokpit/oturumlar.jsonl` defterinde. Uygulama açık oturumlarla
+kapatılırsa bir sonraki açılışta "N oturum açıktı — Geri yükle" (her klasörde
+`claude --continue`). Pano satırında "son oturum: dün · 42 dk · beyne düştü ✓".
 
 Üretimde arayüz `app://kokpit/` özel şemasından servis edilir — gerçek bir origin olduğu
 için CSP uygulanabiliyor. `file://` kullanılmaz: `onHeadersReceived` o istekler için
@@ -38,10 +57,17 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 
 ```bash
 npm run test:pty     # PTY sunucusunun uçtan uca testi (11 kontrol)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi (29 kontrol, önce build)
 npm run typecheck
 npm run build
 npm run design:lint  # DESIGN.md spec denetimi
+npm run ikon         # public/kokpit.svg -> kokpit.ico + kokpit.png
 ```
+
+`test:ui` uygulamayı `--remote-debugging-port` ile açar, CDP üzerinden gerçek tuş/tıklama
+gönderir, DOM'dan okur; iki çalışma yapar (geri yükleme için). Claude AÇMAZ:
+`KOKPIT_TEST_KABUK=1` ile PTY sunucusu düz pwsh açar — her gerçek claude açılışı transcript +
+hook tetiklerdi. `KOKPIT_TEST_KEEP=1` ayar/defter dosyalarını geri almaz, defteri basar.
 
 `design:lint` bilerek `npx -p @google/design.md designmd` der: paket adı `npx @google/design.md`
 diye çağrılınca bin adındaki nokta yüzünden **sessizce hiçbir şey yapmıyor** (çıkış 0, çıktı
@@ -85,7 +111,15 @@ Bu kablolar bilerek bırakıldı — bu projede iki kez *sessiz* hata sınıfıy
 
 ## İkinci beyinle ilişki
 
-Kokpit **tek yönlü bir aynadır**: beyinden okur, beyne yazmaz.
+Kokpit **tek yönlü bir aynadır**: beyinden okur, beyne (Inbox notu dışında) yazmaz.
+
+**Proje oturumları beyne nasıl düşer (2026-09-21):** her projenin `session-end.ps1` hook'u
+vault'taki `.claude/hooks/proje-flush.ps1`'i çağırır, o da `flush.py --proje <ad>`'ı ayrık
+süreç olarak başlatır; özet `daily/`'ye `### Oturum (HH:MM) — <ad>` başlığıyla düşer.
+Bundan önce proje oturumları beyne hiç girmiyordu. Kokpit bunu **ölçer**: `durum.py`
+`beyin.kapsama` (son 8 gün, düşmemiş oturumlar) Sağlık sayfasında; kapanan her oturum için
+`electron/beyin.cjs` transcript + flush durumuna bakıp "beyne düştü / düşüyor / düşmedi"
+der. Geri doldurma vault'ta: `python .claude/scripts/flush_kapsama.py --proje <ad> --doldur`.
 
 - **Okuma:** gösterdiği her şey `durum.py --json` çıktısından gelir, o da vault'taki
   dosyaları okur. Kokpit'in kendi veritabanı yoktur.

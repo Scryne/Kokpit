@@ -55,6 +55,9 @@ function pencereKur() {
     // kendi kontrastini garanti edemiyordu. Cam artik uygulamanin KENDI zemini uzerinde.
     backgroundColor: '#090a0c',
     title: 'Kokpit',
+    // Ozel ikon (public/kokpit.svg -> npm run ikon). Paketlenmemis uygulamada Electron
+    // varsayilan atomu gosterir; gorev cubugu ve Alt+Tab bunu kullanir.
+    icon: path.join(__dirname, '..', 'public', 'kokpit.ico'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

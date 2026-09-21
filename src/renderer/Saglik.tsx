@@ -131,6 +131,28 @@ function ButceGrafigi({ gunler }: { gunler: Record<string, GunButcesi> }) {
           en yüksek gün <span className="enstruman">{tk(enCok)}</span>
         </span>
       </figcaption>
+      {/* Ekran okuyucu ve kopyalama icin ayni veri tablo olarak (dataviz: tablo gorunumu sart). */}
+      <table className="sr-only">
+        <caption>Gün başına token</caption>
+        <thead>
+          <tr>
+            <th scope="col">Gün</th>
+            {SERI.map((s) => (
+              <th key={s.anahtar} scope="col">{s.ad}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sirali.map(([gun, g]) => (
+            <tr key={gun}>
+              <th scope="row">{gun}</th>
+              {SERI.map((s) => (
+                <td key={s.anahtar}>{g[s.anahtar] ?? 0}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </figure>
   );
 }

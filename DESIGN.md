@@ -123,6 +123,21 @@ yuzden sureler burada, kodda Tailwind sinifi olarak (`duration-[180ms]`) yasar.
   kaldirildi). Layout hareketi ani olur; hareket yalniz `transform`/`opacity`/renk uzerinde.
 - `prefers-reduced-motion: reduce` altinda tum gecisler kapanir.
 
+## Sayfalar (2026-09-21, v2)
+
+- **Sağlık** — boru zinciri tek satırda dört halka + ok (kart ızgarası değil); düşmemiş
+  oturumlar tablosu; bütçe grafiği geniş, "Aria ile konuş" dar (2:1, eşit değil). Grafik
+  paleti `dataviz` doğrulayıcısıyla koyu yüzeyde test edildi: yeni girdi `#8b5cf6` (aksan),
+  çıktı `#0d9488` (teal). Açık teal/mavi adaylar lightness bandını geçemedi. Renk yalnız
+  seri kimliği; değerler metin token'larında. Ekran okuyucu için `sr-only` tablo.
+- **Envanter** — drift en üstte (tek "müdahale" bilgisi; yoksa sakin yüzey), skill/MCP
+  çipleri mono, transcript hijyeni ölçüm satırı.
+- **Not kutusu** — yerel `<dialog>`, `bg-yuzey-guclu`, arka plan `black/50`. Cam değil.
+- **Dikkat noktası** — zil sonrası `bg-dikkat` + `ring-2 ring-dikkat/30`, statik. Renk tek
+  başına anlam taşımaz: sekmede `title` ve `sr-only` metin.
+- **İkon** — `public/kokpit.svg`: koyu indigo zemin, 270° ölçek yayı (violet gradient),
+  beyaz ibre. Metin yok; 16 px'te tek şekil okunur. `npm run ikon` → `.ico` + `.png`.
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;
