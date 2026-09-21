@@ -25,7 +25,7 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 7 | Süreklilik: Kokpit'in kendi hafızası | ✅ Tamamlandı | Pencere/ayarlar hatırlanır; oturum defteri; açılışta geri yükleme `claude --continue` ile çalışır |
 | 8 | Beyin senkronu + Sağlık sayfası | ✅ Tamamlandı | Proje oturumları `daily/`'ye düşüyor; `durum.py` düşmemişleri sayıyor; Sağlık sayfası boru zincirini gösteriyor; Inbox'a not |
 | 9 | Envanter sayfası | ✅ Tamamlandı | Skill/MCP/drift ve bütçe dağılımı Kokpit'te okunuyor |
-| 10 | Kimlik ve cila | ⏳ Bekliyor | Özel ikon, a11y/motion pasları yeni yüzeylerde geçti, README/DESIGN.md güncel |
+| 10 | Kimlik ve cila | ✅ Tamamlandı | Özel ikon, a11y/motion pasları yeni yüzeylerde geçti, README/DESIGN.md güncel |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -313,4 +313,19 @@ listelenmiş** yazmalar; cam yalnız nav ve şerit.
   README ve DESIGN.md.
 - **Bitti Kriteri:** görev çubuğunda Electron atomu değil Kokpit ikonu; pasların bulgu listesi
   boş; README yeni kısayolları ve dosyaları anlatıyor.
+  ✅ (2026-09-21) — `public/kokpit.svg` (ölçek yayı + ibre) → `npm run ikon` → `.ico`
+  (16–256) + `.png`; pencere ve başlat menüsü kısayolu ikonu kullanıyor. Pencere başlığı
+  "Kokpit — <proje>", dikkat bekleyen varsa "(N)". Yeni yüzeylerde a11y pası: grafiğe
+  `sr-only` veri tablosu, dialog yerel, alert/status rolleri; motion: yeni animasyon yok,
+  dikkat halkası statik. README (sayfalar, kısayollar, süreklilik, beyin borusu, test:ui)
+  ve DESIGN.md (Sayfalar bölümü) güncel; `design:lint` 0/0; `test:ui` 29/29.
+- **Notlar:** İkon üretiminde ilk yol (`offscreen` + `transparent` + `capturePage`) bu
+  makinede hiç dönmedi (90 sn); renderer'da `<canvas>` + `toDataURL` anında çalıştı.
+
+---
+
+**v2 kapanışı (2026-09-21):** Faz 6–10 tek oturumda kapandı; 8 commit. Kalan doğrulamalar
+Scryne'ın gerçek kullanımına bağlı (test kabuğu claude açmaz): geri yüklemede `--continue`
+konuşmayı getiriyor mu, canlı claude'u kapatırken diyalog çıkıyor mu, bir gerçek oturumdan
+sonra sekmede "beyne düştü ✓" görünüyor mu. Bunlar görülünce v2.1 listesi ondan çıkar.
 

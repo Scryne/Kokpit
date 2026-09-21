@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Kokpit: enstruman. Koyu indigo zemin, ustten gelen isik, tek olcek yayi ve ibre.
+       16px'te de okunsun diye tek sekil: yay + ibre. Metin yok. -->
+  <defs>
+    <linearGradient id="zemin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1740"/>
+      <stop offset="0.55" stop-color="#0f0d1c"/>
+      <stop offset="1" stop-color="#090a0c"/>
+    </linearGradient>
+    <linearGradient id="halka" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4f4f5" stop-opacity="0.34"/>
+      <stop offset="0.5" stop-color="#f4f4f5" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#f4f4f5" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="yay" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#6d3fe0"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#zemin)"/>
+  <rect x="9" y="9" width="238" height="238" rx="55" fill="none" stroke="url(#halka)" stroke-width="2"/>
+  <!-- Olcek yayi: sol-alttan sag-alta 270 derece, ustu acik. -->
+  <path d="M 72 184 A 79 79 0 1 1 184 184" fill="none" stroke="#2a2342" stroke-width="22" stroke-linecap="round"/>
+  <path d="M 72 184 A 79 79 0 1 1 168 62" fill="none" stroke="url(#yay)" stroke-width="22" stroke-linecap="round"/>
+  <!-- Ibre: merkezden yayin ucuna. -->
+  <line x1="128" y1="128" x2="164" y2="66" stroke="#f4f4f5" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="128" cy="128" r="14" fill="#f4f4f5"/>
+  <circle cx="128" cy="128" r="6" fill="#0f0d1c"/>
+</svg>
