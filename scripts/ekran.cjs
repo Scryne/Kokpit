@@ -15,6 +15,19 @@ const SAYFA = process.argv[2] || 'saglik';
 const CIKTI = process.argv[3] || path.join(os.tmpdir(), 'kokpit-' + SAYFA + '.png');
 const TUS = { pano: '1', saglik: '3', envanter: '4' };
 const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
+// Uygulama kapanirken ayarlari yazar ve bekleyen geri yukleme teklifini "kapandi" diye
+// tuketir; ekran almak Scryne'in gercek durumunu degistirmesin diye ikisi geri konur.
+const AYARLAR = path.join(os.homedir(), '.kokpit', 'ayarlar.json');
+const DEFTER = path.join(os.homedir(), '.kokpit', 'oturumlar.jsonl');
+const oku = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null);
+const ayarOnce = oku(AYARLAR);
+const defterOnce = oku(DEFTER);
+function geriKoy() {
+  for (const [f, icerik] of [[AYARLAR, ayarOnce], [DEFTER, defterOnce]]) {
+    if (icerik !== null) fs.writeFileSync(f, icerik);
+    else if (fs.existsSync(f)) fs.unlinkSync(f);
+  }
+}
 
 function jsonGetir(url) {
   return new Promise((coz, red) => {
@@ -64,5 +77,6 @@ function jsonGetir(url) {
   const cikis = new Promise((r) => { app.on('exit', r); setTimeout(() => { try { app.kill(); } catch { /* */ } r(); }, 6000); });
   void gonder('Browser.close');
   await cikis;
+  geriKoy();
   process.exit(0);
-})().catch((e) => { console.error(e.message); process.exit(1); });
+})().catch((e) => { console.error(e.message); geriKoy(); process.exit(1); });
