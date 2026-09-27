@@ -76,6 +76,13 @@ yok). Bin adı açık verilince çalışıyor.
 `test:pty` elle doğrulanamayan şeyi doğrular: token reddi, cwd, yazma/okuma, resize'in
 kabuğa geçmesi, temiz kapanış ve **yetim süreç bırakmama**.
 
+`npm run ekran [pano|saglik|envanter] [çıktı.png]` uygulamayı açıp sayfanın PNG'sini alır;
+`test:ui` gibi `~/.kokpit/ayarlar.json` ve oturum defterini sonra geri koyar (kapanış bekleyen
+"geri yükle" teklifini tüketmesin diye).
+
+**CI** (`windows-latest`): typecheck + build + `test:pty`. `test:ui` CI'da koşmaz — vault ve
+`durum.py` ister; yerelde çalıştırılır.
+
 ## Kurulum (temiz makinede)
 
 ```bash
