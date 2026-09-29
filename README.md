@@ -41,8 +41,14 @@ resim yapıştırma). Uygulamanın öbür kısayolları terminale hiç ulaşmaz.
 pencere odakta değilse Windows bildirimi gelir, tıklayınca o sekmeye gidilir. Bakınca düşer.
 
 **Kapatma koruması:** kabuğun altında süreç varken (claude çalışıyorken) sekme/bölme/uygulama
-kapatılırsa yerel onay diyaloğu çıkar. Sebep: PTY öldürülünce claude'un SessionEnd hook'u
-çalışmaz, oturum beyne düşmez. `/exit` ile çıkmak güvenli yol.
+kapatılırsa üç seçenekli yerel diyalog çıkar: **Güvenli kapat** (varsayılan) · Zorla kapat ·
+Vazgeç. Sebep: PTY öldürülünce claude'un SessionEnd hook'u çalışmaz, oturum beyne düşmez
+(ölçüldü 2026-09-29). Güvenli kapat claude'a çıkış tuşlarını gönderir (Esc, Ctrl+C ×2;
+boşta, yarım yazılmışken ve meşgulken denendi) ve kendi kapanmasını 90 sn'ye kadar bekler;
+bölmede "Güvenli kapatılıyor" şeridi görünür. Dizi bir kez gönderilir: proje SessionEnd
+hook'u senkron `claude -p` çalıştırır, ikinci bir Ctrl+C onu keserdi. Süreç sorgusu cevap
+vermezse "süreç yok" değil "bilinmiyor" sayılır ve yine sorulur. Uygulama kapanışında güvenli
+kapatılan oturumlar yerinde kalır; bir sonraki açılışta geri yükleme teklif edilir.
 
 **Süreklilik:** pencere konumu, kenar çubuğu ve yazı boyutu `~/.kokpit/ayarlar.json`'da;
 açılan her oturum `~/.kokpit/oturumlar.jsonl` defterinde. Uygulama açık oturumlarla
@@ -56,8 +62,8 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 ## Test
 
 ```bash
-npm run test:pty     # PTY sunucusunun uçtan uca testi (11 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi (29 kontrol, önce build)
+npm run test:pty     # PTY sunucusunun uçtan uca testi (13 kontrol)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi (31 kontrol, önce build)
 npm run typecheck
 npm run build
 npm run design:lint  # DESIGN.md spec denetimi
@@ -68,13 +74,19 @@ npm run ikon         # public/kokpit.svg -> kokpit.ico + kokpit.png
 gönderir, DOM'dan okur; iki çalışma yapar (geri yükleme için). Claude AÇMAZ:
 `KOKPIT_TEST_KABUK=1` ile PTY sunucusu düz pwsh açar — her gerçek claude açılışı transcript +
 hook tetiklerdi. `KOKPIT_TEST_KEEP=1` ayar/defter dosyalarını geri almaz, defteri basar.
+Yerel diyalog CDP'den tıklanamadığı için test `KOKPIT_TEST_SECIM=0` verir: kapatma diyaloğu
+"Güvenli kapat" seçilmiş sayılır (yalnız `KOKPIT_TEST_KABUK=1` ile birlikte okunur). Test
+kabuğunda claude yerine `ping` çalıştırılır; güvenli kapatma onu Ctrl+C ile durdurur. Gerçek
+claude ile dizi ayrıca elle ölçüldü (SessionEnd hook'u tamamlandı, çıkış 3–10 sn).
+Test koşucuları tek örnek kilidine takılmaz: gerçek Kokpit açıkken de çalışır.
 
 `design:lint` bilerek `npx -p @google/design.md designmd` der: paket adı `npx @google/design.md`
 diye çağrılınca bin adındaki nokta yüzünden **sessizce hiçbir şey yapmıyor** (çıkış 0, çıktı
 yok). Bin adı açık verilince çalışıyor.
 
 `test:pty` elle doğrulanamayan şeyi doğrular: token reddi, cwd, yazma/okuma, resize'in
-kabuğa geçmesi, temiz kapanış ve **yetim süreç bırakmama**.
+kabuğa geçmesi, çocuk süreç sorgusu, güvenli çıkış, temiz kapanış ve **yetim süreç
+bırakmama**.
 
 `npm run ekran [pano|saglik|envanter] [çıktı.png]` uygulamayı açıp sayfanın PNG'sini alır;
 `test:ui` gibi `~/.kokpit/ayarlar.json` ve oturum defterini sonra geri koyar (kapanış bekleyen
@@ -110,7 +122,12 @@ modülü ve Electron binary'si hiç inmez.
 ## Teşhis
 
 Main süreç `~/.kokpit/kokpit.log` dosyasına yazar: renderer konsolu, sayfa yükleme hataları,
-renderer çökmesi, preload hatası, `durum.py` çalışma süresi ve hataları.
+renderer çökmesi, preload hatası, `durum.py` çalışma süresi ve hataları, kapatma kararları
+(güvenli/zorla). PTY sunucusu `~/.kokpit/pty-server.log`'a yazar (güvenli çıkışın süresi
+dahil). İki dosya da açılışta 2 MB'ı geçerse `.1`'e devredilir.
+
+**Tek örnek:** ikinci `kokpit` yeni pencere açmaz, açık olanı öne getirir (iki örnek aynı
+oturum defterini paylaşıp birbirinin açık oturumlarına geri yükleme teklif ediyordu).
 
 Bu kablolar bilerek bırakıldı — bu projede iki kez *sessiz* hata sınıfıyla karşılaşıldı
 (`data:` URL'in WebSocket'i sessizce engellemesi; Windows yol kaçışlarının `CreateProcess`

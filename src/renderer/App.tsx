@@ -20,7 +20,7 @@ import Envanter from './Envanter';
 import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
-import { ASAMA_SIRA, BeyinKaydiRozeti, sureMetni } from './parcalar';
+import { BeyinKaydiRozeti, projeSirala, sureMetni } from './parcalar';
 
 // durum.py her cagrida ~500 ms'lik bir Python sureci demek. Iki koruma:
 // - ayni anda tek istek (StrictMode'un cift effect'ini de yutar)
@@ -29,8 +29,9 @@ const ODAK_ASGARI_ARALIK_MS = 30_000;
 const ASGARI_ORAN = 0.15;
 const YAZI_BOYUTU = { enAz: 9, enCok: 28, varsayilan: 13 };
 
-/** Oturum noktasinin rengi: dikkat > acik > baglaniyor > hata > bitti. */
-function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat'>) {
+/** Oturum noktasinin rengi: kapaniyor > dikkat > acik > baglaniyor > hata > bitti. */
+function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat' | 'kapaniyor'>) {
+  if (o.kapaniyor) return 'animate-pulse bg-dikkat';
   if (o.dikkat) return 'bg-dikkat ring-2 ring-dikkat/30';
   if (o.durumu === 'acik') return 'bg-aksan';
   if (o.durumu === 'baglaniyor') return 'animate-pulse bg-dikkat';
@@ -151,12 +152,24 @@ export default function App() {
     );
   }, []);
 
-  // Tek sayac: acik oturum varsa surelerin ilerlemesi icin saniyede bir tik.
+  // Tek sayac: acik oturum varsa sureler icin saniyede bir, yoksa dakikada bir tik.
+  // (Eskiden oturum yokken hic tiklemiyordu; gece acik kalan Kokpit'te "son oturum: bugün"
+  // ertesi gun de bugün diyordu.)
+  const oturumAcik = oturumlar.some((o) => o.durumu === 'acik');
   useEffect(() => {
-    if (!oturumlar.some((o) => o.durumu === 'acik')) return;
-    const t = setInterval(() => setSimdi(Date.now()), 1000);
+    setSimdi(Date.now());
+    const t = setInterval(() => setSimdi(Date.now()), oturumAcik ? 1000 : 60_000);
     return () => clearInterval(t);
-  }, [oturumlar]);
+  }, [oturumAcik]);
+
+  // Async akislar (diyalog, guvenli cikis) saniyeler surer; bittiklerinde o anki listeye
+  // bakmalari gerekir, akisin basladigi andaki kapanisa degil.
+  const oturumlarRef = useRef(oturumlar);
+  oturumlarRef.current = oturumlar;
+  const aktifOturumRef = useRef(aktifOturumId);
+  aktifOturumRef.current = aktifOturumId;
+  const aktifGrupRef = useRef(aktifGrupId);
+  aktifGrupRef.current = aktifGrupId;
 
   const tazele = useCallback(async (sebep: 'acilis' | 'odak' | 'elle') => {
     if (ucusta.current) return;
@@ -279,32 +292,37 @@ export default function App() {
   /**
    * Verilen oturumlari kapatir ve odagi tutarli birakir.
    *
-   * ONEMLI: hesap `setOturumlar` guncelleyicisinin ICINDE yapilmaz. Guncelleyici saf
-   * olmali; React onu (StrictMode'da ve concurrent modda) birden fazla kez cagirabilir,
-   * ve icine konan setState'ler yan etki olur. Once yeni durum burada hesaplanir,
-   * sonra tum setter'lar bir kez cagrilir.
+   * ONEMLI: guncelleyicinin icine setState/yan etki konmaz; React onu (StrictMode'da ve
+   * concurrent modda) birden fazla kez cagirabilir. Liste SAF bir fonksiyonla, o anki
+   * duruma karsi guncellenir (async bir akistan saniyeler sonra cagrilsa da arada gelen
+   * degisiklikler ezilmez); odak ve defter yan etkileri disarida bir kez yapilir.
    */
   const kapat = useCallback(
     (idler: string[]) => {
       const kume = new Set(idler);
-      const kapanan = oturumlar.filter((x) => kume.has(x.id));
+      const simdiki = oturumlarRef.current;
+      const kapanan = simdiki.filter((x) => kume.has(x.id));
       if (kapanan.length === 0) return;
 
-      const kalan = oturumlar.filter((x) => !kume.has(x.id));
       const etkilenenGruplar = new Set(kapanan.map((x) => x.grupId));
       for (const x of kapanan) defterKapandi(x.id, 'kullanici');
 
       // Etkilenen gruplarda kalan bolmeler bosalan payi paylasir.
-      const yeni = kalan.map((x) => {
-        if (!etkilenenGruplar.has(x.grupId)) return x;
-        const kardesler = kalan.filter((y) => y.grupId === x.grupId);
-        const toplam = kardesler.reduce((t, y) => t + y.oran, 0) || 1;
-        return { ...x, oran: x.oran / toplam };
-      });
-
-      setOturumlar(yeni);
+      const cikar = (liste: Oturum[]) => {
+        const kalan = liste.filter((x) => !kume.has(x.id));
+        return kalan.map((x) => {
+          if (!etkilenenGruplar.has(x.grupId)) return x;
+          const kardesler = kalan.filter((y) => y.grupId === x.grupId);
+          const toplam = kardesler.reduce((t, y) => t + y.oran, 0) || 1;
+          return { ...x, oran: x.oran / toplam };
+        });
+      };
+      setOturumlar(cikar);
+      const yeni = cikar(simdiki);
 
       // Odak: once ayni grupta kalan bir bolme, yoksa son grup, o da yoksa Pano.
+      const aktifOturumId = aktifOturumRef.current;
+      const aktifGrupId = aktifGrupRef.current;
       const aktifSilindi = aktifOturumId !== null && kume.has(aktifOturumId);
       if (!aktifSilindi) return;
 
@@ -321,7 +339,7 @@ export default function App() {
         setKenarAcik(true);
       }
     },
-    [oturumlar, aktifOturumId, aktifGrupId, defterKapandi]
+    [defterKapandi]
   );
 
   const oturumDurumu = useCallback(
@@ -396,73 +414,184 @@ export default function App() {
   }, [gorunum, aktifGrupId, oturumlar]);
 
   /**
-   * Kapatma onayi. Kabugun altinda hala bir surec (claude) varsa sor: PTY oldurulunce
-   * claude SIGHUP alir, SessionEnd hook'u calismaz ve oturum beyne dusmez.
+   * Kapatma korumasi. Kabugun altinda hala bir surec (claude) varsa kullaniciya sorulur.
+   * PTY'yi oldurmek claude'u keser ve SessionEnd hook'u CALISMAZ: oturum beyne dusmez
+   * (olculdu 2026-09-29; o gun vault oturumu 01baf5c3 bu yoldan kayboldu). Varsayilan yol
+   * "Guvenli kapat": claude'a cikis tuslari gider, kendi kapanmasi beklenir.
    */
-  const canliCocuklar = useCallback(
-    async (idler: string[]) => {
-      const sonuc: { ad: string; cocuklar: string[] }[] = [];
-      await Promise.all(
-        idler.map(async (id) => {
-          const o = oturumlar.find((x) => x.id === id);
-          const api = oturumApileri.current.get(id);
-          if (!o || o.durumu !== 'acik' || !api) return;
-          const cocuklar = await api.cocuklar();
-          if (cocuklar.length > 0) sonuc.push({ ad: o.ad, cocuklar });
-        })
-      );
-      return sonuc;
-    },
-    [oturumlar]
-  );
+  const canliOturumlar = useCallback(async (idler: string[]) => {
+    const sonuc: { id: string; ad: string; cocuklar: string[] | null }[] = [];
+    await Promise.all(
+      idler.map(async (id) => {
+        const o = oturumlarRef.current.find((x) => x.id === id);
+        const api = oturumApileri.current.get(id);
+        if (!o || o.durumu !== 'acik' || !api) return;
+        const cocuklar = await api.cocuklar();
+        // Sorgu cevapsiz kaldiysa "calisiyor olabilir": sormadan kapatmak yerine sor.
+        if (cocuklar === null) console.warn('[kapatma] süreç sorgusu yanıtsız: ' + o.ad);
+        if (cocuklar === null || cocuklar.length > 0) sonuc.push({ id, ad: o.ad, cocuklar });
+      })
+    );
+    return sonuc;
+  }, []);
 
-  const kapatmaOnayi = useCallback(
-    async (idler: string[]) => {
-      const canli = await canliCocuklar(idler);
-      if (canli.length === 0) return true;
-      const adlar = canli.map((c) => c.ad + ' (' + c.cocuklar.join(', ') + ')').join(', ');
-      return window.kokpit.onayla({
-        baslik: 'Oturumu kapat',
+  const kapatmaSor = useCallback(
+    async (
+      canli: { ad: string; cocuklar: string[] | null }[],
+      uygulama: boolean
+    ): Promise<'guvenli' | 'zorla' | 'iptal'> => {
+      const tanim = (c: { cocuklar: string[] | null }) =>
+        c.cocuklar === null
+          ? 'çalışan süreç okunamadı'
+          : c.cocuklar.some((a) => /claude/i.test(a))
+            ? 'claude çalışıyor'
+            : c.cocuklar.join(', ') + ' çalışıyor';
+      const liste =
+        canli.length > 1 ? canli.map((c) => '• ' + c.ad + ': ' + tanim(c)).join('\n') + '\n\n' : '';
+      const secim = await window.kokpit.sec({
+        baslik: uygulama ? "Kokpit'i kapat" : 'Oturumu kapat',
         mesaj:
           canli.length === 1
-            ? canli[0].ad + ' oturumunda hâlâ bir süreç çalışıyor.'
-            : canli.length + ' oturumda hâlâ süreç çalışıyor.',
+            ? canli[0].ad + ': ' + tanim(canli[0]) + '.'
+            : canli.length + ' oturumda süreç çalışıyor.',
         ayrinti:
-          'Çalışan: ' +
-          adlar +
-          '.\n\nKapatmak süreci keser; claude\'un SessionEnd hook\'u çalışmaz ve bu oturum ikinci beyne düşmez. Önce /exit ile çıkmak güvenli yol.',
-        onayla: 'Yine de kapat',
+          liste +
+          "Güvenli kapat: claude'a çıkış tuşları gider (Esc, Ctrl+C ×2) ve kendi kapanması beklenir. " +
+          "SessionEnd hook'u çalışır, oturum beyne düşer. Birkaç saniye, proje hook'uyla bir dakikaya kadar sürebilir.\n\n" +
+          'Zorla kapat: süreç hemen kesilir. SessionEnd çalışmaz, oturum beyne düşmez.' +
+          (uygulama ? '\n\nİki yolda da açık oturumlar bir sonraki açılışta geri yüklenebilir.' : ''),
+        dugmeler: ['Güvenli kapat', 'Zorla kapat', 'Vazgeç'],
       });
+      if (secim === 0) console.info('[kapatma] güvenli kapat: ' + canli.map((c) => c.ad).join(', '));
+      if (secim === 1) console.info('[kapatma] zorla kapat: ' + canli.map((c) => c.ad).join(', '));
+      return secim === 0 ? 'guvenli' : secim === 1 ? 'zorla' : 'iptal';
     },
-    [canliCocuklar]
-  );
-
-  const oturumKapat = useCallback(
-    (id: string) => {
-      void kapatmaOnayi([id]).then((tamam) => tamam && kapat([id]));
-    },
-    [kapat, kapatmaOnayi]
+    []
   );
 
   /**
-   * Sekmenin tamami. Tek tek `oturumKapat` cagirmak YANLIS olurdu: hepsi ayni tick'te
-   * ayni `oturumlar` degerini gorur ve yalnizca sonuncusu uygulanirdi.
+   * Guvenli cikis: her oturum paralel. `kaldir` true ise temiz cikan bolme hemen kapanir
+   * (sekme kapatma); false ise yerinde kalir (uygulama kapanisi: defterde acik kalsin ki bir
+   * sonraki acilista geri yukleme teklif edilsin). Hepsi temiz ciktiysa true.
    */
-  const grupKapat = useCallback(
-    (grupId: string) => {
-      const idler = oturumlar.filter((o) => o.grupId === grupId).map((o) => o.id);
-      void kapatmaOnayi(idler).then((tamam) => tamam && kapat(idler));
+  const guvenliKapat = useCallback(
+    async (idler: string[], kaldir: boolean) => {
+      const kume = new Set(idler);
+      setOturumlar((l) =>
+        l.map((x) => (kume.has(x.id) ? { ...x, kapaniyor: true, mesaj: undefined } : x))
+      );
+      const sonuclar = await Promise.all(
+        idler.map(async (id) => {
+          const api = oturumApileri.current.get(id);
+          const temiz = api ? await api.guvenliCik() : true;
+          if (temiz && kaldir) {
+            kapat([id]);
+          } else {
+            setOturumlar((l) =>
+              l.map((x) =>
+                x.id === id
+                  ? {
+                      ...x,
+                      kapaniyor: false,
+                      mesaj: temiz
+                        ? undefined
+                        : "claude 90 sn içinde kapanmadı. Terminalde /exit yaz ya da sekmeyi zorla kapat.",
+                    }
+                  : x
+              )
+            );
+          }
+          return temiz;
+        })
+      );
+      return sonuclar.every(Boolean);
     },
-    [kapat, kapatmaOnayi, oturumlar]
+    [kapat]
   );
 
-  // Uygulama kapatilirken de ayni koruma. Main 'kapanis:sor' gonderir, cevap 'kapanis:onay'.
+  /**
+   * Bolme/sekme kapatma. Bir sekmenin tum bolmeleri TEK cagriyla gelir: tek tek kapatmak
+   * her birine ayri diyalog acardi.
+   */
+  const oturumlariKapat = useCallback(
+    (idler: string[]) => {
+      void (async () => {
+        // Guvenli cikisi suren bolmede ikinci X: zorla kapatma istegi.
+        if (idler.some((id) => oturumlarRef.current.find((x) => x.id === id)?.kapaniyor)) {
+          const tamam = await window.kokpit.onayla({
+            baslik: 'Zorla kapat',
+            mesaj: 'claude hâlâ kapanıyor.',
+            ayrinti:
+              "SessionEnd hook'u çalışıyor olabilir. Şimdi kapatırsan oturum beyne düşmeyebilir.",
+            onayla: 'Zorla kapat',
+          });
+          if (tamam) kapat(idler);
+          return;
+        }
+        const canli = await canliOturumlar(idler);
+        if (canli.length === 0) {
+          kapat(idler);
+          return;
+        }
+        const secim = await kapatmaSor(canli, false);
+        if (secim === 'iptal') return;
+        if (secim === 'zorla') {
+          kapat(idler);
+          return;
+        }
+        const canliIdler = new Set(canli.map((c) => c.id));
+        kapat(idler.filter((id) => !canliIdler.has(id)));
+        await guvenliKapat([...canliIdler], true);
+      })();
+    },
+    [canliOturumlar, kapatmaSor, guvenliKapat, kapat]
+  );
+
+  const oturumKapat = useCallback((id: string) => oturumlariKapat([id]), [oturumlariKapat]);
+  const grupKapat = useCallback(
+    (grupId: string) =>
+      oturumlariKapat(oturumlarRef.current.filter((o) => o.grupId === grupId).map((o) => o.id)),
+    [oturumlariKapat]
+  );
+
+  // Uygulama kapanisi. Main 'kapanis:sor' gonderir; renderer hemen 'alindi' der (main'in 3 sn
+  // bekcisi durur), sonra kullanicinin kararina gore 'onay' ya da 'iptal'.
   useEffect(() => {
     return window.kokpit.kapanisSorulunca(() => {
-      const acik = oturumlar.filter((o) => o.durumu === 'acik').map((o) => o.id);
-      void kapatmaOnayi(acik).then((tamam) => tamam && window.kokpit.kapanisOnayla());
+      window.kokpit.kapanisAlindi();
+      void (async () => {
+        const acik = oturumlarRef.current.filter((o) => o.durumu === 'acik').map((o) => o.id);
+        const canli = await canliOturumlar(acik);
+        if (canli.length === 0) {
+          window.kokpit.kapanisOnayla();
+          return;
+        }
+        const secim = await kapatmaSor(canli, true);
+        if (secim === 'iptal') {
+          window.kokpit.kapanisIptal();
+          return;
+        }
+        if (secim === 'zorla') {
+          window.kokpit.kapanisOnayla();
+          return;
+        }
+        // Kullanici kapanisi izleyebilsin.
+        setGorunum('terminal');
+        if (await guvenliKapat(canli.map((c) => c.id), false)) {
+          window.kokpit.kapanisOnayla();
+          return;
+        }
+        const yine = await window.kokpit.onayla({
+          baslik: "Kokpit'i kapat",
+          mesaj: 'Bazı oturumlar kapanmadı.',
+          ayrinti: 'claude 90 sn içinde çıkmadı. Yine de kapatırsan bu oturumlar beyne düşmeyebilir.',
+          onayla: 'Yine de kapat',
+        });
+        if (yine) window.kokpit.kapanisOnayla();
+        else window.kokpit.kapanisIptal();
+      })();
     });
-  }, [oturumlar, kapatmaOnayi]);
+  }, [canliOturumlar, kapatmaSor, guvenliKapat]);
 
   // Gruplar olusturulma sirasini korur.
   const gruplar = useMemo(() => {
@@ -475,13 +604,7 @@ export default function App() {
     return [...harita.entries()].map(([id, uyeler]) => ({ id, uyeler }));
   }, [oturumlar]);
 
-  const siraliProjeler = durum
-    ? [...durum.projeler].sort((a, b) => {
-        const ai = a.asama ? ASAMA_SIRA.indexOf(a.asama) : -1;
-        const bi = b.asama ? ASAMA_SIRA.indexOf(b.asama) : -1;
-        return bi - ai || (b.guncellendi ?? '').localeCompare(a.guncellendi ?? '');
-      })
-    : [];
+  const siraliProjeler = useMemo(() => (durum ? projeSirala(durum.projeler) : []), [durum]);
 
   const aktifOturum = oturumlar.find((o) => o.id === aktifOturumId) ?? null;
 
@@ -948,7 +1071,9 @@ export default function App() {
                 const ilk = g.uyeler[0];
                 const etiket = g.uyeler.length > 1 ? ilk.ad + ' +' + (g.uyeler.length - 1) : ilk.ad;
                 const dikkat = g.uyeler.some((o) => o.dikkat);
-                const nokta = dikkat
+                const nokta = g.uyeler.some((o) => o.kapaniyor)
+                  ? 'animate-pulse bg-dikkat'
+                  : dikkat
                   ? noktaSinifi({ durumu: 'acik', dikkat: true })
                   : g.uyeler.some((o) => o.durumu === 'acik')
                     ? 'bg-aksan'
@@ -1117,6 +1242,28 @@ export default function App() {
                               <X className="size-3.5" aria-hidden="true" />
                             </button>
                           </div>
+                        )}
+                        {o.kapaniyor && (
+                          <p
+                            role="status"
+                            className="flex shrink-0 items-center gap-2 border-b border-kenar bg-yuzey px-2 py-1 text-xs text-metin-ikincil"
+                          >
+                            <span
+                              className="size-1.5 shrink-0 animate-pulse rounded-full bg-dikkat"
+                              aria-hidden="true"
+                            />
+                            <span className="min-w-0 flex-1 truncate">
+                              Güvenli kapatılıyor: SessionEnd hook'u bekleniyor, bir dakikaya
+                              kadar sürebilir.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => oturumKapat(o.id)}
+                              className="shrink-0 cursor-pointer rounded-kontrol border border-kenar px-2 py-0.5 text-metin-soluk transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
+                            >
+                              Zorla kapat
+                            </button>
+                          </p>
                         )}
                         {o.mesaj && (
                           <p

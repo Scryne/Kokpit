@@ -8,6 +8,12 @@
 // Olaylar:
 //   { t, calisma, olay: 'acildi',  id, ad, yol }
 //   { t, calisma, olay: 'kapandi', id, kod?, sebep? }   sebep: 'kullanici' | 'kabuk' | 'uygulama-kapandi'
+//   { t, calisma, olay: 'calisma-bitti' }                uygulama duzgun kapandi (2026-09-29'dan beri)
+//
+// 'uygulama-kapandi' kaydi bir SONRAKI acilista yazilir; t'si kapanis ani degil acilis ani.
+// Oturumun gercek bitisi, acildigi calismanin 'calisma-bitti' anidir. O yoksa (cokme ya da
+// eski kayit) bitis bilinmez ve "son oturum" suresi uydurulmaz. (Eskiden t kullaniliyordu:
+// gece kapatilip sabah acilan Kokpit'te oturum "152 sa" gorunuyordu.)
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -48,15 +54,31 @@ function oku() {
 /** Olaylari oturum kayitlarina indirger: id -> { id, ad, yol, calisma, baslangic, bitis, kod, sebep }. */
 function oturumlar(olaylar = oku()) {
   const harita = new Map();
+  const calismaBitis = new Map();
+  for (const o of olaylar) {
+    if (o.olay === 'calisma-bitti') calismaBitis.set(o.calisma, o.t);
+  }
   for (const o of olaylar) {
     if (o.olay === 'acildi' && o.id) {
-      harita.set(o.id, { id: o.id, ad: o.ad, yol: o.yol, calisma: o.calisma, baslangic: o.t, bitis: null, kod: null, sebep: null });
+      harita.set(o.id, { id: o.id, ad: o.ad, yol: o.yol, calisma: o.calisma, baslangic: o.t, bitis: null, kod: null, sebep: null, bitisBilinmiyor: false });
     } else if (o.olay === 'kapandi' && harita.has(o.id)) {
       const k = harita.get(o.id);
-      if (k.bitis === null) Object.assign(k, { bitis: o.t, kod: o.kod ?? null, sebep: o.sebep ?? null });
+      if (k.bitis !== null) continue;
+      let bitis = o.t;
+      let bilinmiyor = false;
+      if (o.sebep === 'uygulama-kapandi') {
+        bitis = calismaBitis.get(k.calisma) ?? o.t;
+        bilinmiyor = !calismaBitis.has(k.calisma);
+      }
+      Object.assign(k, { bitis, kod: o.kod ?? null, sebep: o.sebep ?? null, bitisBilinmiyor: bilinmiyor });
     }
   }
   return [...harita.values()];
+}
+
+/** Uygulama duzgun kapaniyor: acik oturumlarin gercek bitis ani bu. */
+function calismaBitti() {
+  ekle({ olay: 'calisma-bitti' });
 }
 
 /**
@@ -79,7 +101,8 @@ function oncekiAcikOturumlar() {
 function sonOturumlar() {
   const sonuc = {};
   for (const k of oturumlar()) {
-    if (k.bitis === null) continue;
+    // Bitisi bilinmeyen (cokme / eski kayit) oturumun suresi gosterilmez.
+    if (k.bitis === null || k.bitisBilinmiyor) continue;
     const eski = sonuc[k.yol];
     if (!eski || eski.bitis < k.bitis) {
       sonuc[k.yol] = {
@@ -92,4 +115,4 @@ function sonOturumlar() {
   return sonuc;
 }
 
-module.exports = { ekle, oncekiAcikOturumlar, sonOturumlar, DOSYA, CALISMA };
+module.exports = { ekle, calismaBitti, oncekiAcikOturumlar, sonOturumlar, DOSYA, CALISMA };

@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, screen, session, shell } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const { DEV_URL, DEV_PORT } = require('./config.cjs');
 const { log, logHata, LOG_DOSYA } = require('./log.cjs');
@@ -16,12 +17,26 @@ app.setAppUserModelId('com.scryne.kokpit');
 
 const DEV = !app.isPackaged && process.env.KOKPIT_DEV !== '0';
 
+// Tek ornek. Ikinci Kokpit ayni oturum defterini paylasir: birincinin acik oturumlarini
+// "onceki calismadan kalan" sanip geri yukleme teklif eder (ayni klasorde ikinci
+// `claude --continue`), ayarlar da yarisir. Ikinci acilis mevcut pencereyi one getirir.
+// Test/ekran kosuculari (KOKPIT_TEST_KABUK=1) gercek Kokpit acikken de calisabilmeli.
+if (process.env.KOKPIT_TEST_KABUK !== '1' && !app.requestSingleInstanceLock()) {
+  app.quit();
+  process.exit(0);
+}
+
 // Sema kaydi app hazir olmadan ONCE yapilmali.
 if (!DEV) uretim.semaKaydet();
 let pencere = null;
 // Kapatma korumasi: renderer "acik oturum var mi" diye bakip onay verene kadar pencere
-// kapanmaz. Renderer cevap vermezse (asili kaldiysa) 3 sn sonra yine de kapanir.
+// kapanmaz. Renderer soruyu 3 sn icinde ALDIGINI bildirmezse (asili) yine de kapanir;
+// aldiysa kullanicinin kararini bekler — diyalog ve guvenli cikis zaman alir.
+// (2026-09-29'a kadar zamanlayici cevabi degil soruyu bekliyordu: kullanici 3 sn icinde
+// karar vermezse ya da "Vazgec" derse pencere yine kapanip claude'u olduruyordu.)
 let kapanisOnaylandi = false;
+let kapanisSoruluyor = false;
+let kapanisZamanlayici = null;
 // Uygulama kapanirken PTY sunucusu olur ve renderer hala hayattaysa her kabuk icin
 // "bitti" gorur. Bu gercek bir kapanis degil: defterde 'kabuk' olarak kaydedilirse geri
 // yukleme teklifi kaybolur (Browser.close / oturum kapatma yolunda before-quit pencereden
@@ -97,14 +112,23 @@ function pencereKur() {
     }
     if (kapanisOnaylandi) return;
     olay.preventDefault();
+    // Soru zaten renderer'da (diyalog acik ya da guvenli cikis suruyor): ikinci X yok sayilir.
+    if (kapanisSoruluyor) return;
+    kapanisSoruluyor = true;
     pencere.webContents.send('kapanis:sor');
-    setTimeout(() => {
+    kapanisZamanlayici = setTimeout(() => {
       if (!kapanisOnaylandi && pencere) {
-        log('kapanis: renderer cevap vermedi, kapatiliyor');
+        log('kapanis: renderer soruyu almadi, kapatiliyor');
         kapanisOnaylandi = true;
         pencere.close();
       }
     }, 3000);
+  });
+
+  // Yeni pencere acilmaz (target=_blank, window.open). Dis linkler `link:ac` yolundan gider.
+  pencere.webContents.setWindowOpenHandler(({ url }) => {
+    log('pencere acma engellendi: ' + String(url).slice(0, 80));
+    return { action: 'deny' };
   });
 
   // Pencereye dosya birakilinca Chromium o dosyaya GITMEYE calisir (file:// gezinme) ve
@@ -157,6 +181,14 @@ ipcMain.handle('pty:bilgi', async () => {
 });
 ipcMain.handle('klasor:ac', async (_e, yol) => {
   if (typeof yol !== 'string' || !yol) return false;
+  // Yalniz klasor: shell.openPath bir .exe/.bat yolunu CALISTIRIR. Renderer'dan gelen yol
+  // bu kapidan bir dosya olarak gecmez.
+  try {
+    if (!fs.statSync(yol).isDirectory()) throw new Error('klasor degil');
+  } catch (e) {
+    log(`klasor acma reddedildi (${yol}): ${e.message}`);
+    return false;
+  }
   const hata = await shell.openPath(yol);
   if (hata) log(`klasor acilamadi (${yol}): ${hata}`);
   return !hata;
@@ -173,12 +205,15 @@ ipcMain.handle('link:ac', async (_e, url) => {
   await shell.openExternal(u.toString());
   return true;
 });
-ipcMain.handle('pencere:odakla', () => {
+function pencereyiOneGetir() {
   if (!pencere) return;
   if (pencere.isMinimized()) pencere.restore();
   pencere.show();
   pencere.focus();
-});
+}
+ipcMain.handle('pencere:odakla', pencereyiOneGetir);
+// Ikinci `kokpit` calistirildi (tek ornek kilidi): mevcut pencere one gelir.
+app.on('second-instance', pencereyiOneGetir);
 // Yerel onay diyalogu. Renderer window.confirm kullanmaz: Electron'da odak ve
 // erisilebilirlik acisindan sistem diyalogu daha dogru.
 ipcMain.handle('onay:sor', async (_e, secenek) => {
@@ -194,6 +229,44 @@ ipcMain.handle('onay:sor', async (_e, secenek) => {
     noLink: true,
   });
   return response === 0;
+});
+// Cok secenekli diyalog (guvenli kapat / zorla kapat / vazgec). Son dugme her zaman iptal;
+// secilen dugmenin sirasini doner.
+// TEST SEAM: yerel diyalog CDP'den tiklanamaz. Yalniz test kosucusu (KOKPIT_TEST_KABUK=1)
+// KOKPIT_TEST_SECIM ile cevabi onceden verebilir; normal calismada hic okunmaz.
+const TEST_SECIM =
+  process.env.KOKPIT_TEST_KABUK === '1' && process.env.KOKPIT_TEST_SECIM !== undefined
+    ? Number(process.env.KOKPIT_TEST_SECIM)
+    : null;
+ipcMain.handle('secim:sor', async (_e, secenek) => {
+  if (!pencere || !secenek || typeof secenek !== 'object') return -1;
+  const dugmeler = Array.isArray(secenek.dugmeler)
+    ? secenek.dugmeler.slice(0, 4).map((d) => String(d))
+    : [];
+  if (dugmeler.length < 2) return -1;
+  if (TEST_SECIM !== null) {
+    log('test: secim diyalogu atlandi -> ' + dugmeler[TEST_SECIM]);
+    return TEST_SECIM;
+  }
+  const { response } = await dialog.showMessageBox(pencere, {
+    type: 'warning',
+    title: String(secenek.baslik || 'Kokpit'),
+    message: String(secenek.mesaj || ''),
+    detail: secenek.ayrinti ? String(secenek.ayrinti) : undefined,
+    buttons: dugmeler,
+    defaultId: 0,
+    cancelId: dugmeler.length - 1,
+    noLink: true,
+  });
+  return response;
+});
+ipcMain.on('kapanis:alindi', () => {
+  clearTimeout(kapanisZamanlayici);
+  kapanisZamanlayici = null;
+});
+ipcMain.on('kapanis:iptal', () => {
+  log('kapanis: kullanici vazgecti');
+  kapanisSoruluyor = false;
 });
 ipcMain.on('kapanis:onay', () => {
   kapanisOnaylandi = true;
@@ -285,7 +358,17 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (olay) => {
+  // app.quit() pencereden ONCE gelebilir (CDP Browser.close, Windows oturum kapatma;
+  // olculdu). PTY sunucusu burada olurse acik claude'lar sorusuz kesilir. Pencere hala
+  // onaysizsa cikis durdurulur ve pencerenin kapatma korumasi calisir; onay gelince pencere
+  // kapanir, window-all-closed yeniden app.quit() der ve bu sefer buradan gecilir.
+  if (pencere && !kapanisOnaylandi) {
+    olay.preventDefault();
+    pencere.close();
+    return;
+  }
+  if (!uygulamaKapaniyor) defter.calismaBitti();
   uygulamaKapaniyor = true;
   ptyKopru.durdur();
 });

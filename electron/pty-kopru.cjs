@@ -69,6 +69,12 @@ function baslat() {
     setTimeout(() => {
       if (cozuldu) return;
       cozuldu = true;
+      // Hazir olmayan sureci birakmak yetim demek; bir sonraki baslat() ikincisini acardi.
+      const asili = cocuk;
+      if (asili) {
+        log('pty sunucusu zaman asimi, oldurluyor pid=' + asili.pid);
+        try { asili.kill(); } catch { /* zaten olmus */ }
+      }
       reject(new Error('pty sunucusu ' + HAZIR_ZAMAN_ASIMI_MS + ' ms icinde hazir olmadi'));
     }, HAZIR_ZAMAN_ASIMI_MS);
   }).catch((e) => {

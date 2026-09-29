@@ -101,7 +101,9 @@ async function baslat() {
   const app = spawn(electronBin, [KOK, '--remote-debugging-port=' + PORT], {
     cwd: KOK,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, KOKPIT_DEV: '0', KOKPIT_TEST_KABUK: '1' },
+    // KOKPIT_TEST_SECIM=0: kapatma diyalogunda "Guvenli kapat" secilmis sayilir (yerel
+    // diyalog CDP'den tiklanamaz).
+    env: { ...process.env, KOKPIT_DEV: '0', KOKPIT_TEST_KABUK: '1', KOKPIT_TEST_SECIM: '0' },
   });
   app.stderr.on('data', () => {});
   app.stdout.on('data', () => {});
@@ -127,9 +129,9 @@ async function baslat() {
  * Kapanis. Browser.close'un cevabi beklenmez — tarayici cevap veremeden kapanir ve
  * bekleyen promise olay dongusunu bosaltip sureci sessizce bitirir (ilk kosuda oldu).
  */
-async function kapat(app, cdp, ad) {
+async function kapat(app, cdp, ad, ms = 8000) {
   const cikisSozu = new Promise((r) => {
-    const t = setTimeout(() => r('zaman-asimi'), 8000);
+    const t = setTimeout(() => r('zaman-asimi'), ms);
     app.on('exit', (k) => { clearTimeout(t); r(k); });
   });
   void cdp.gonder('Browser.close').catch(() => {});
@@ -139,6 +141,15 @@ async function kapat(app, cdp, ad) {
 }
 
 const AC_DUGMESI = `(() => { const b = [...document.querySelectorAll('table tbody tr button')].find(x => x.textContent.trim() === 'Aç'); b.click(); return true; })()`;
+
+/** Acik terminalde uzun bir surec baslatir: kapatma korumasinin "cocuk var" dali. */
+async function cocukBaslat(cdp) {
+  await uyu(1500); // pwsh istemi
+  await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+  await cdp.yaz('ping -n 60 127.0.0.1');
+  await cdp.tus('Enter');
+  await uyu(1500);
+}
 
 async function main() {
   if (!fs.existsSync(path.join(KOK, 'dist', 'index.html'))) {
@@ -208,6 +219,16 @@ async function main() {
     await cdp.bekle(`document.querySelectorAll('[role="tab"]').length === 0`, 5000, 'sekme kapandi');
     kontrol('sekme kapandi, Pano\'ya donuldu', await cdp.js(`document.querySelector('h1')?.textContent === 'Pano'`));
 
+    console.log('Guvenli kapat (cocuk surec var -> cikis tuslari, kendi kapanmasi beklenir)');
+    await cdp.js(AC_DUGMESI);
+    await cdp.bekle(`!!document.querySelector('[role="tab"] .bg-aksan')`, 20000, 'oturum acik');
+    await cocukBaslat(cdp);
+    await cdp.js(`(() => { document.querySelector('[aria-label$="sekmesini kapat"]').click(); return true; })()`);
+    await cdp.bekle(`[...document.querySelectorAll('[role="status"]')].some(p => p.textContent.includes('Güvenli kapatılıyor'))`, 10000, 'kapaniyor seridi');
+    kontrol('bolmede "Guvenli kapatiliyor" seridi', true);
+    await cdp.bekle(`document.querySelectorAll('[role="tab"]').length === 0`, 30000, 'guvenli cikis sonrasi sekme');
+    kontrol('surec kendi yoluyla bitti, sekme kendiliginden kapandi', true);
+
     console.log('Defter: son oturum Pano\'da');
     await cdp.bekle(`[...document.querySelectorAll('table tbody th')].some(th => th.textContent.includes('son oturum'))`, 5000, 'son oturum satiri');
     kontrol('kapanan oturum Pano satirinda "son oturum" olarak goruluyor', true);
@@ -247,13 +268,17 @@ async function main() {
     if (inboxOnce === null) fs.unlinkSync(inboxDosya);
     else fs.writeFileSync(inboxDosya, inboxSonra.split('\n').filter((l) => !l.includes(isaret)).join('\n'));
 
-    console.log('Oturum acikken uygulamayi kapat (geri yukleme icin)');
+    console.log('Surec calisirken uygulamayi kapat (guvenli kapat + geri yukleme)');
     await cdp.js(AC_DUGMESI);
     await cdp.bekle(`!!document.querySelector('[role="tab"] .bg-aksan')`, 20000, 'oturum acik');
+    await cocukBaslat(cdp);
   } catch (e) {
     kontrol('senaryo', false, e.message);
   }
-  await kapat(app, cdp, 'uygulama temiz kapandi (oturum acikken, cocuk yok)');
+  // Main'in eski 3 sn bekcisi burada pencereyi, guvenli cikis bitmeden kapatirdi.
+  await kapat(app, cdp, 'uygulama guvenli cikisi bekleyip kapandi', 30000);
+  const kapanisLogu = fs.readFileSync(path.join(os.homedir(), '.kokpit', 'pty-server.log'), 'utf8').split('\n').slice(-15).join('\n');
+  kontrol('kapanista guvenli cikis tamamlandi (pty-server.log)', /guvenli cikis tamam/.test(kapanisLogu), kapanisLogu.slice(-300));
 
   console.log('Ikinci acilis: geri yukleme teklifi');
   ({ app, cdp } = await baslat());

@@ -9,11 +9,20 @@ import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import type { OturumDurumu } from './types';
 
-/** App'in bir oturuma dokunabildigi dar yuzey (kapatma onayi icin cocuk sureclere bakmak). */
+/** App'in bir oturuma dokunabildigi dar yuzey (kapatma onayi ve guvenli cikis). */
 export interface OturumApi {
-  /** Kabugun altinda calisan sureclerin adlari (ornegin claude). Sunucu cevap vermezse []. */
-  cocuklar: () => Promise<string[]>;
+  /**
+   * Kabugun altinda calisan sureclerin adlari (ornegin claude.exe). `null` = bilinmiyor
+   * (sorgu basarisiz / zaman asimi); cagiran bunu "calisiyor olabilir" diye ele alir.
+   */
+  cocuklar: () => Promise<string[] | null>;
+  /** claude'a cikis tuslarini gonderir, SessionEnd bitene kadar bekler. Temiz ciktiysa true. */
+  guvenliCik: () => Promise<boolean>;
 }
+
+// Sunucu tarafi 90 sn bekliyor; ustune ag/olcum payi.
+const COCUK_ZAMAN_ASIMI_MS = 8000;
+const CIKIS_ZAMAN_ASIMI_MS = 100_000;
 
 interface Props {
   id: string;
@@ -82,8 +91,15 @@ export default function TerminalOturumu({
   onZilRef.current = onZil;
   const onKayitRef = useRef(onKayit);
   onKayitRef.current = onKayit;
-  // Sunucuya sorulan "cocuklarin kim" sorusunun bekleyen cevabi.
-  const cocukBekleyenRef = useRef<((adlar: string[]) => void) | null>(null);
+  const gorunurRef = useRef(gorunur);
+  gorunurRef.current = gorunur;
+  // Sunucuya sorulan sorularin bekleyen cevaplari, istek kimligine gore (cocuk, cik).
+  // `kopuk`: baglanti koparsa cagrilir. Kopuk terminalde calisan surec kalmaz; cevap
+  // beklemek yerine hemen "baglanti yok" sonucu verilir.
+  const bekleyenRef = useRef(
+    new Map<number, { cevap: (m: { adlar?: unknown; temiz?: unknown }) => void; kopuk: () => void }>()
+  );
+  const istekSira = useRef(0);
 
   const [birakiliyor, setBirakiliyor] = useState(false);
   const [aramaAcik, setAramaAcik] = useState(false);
@@ -209,24 +225,53 @@ export default function TerminalOturumu({
     });
     gozlemci.observe(kutu);
 
+    /**
+     * Sunucuya kimlikli bir soru sorar. Baglanti yoksa `bagliDegil`, zaman asiminda
+     * `zamanAsimi` doner — ikisi ayri: baglantisiz terminalde calisan surec yoktur, zaman
+     * asiminda ise bilinmez.
+     */
+    const sor = <T,>(
+      t: 'cocuk' | 'cik',
+      ms: number,
+      coz: (m: { adlar?: unknown; temiz?: unknown }) => T,
+      bagliDegil: T,
+      zamanAsimi: T
+    ) =>
+      new Promise<T>((bitir) => {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          bitir(bagliDegil);
+          return;
+        }
+        const n = ++istekSira.current;
+        const zaman = setTimeout(() => {
+          if (bekleyenRef.current.delete(n)) bitir(zamanAsimi);
+        }, ms);
+        bekleyenRef.current.set(n, {
+          cevap: (m) => {
+            clearTimeout(zaman);
+            bitir(coz(m));
+          },
+          kopuk: () => {
+            clearTimeout(zaman);
+            bitir(bagliDegil);
+          },
+        });
+        ws.send(JSON.stringify({ t, n }));
+      });
+
     onKayitRef.current(id, {
       cocuklar: () =>
-        new Promise<string[]>((coz) => {
-          const ws = wsRef.current;
-          if (!ws || ws.readyState !== WebSocket.OPEN) {
-            coz([]);
-            return;
-          }
-          cocukBekleyenRef.current = coz;
-          ws.send(JSON.stringify({ t: 'cocuk' }));
-          // Sunucu cevap vermezse kapatmayi sonsuza kadar bekletme.
-          setTimeout(() => {
-            if (cocukBekleyenRef.current === coz) {
-              cocukBekleyenRef.current = null;
-              coz([]);
-            }
-          }, 2500);
-        }),
+        sor<string[] | null>(
+          'cocuk',
+          COCUK_ZAMAN_ASIMI_MS,
+          (m) => (Array.isArray(m.adlar) ? (m.adlar as string[]) : null),
+          [],
+          null
+        ),
+      // Baglanti yoksa kabuk da yok: cikacak bir sey kalmamis, temiz sayilir.
+      guvenliCik: () =>
+        sor<boolean>('cik', CIKIS_ZAMAN_ASIMI_MS, (m) => m.temiz === true, true, false),
     });
 
     void (async () => {
@@ -256,7 +301,9 @@ export default function TerminalOturumu({
       const ws = new WebSocket('ws://127.0.0.1:' + port + '/?token=' + token);
       wsRef.current = ws;
 
+      let acildi = false;
       ws.onopen = () => {
+        acildi = true;
         ws.send(
           JSON.stringify({
             t: 'ac',
@@ -267,26 +314,48 @@ export default function TerminalOturumu({
           })
         );
       };
+      // Son durum (bitti/hata) bir kez bildirilir. `bitti` mesajindan hemen sonra sunucu
+      // soketi kapatiyor; onclose ikinci kez 'bitti' bildirince mesaj satiri ("Oturum
+      // kapandi · beyne dustu") siliniyordu. onerror'dan sonraki onclose da hatayi eziyordu.
+      let sonBildirildi = false;
+      const sonDurum = (durumu: 'bitti' | 'hata', mesaj?: string) => {
+        if (sonBildirildi || kapandi) return;
+        sonBildirildi = true;
+        onDurumRef.current(id, durumu, mesaj);
+      };
       ws.onmessage = (ev) => {
-        const m = JSON.parse(ev.data as string);
+        let m;
+        try {
+          m = JSON.parse(ev.data as string);
+        } catch {
+          return;
+        }
         if (m.t === 'hazir') {
           onDurumRef.current(id, 'acik');
-          if (gorunur) term.focus();
+          if (gorunurRef.current) term.focus();
         } else if (m.t === 'veri') term.write(m.d);
-        else if (m.t === 'bitti') {
-          onDurumRef.current(id, 'bitti', 'Oturum kapandı (çıkış kodu ' + m.kod + ')');
-        } else if (m.t === 'hata') onDurumRef.current(id, 'hata', m.mesaj);
-        else if (m.t === 'cocuklar') {
-          const coz = cocukBekleyenRef.current;
-          cocukBekleyenRef.current = null;
-          coz?.(Array.isArray(m.adlar) ? m.adlar : []);
+        else if (m.t === 'bitti') sonDurum('bitti', 'Oturum kapandı (çıkış kodu ' + m.kod + ')');
+        else if (m.t === 'hata') sonDurum('hata', m.mesaj);
+        else if (m.t === 'cocuklar' || m.t === 'cikis') {
+          const b = bekleyenRef.current.get(m.n);
+          bekleyenRef.current.delete(m.n);
+          b?.cevap(m);
         }
       };
-      ws.onerror = () => {
-        if (!kapandi) onDurumRef.current(id, 'hata', 'Terminal sunucusuna bağlanılamadı');
+      const bekleyenleriKopar = () => {
+        for (const b of bekleyenRef.current.values()) b.kopuk();
+        bekleyenRef.current.clear();
       };
+      ws.onerror = () =>
+        sonDurum(
+          'hata',
+          ws.readyState === WebSocket.CONNECTING || !acildi
+            ? 'Terminal sunucusuna bağlanılamadı'
+            : 'Terminal sunucusuyla bağlantı koptu'
+        );
       ws.onclose = () => {
-        if (!kapandi) onDurumRef.current(id, 'bitti');
+        bekleyenleriKopar();
+        sonDurum('bitti', 'Terminal bağlantısı kapandı');
       };
 
       term.onData((d) => {
@@ -297,6 +366,9 @@ export default function TerminalOturumu({
     return () => {
       kapandi = true;
       onKayitRef.current(id, null);
+      // Bekleyen sorular askida kalmasin: bilesen gidince baglanti da gider.
+      for (const b of bekleyenRef.current.values()) b.kopuk();
+      bekleyenRef.current.clear();
       gozlemci.disconnect();
       if (olcumKaresi) cancelAnimationFrame(olcumKaresi);
       kutu.removeEventListener('contextmenu', sagTik);

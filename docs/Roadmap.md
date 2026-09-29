@@ -329,3 +329,35 @@ Scryne'ın gerçek kullanımına bağlı (test kabuğu claude açmaz): geri yük
 konuşmayı getiriyor mu, canlı claude'u kapatırken diyalog çıkıyor mu, bir gerçek oturumdan
 sonra sekmede "beyne düştü ✓" görünüyor mu. Bunlar görülünce v2.1 listesi ondan çıkar.
 
+
+---
+
+### Bakım: denetim 2026-09-29 (v2.1)
+
+v2 kapanışında "gerçek kullanımla doğrulanacak" denen üç maddeden ikisi bu denetimde
+**kusurlu** çıktı. Kanıt gerçek kullanımdan: 09-29 vault oturumu `01baf5c3` Kokpit'te sekme
+kapatılırken claude çalışır hâldeydi (transcript'in son yazımı PTY öldürülmesinden 27 ms
+sonra), SessionEnd çalışmadı, oturum beyne düşmedi (Sağlık sayfası "flush yok").
+
+- **Güvenli kapatma** (✅): PTY'yi öldürmek SessionEnd'i çalıştırmıyor (gerçek claude 2.1.284
+  ile ölçüldü). Yeni varsayılan: Esc + Ctrl+C ×2, kendi kapanmasını 90 sn'ye kadar bekle.
+  Boşta / yarım yazılmış / meşgul claude'da SessionEnd tamamlandı. Diyalog: Güvenli kapat ·
+  Zorla kapat · Vazgeç.
+- **Uygulama kapanışı** (✅): main'in 3 sn bekçisi cevabı değil soruyu bekliyordu — kullanıcı
+  3 sn içinde karar vermezse ya da "Vazgeç" derse pencere yine kapanıp claude'u öldürüyordu.
+  Artık renderer soruyu aldığını bildirir, main kararı bekler. `before-quit` pencereden önce
+  gelirse (CDP, Windows oturum kapatma) PTY sunucusu öldürülmez, pencerenin korumasına döner.
+- **Süreç sorgusu fail-open** (✅): sorgu hatası/zaman aşımı "süreç yok" sayılıp onaysız
+  kapatıyordu → artık "bilinmiyor", yine sorulur. İstekler kimlikli (üst üste soru karışmıyor).
+- **"Beyne düştü" satırı** (✅): `bitti` mesajından sonra soket kapanınca ikinci 'bitti'
+  mesaj satırını siliyordu; rozet hiç görünmüyordu.
+- **Defter süresi** (✅): uygulama kapanışıyla biten oturumun bitişi bir sonraki açılış anı
+  yazılıyordu ("152 sa"). Artık çalışmanın `calisma-bitti` anı; bilinmiyorsa süre gösterilmez.
+- Diğer (✅): tek örnek kilidi; `setWindowOpenHandler` deny; `klasor:ac` yalnız klasör;
+  PTY token sabit zamanlı; zaman aşımına düşen PTY sunucusu öldürülüyor; log devri (2 MB);
+  `donduruldu` aşaması (ikon, "aktif" sayılmıyor); proje sırası (çalışılanlar üstte, tablo da
+  sıralı); roadmap başlığında `**`; Sağlık'ta bozuk geri doldurma komutu ve "undefined dosya";
+  "son oturum" takvim günüyle ve oturum yokken de tazeleniyor; async kapatma akışı bayat
+  listeyle state ezmiyor.
+- Testler: `test:pty` 13/13 (çocuk sorgusu + güvenli çıkış eklendi, CI'da koşar), `test:ui`
+  31/31 (sekmede ve uygulama kapanışında güvenli kapatma; `KOKPIT_TEST_SECIM` dikişi).

@@ -43,11 +43,11 @@ cocuk.stdout.on('data', async (d) => {
     kotu.on('close', (kod) => { reddedildi = kod === 4401; res(); });
     kotu.on('error', () => res());
     setTimeout(res, 3000);
-    kotu.on('open', () => setTimeout(() => { kontrol('yanlis token reddedildi', reddedildi); }, 100));
+    // Baglanti hic acilmadiysa da reddedilmis sayilir; aciliyorsa 4401 ile kapanmali.
+    let acildi = false;
+    kotu.on('open', () => { acildi = true; });
+    kotu.on('close', () => kontrol('yanlis token reddedildi', !acildi || reddedildi));
   });
-  if (!sonuclar.some(([a]) => a === 'yanlis token reddedildi')) {
-    kontrol('yanlis token reddedildi', true); // baglanti hic acilmadiysa da reddedilmis sayilir
-  }
 
   // 2) Tokensiz reddedilmeli
   await new Promise((res) => {
@@ -91,11 +91,40 @@ cocuk.stdout.on('data', async (d) => {
   await bekle(3000);
   kontrol('resize PTY"ye gecti (120)', /120/.test(ekran));
 
+  // 4) Kapatma korumasinin iki ayagi: cocuk surec sorgusu ve guvenli cikis. claude yerine
+  // uzun bir ping: ayni kural (Ctrl+C ile kendi yoluyla biten cocuk surec).
+  const cevap = (tip, n) =>
+    new Promise((r) => {
+      const dinle = (ham) => {
+        const m = JSON.parse(ham.toString());
+        if (m.t === tip && m.n === n) {
+          ws.off('message', dinle);
+          r(m);
+        }
+      };
+      ws.on('message', dinle);
+      setTimeout(() => r(null), 20000);
+    });
+  ws.send(JSON.stringify({ t: 'veri', d: 'ping -n 60 127.0.0.1 > NUL\r' }));
+  await bekle(1500);
+  let bekleyen = cevap('cocuklar', 1);
+  ws.send(JSON.stringify({ t: 'cocuk', n: 1 }));
+  const c1 = await bekleyen;
+  kontrol('cocuk sorgusu calisan sureci gordu (ping)', !!c1 && Array.isArray(c1.adlar) && c1.adlar.some((a) => /ping/i.test(a)));
+  bekleyen = cevap('cikis', 2);
+  ws.send(JSON.stringify({ t: 'cik', n: 2 }));
+  const c2 = await bekleyen;
+  kontrol('guvenli cikis sureci kendi yoluyla bitirdi (temiz)', !!c2 && c2.temiz === true);
+  bekleyen = cevap('cocuklar', 3);
+  ws.send(JSON.stringify({ t: 'cocuk', n: 3 }));
+  const c3 = await bekleyen;
+  kontrol('guvenli cikistan sonra cocuk yok, kabuk hayatta', !!c3 && Array.isArray(c3.adlar) && c3.adlar.length === 0 && bitti === null);
+
   ws.send(JSON.stringify({ t: 'veri', d: 'exit\r' }));
   await bekle(1500);
   kontrol('kabuk cikinca bitti mesaji geldi', bitti !== null);
 
-  // 4) Yetim kontrolu
+  // 5) Yetim kontrolu
   cocuk.stdin.end();
   await bekle(1500);
   kontrol('ebeveyn stdin kapaninca sunucu temiz oldu', cocuk.exitCode === 0);
@@ -107,4 +136,4 @@ cocuk.stdout.on('data', async (d) => {
   process.exit(kalan === 0 ? 0 : 1);
 });
 
-setTimeout(() => { console.log('ZAMAN ASIMI'); try { cocuk.kill(); } catch {} process.exit(1); }, 45000);
+setTimeout(() => { console.log('ZAMAN ASIMI'); try { cocuk.kill(); } catch {} process.exit(1); }, 90000);

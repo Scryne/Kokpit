@@ -8,11 +8,40 @@ import {
   Lightbulb,
   Map as MapIcon,
   ScanSearch,
+  Snowflake,
   type LucideIcon,
 } from 'lucide-react';
 import type { BeyinKaydi, Proje } from './types';
 
-export const ASAMA_SIRA = ['fikir', 'denetim', 'finalizasyon', 'roadmap', 'uygulama', 'tamamlandi'];
+/** Uzerinde calisilan asamalar, akisin sirasiyla. */
+export const AKTIF_ASAMALAR = ['fikir', 'denetim', 'finalizasyon', 'roadmap', 'uygulama'];
+
+export function aktifMi(p: Pick<Proje, 'asama'>) {
+  return !!p.asama && AKTIF_ASAMALAR.includes(p.asama);
+}
+
+/**
+ * Liste sirasi: once uzerinde calisilanlar (akista en ilerideki ustte: uygulama > roadmap >
+ * ... > fikir), sonra tamamlananlar, sonra dondurulanlar, en sonda sistem disi. Esitlikte
+ * son guncellenen / son commit'i yeni olan ustte. (Eskiden `tamamlandi` en ustteydi ve tek
+ * aktif proje uc bitmis projenin altinda kaliyordu; tablo ise hic siralanmiyordu.)
+ */
+function siraAnahtari(p: Proje) {
+  if (p.asama && AKTIF_ASAMALAR.includes(p.asama)) return AKTIF_ASAMALAR.length - AKTIF_ASAMALAR.indexOf(p.asama);
+  if (p.asama === 'tamamlandi') return -1;
+  if (p.asama) return -2; // donduruldu ve bilinmeyenler
+  return -3; // sistem disi
+}
+
+export function projeSirala(projeler: Proje[]) {
+  return [...projeler].sort(
+    (a, b) =>
+      siraAnahtari(b) - siraAnahtari(a) ||
+      (b.guncellendi ?? '').localeCompare(a.guncellendi ?? '') ||
+      (a.git?.son_commit_gun ?? 9999) - (b.git?.son_commit_gun ?? 9999) ||
+      a.ad.localeCompare(b.ad, 'tr')
+  );
+}
 
 export const ASAMA_IKON: Record<string, LucideIcon> = {
   fikir: Lightbulb,
@@ -21,7 +50,22 @@ export const ASAMA_IKON: Record<string, LucideIcon> = {
   roadmap: MapIcon,
   uygulama: Hammer,
   tamamlandi: CheckCircle2,
+  donduruldu: Snowflake,
 };
+
+/** Roadmap basliklarindaki Markdown isaretleri (`**`, `__`, `` ` ``) duz metin alanda gorunmesin. */
+export function duzMetin(s: string) {
+  return s.replace(/\*\*|__|`/g, '').trim();
+}
+
+/** Iki an arasindaki TAKVIM gunu farki (24 saat degil): dun 23:00 -> bugun 08:00 = "dün". */
+export function takvimGunFarki(once: number, simdi: number) {
+  const gun = (t: number) => {
+    const d = new Date(t);
+    return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000;
+  };
+  return Math.max(0, Math.round(gun(simdi) - gun(once)));
+}
 
 export function gunMetni(gun: number | null | undefined) {
   if (gun === null || gun === undefined) return null;
