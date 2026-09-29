@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('kokpit', {
   linkAc: (url) => ipcRenderer.invoke('link:ac', url),
   pencereOdakla: () => ipcRenderer.invoke('pencere:odakla'),
   onayla: (secenek) => ipcRenderer.invoke('onay:sor', secenek),
+  sec: (secenek) => ipcRenderer.invoke('secim:sor', secenek),
   ayarGetir: () => ipcRenderer.invoke('ayar:getir'),
   ayarKaydet: (yama) => ipcRenderer.invoke('ayar:kaydet', yama),
   // Main "kapatiliyor, acik oturum var mi bak" der; renderer onay verince kapanir.
@@ -21,6 +22,9 @@ contextBridge.exposeInMainWorld('kokpit', {
     ipcRenderer.on('kapanis:sor', dinleyici);
     return () => ipcRenderer.removeListener('kapanis:sor', dinleyici);
   },
+  // Renderer soruyu aldigini hemen bildirir; main o andan sonra kullaniciyi bekler.
+  kapanisAlindi: () => ipcRenderer.send('kapanis:alindi'),
+  kapanisIptal: () => ipcRenderer.send('kapanis:iptal'),
   kapanisOnayla: () => ipcRenderer.send('kapanis:onay'),
   // Oturum defteri: acilis/kapanis olaylari main'e, main diske (tek yazar).
   defterOlay: (olay) => ipcRenderer.send('defter:olay', olay),

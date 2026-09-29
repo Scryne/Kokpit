@@ -13,6 +13,7 @@ const pty = require('node-pty');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { spawnSync, execFile } = require('child_process');
 
 const TOKEN = process.env.KOKPIT_PTY_TOKEN || '';
@@ -109,6 +110,52 @@ function temizOrtam() {
 
 const ORTAM = temizOrtam();
 
+/** Sabit zamanli karsilastirma: token icerigi zamanlamadan sizmasin. */
+function tokenGecerli(gelen) {
+  const a = Buffer.from(String(gelen));
+  const b = Buffer.from(TOKEN);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Kabugun dogrudan cocuklarinin adlari. Sorgu basarisiz olursa `null` ("bilinmiyor") doner,
+ * ASLA bos liste degil: bos liste "calisan bir sey yok" demek ve kapatma onayini atlatir.
+ * 2026-09-29'a kadar hata -> [] idi (fail-open): soguk pwsh + CIM zaman asimini gecince
+ * claude sorusuz kapatilabiliyordu.
+ */
+function cocukAdlari(pid) {
+  return new Promise((coz) => {
+    execFile(
+      POWERSHELL,
+      ['-NoProfile', '-NonInteractive', '-Command',
+       '(Get-CimInstance Win32_Process -Filter "ParentProcessId=' + pid + '").Name'],
+      { timeout: 6000, windowsHide: true },
+      (hata, stdout) => {
+        if (hata) {
+          log('cocuk sorgusu basarisiz pid=' + pid + ': ' + String(hata.message).split(/\r?\n/)[0]);
+          coz(null);
+          return;
+        }
+        coz(String(stdout).split(/\r?\n/).map((x) => x.trim()).filter(Boolean));
+      }
+    );
+  });
+}
+
+/**
+ * Guvenli cikis: Esc (claude calisiyorsa turu keser, bossa etkisiz), sonra Ctrl+C iki kez
+ * (ilki girdi satirini temizler, ikincisi cikar). claude kendi yoluyla cikinca SessionEnd
+ * hook'lari calisir ve oturum beyne duser. PTY'yi oldurmek bunu YAPMAZ. Olculdu (2026-09-29,
+ * gercek claude 2.1.284): p.kill() -> SessionEnd yok; bu dizi -> bos, yarim yazili ve mesgul
+ * claude'da SessionEnd tamamlandi, cikis 3-10 sn.
+ *
+ * Dizi BIR KEZ gonderilir. Proje SessionEnd hook'u senkron `claude -p` calistiriyor (60 sn'ye
+ * kadar); claude o sirada hala cocuk olarak gorunur. Tekrar Ctrl+C gondermek hook'u keserdi.
+ */
+const CIKIS_BEKLEME_MS = 90_000;
+
 const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
 
 wss.on('listening', () => {
@@ -132,7 +179,7 @@ wss.on('connection', (ws, istek) => {
     gelenToken = new URL(istek.url, 'http://127.0.0.1').searchParams.get('token') || '';
   } catch { /* bozuk url -> bos token */ }
 
-  if (gelenToken !== TOKEN) {
+  if (!tokenGecerli(gelenToken)) {
     log('reddedildi: token uyusmadi');
     ws.close(4401, 'yetkisiz');
     return;
@@ -203,18 +250,36 @@ wss.on('connection', (ws, istek) => {
     if (m.t === 'veri' && typeof m.d === 'string') p.write(m.d);
     else if (m.t === 'cocuk') {
       // "Kabugun altinda hala bir sey calisiyor mu?" — kapatma onayi icin. Yalnizca
-      // istek geldiginde sorulur (CIM sorgusu ~300 ms), asla surekli yoklanmaz.
-      const pid = p.pid;
-      execFile(
-        POWERSHELL,
-        ['-NoProfile', '-NonInteractive', '-Command',
-         '(Get-CimInstance Win32_Process -Filter "ParentProcessId=' + pid + '").Name'],
-        { timeout: 2000, windowsHide: true },
-        (hata, stdout) => {
-          const adlar = hata ? [] : String(stdout).split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
-          gonder({ t: 'cocuklar', adlar });
+      // istek geldiginde sorulur (CIM sorgusu ~0.8 sn), asla surekli yoklanmaz.
+      // `n` istek kimligi: ust uste iki soru gelirse cevaplar karismaz.
+      const n = m.n;
+      void cocukAdlari(p.pid).then((adlar) => gonder({ t: 'cocuklar', n, adlar }));
+    }
+    else if (m.t === 'cik') {
+      const n = m.n;
+      const hedef = p;
+      const pid = hedef.pid;
+      log('guvenli cikis basladi pid=' + pid);
+      void (async () => {
+        const t0 = Date.now();
+        hedef.write('\x1b');
+        await uyu(800);
+        if (p === hedef) hedef.write('\x03');
+        await uyu(250);
+        if (p === hedef) hedef.write('\x03');
+        while (Date.now() - t0 < CIKIS_BEKLEME_MS) {
+          await uyu(1000);
+          // Kabugun kendisi bittiyse cocuk da yoktur.
+          const adlar = p === hedef ? await cocukAdlari(pid) : [];
+          if (adlar && adlar.length === 0) {
+            log('guvenli cikis tamam pid=' + pid + ' (' + (Date.now() - t0) + ' ms)');
+            gonder({ t: 'cikis', n, temiz: true });
+            return;
+          }
         }
-      );
+        log('guvenli cikis zaman asimi pid=' + pid);
+        gonder({ t: 'cikis', n, temiz: false });
+      })();
     }
     else if (m.t === 'boyut') {
       const cols = Math.max(2, Number(m.cols) || 80);

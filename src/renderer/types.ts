@@ -1,8 +1,13 @@
 // durum.py --json semasi (Faz 0'da diskte dogrulandi).
 // Bu tipler Kokpit'in veri sahibi olmadiginin bildirimi: kaynak durum.py, burasi ayna.
 
+/**
+ * state.json `asama` alani. durum.py degeri oldugu gibi aktarir; listede olmayan bir deger de
+ * gelebilir (2026-09-25'te ScryneQuant 'donduruldu' ile geldi).
+ */
 export type Asama =
-  | 'fikir' | 'denetim' | 'finalizasyon' | 'roadmap' | 'uygulama' | 'tamamlandi' | null;
+  | 'fikir' | 'denetim' | 'finalizasyon' | 'roadmap' | 'uygulama' | 'tamamlandi' | 'donduruldu'
+  | (string & {}) | null;
 
 export interface RoadmapSirada {
   no: string;
@@ -133,6 +138,8 @@ export interface Oturum {
   dikkat?: boolean;
   /** Geri yukleme: `claude --continue` ile acilir (onceki calismadan kalan oturum). */
   devam?: boolean;
+  /** Guvenli cikis suruyor: claude'a cikis tuslari gitti, SessionEnd bekleniyor. */
+  kapaniyor?: boolean;
 }
 
 export interface PtyBilgi {
@@ -186,9 +193,18 @@ declare global {
         ayrinti?: string;
         onayla?: string;
       }) => Promise<boolean>;
+      /** Cok secenekli yerel diyalog; secilen dugmenin sirasi (son dugme = iptal). */
+      sec: (secenek: {
+        baslik?: string;
+        mesaj: string;
+        ayrinti?: string;
+        dugmeler: string[];
+      }) => Promise<number>;
       ayarGetir: () => Promise<Ayarlar>;
       ayarKaydet: (yama: Partial<Ayarlar>) => Promise<Ayarlar>;
       kapanisSorulunca: (cb: () => void) => () => void;
+      kapanisAlindi: () => void;
+      kapanisIptal: () => void;
       kapanisOnayla: () => void;
       defterOlay: (olay: DefterOlayi) => void;
       defterOncekiler: () => Promise<OncekiOturum[]>;

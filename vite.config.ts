@@ -33,5 +33,8 @@ export default defineConfig({
     // `data:` izinli oldugu icin gorunmuyordu). Politikayi gevsetmek yerine gommeyi
     // kapatiyoruz: her varlik app:// uzerinden, CSP basligiyla servis edilsin.
     assetsInlineLimit: 0,
+    // Yerel masaustu uygulamasi: paket diskten yuklenir, ag uzerinden inmez. 500 kB
+    // uyarisi (xterm + webgl) burada bilgi tasimiyor, her build'de gurultu uretiyordu.
+    chunkSizeWarningLimit: 2000,
   },
 });

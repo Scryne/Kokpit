@@ -6,8 +6,12 @@ import {
   GitDurumu,
   Ilerleme,
   Olcum,
+  aktifMi,
+  duzMetin,
   gunMetni,
+  projeSirala,
   sureMetni,
+  takvimGunFarki,
 } from './parcalar';
 
 interface Props {
@@ -28,10 +32,12 @@ export default function Pano({
   onBaslat,
   onOturumaGit,
 }: Props) {
-  const projeler = durum.projeler;
+  // Kenar cubuguyla ayni sira: calisilanlar ustte.
+  const projeler = projeSirala(durum.projeler);
   const kirliToplam = projeler.reduce((t, p) => t + (p.git?.kirli ?? 0), 0);
   const acikOturum = oturumlar.filter((o) => o.durumu === 'acik');
-  const aktifProjeler = projeler.filter((p) => p.asama && p.asama !== 'tamamlandi');
+  // 'donduruldu' da aktif sayiliyordu; yalniz akisin icindeki asamalar aktiftir.
+  const aktifProjeler = projeler.filter(aktifMi);
   const logGun = durum.beyin.son_log_gun;
 
   const oturumBul = (p: Proje) => oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
@@ -102,7 +108,7 @@ export default function Pano({
               const dikkat = oturumlar.some((o) => o.yol === p.yol && o.dikkat);
               const sirada = p.roadmap?.sirada;
               const son = sonOturumlar[p.yol];
-              const sonGun = son ? Math.floor((simdi - son.bitis) / 86_400_000) : null;
+              const sonGun = son ? takvimGunFarki(son.bitis, simdi) : null;
               return (
                 <tr key={p.ad} className="border-b border-kenar last:border-b-0 hover:bg-yuzey-guclu">
                   <th scope="row" className="px-4 py-3 font-normal">
@@ -139,8 +145,12 @@ export default function Pano({
                   </td>
                   <td className="hidden max-w-[26ch] px-3 py-3 xl:table-cell">
                     {sirada ? (
-                      <span className="block truncate text-xs text-metin-ikincil">
-                        <span className="enstruman text-metin">Faz {sirada.no}</span> {sirada.ad}
+                      <span
+                        className="block truncate text-xs text-metin-ikincil"
+                        title={'Faz ' + sirada.no + ' ' + duzMetin(sirada.ad)}
+                      >
+                        <span className="enstruman text-metin">Faz {sirada.no}</span>{' '}
+                        {duzMetin(sirada.ad)}
                       </span>
                     ) : (
                       <span className="text-xs text-metin-soluk">—</span>

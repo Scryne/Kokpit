@@ -245,7 +245,11 @@ export default function Saglik({ durum, onVaultOturumu }: Props) {
         <Halka
           ad="Günlük"
           deger={gunMetni(b.son_log_gun) ?? '—'}
-          alt={b.son_log ? b.son_log + ' · ' + (b as { log_sayisi?: number }).log_sayisi + ' dosya' : 'günlük yok'}
+          alt={
+            b.son_log
+              ? b.son_log + (b.log_sayisi !== undefined ? ' · ' + b.log_sayisi + ' dosya' : '')
+              : 'günlük yok'
+          }
           seviye={logSeviye}
         />
         <Halka
@@ -328,12 +332,19 @@ export default function Saglik({ durum, onVaultOturumu }: Props) {
           </table>
         )}
         {k && k.dusmemis.length > 0 && (
-          <p className="border-t border-kenar px-5 py-2.5 text-xs text-metin-soluk">
-            Geri doldurma: vault'ta{' '}
-            <span className="enstruman text-metin-ikincil">
-              python .claude/scripts/flush_kapsama.py --proje {k.dusmemis[0].proje === 'vault' ? '' : k.dusmemis[0].proje} --doldur
-            </span>
-          </p>
+          // Proje basina bir komut. Vault oturumlari --proje almaz; eskiden hep ilk satirin
+          // projesi yaziliyor, vault icin de bos "--proje  --doldur" cikiyordu.
+          <div className="border-t border-kenar px-5 py-2.5 text-xs text-metin-soluk">
+            <p>Geri doldurma (vault klasöründe çalıştır):</p>
+            <ul className="mt-1 space-y-0.5">
+              {[...new Set(k.dusmemis.map((r) => r.proje))].map((proje) => (
+                <li key={proje} className="enstruman select-text text-metin-ikincil">
+                  python .claude/scripts/flush_kapsama.py
+                  {proje === 'vault' ? '' : ' --proje ' + proje} --doldur
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </section>
 
