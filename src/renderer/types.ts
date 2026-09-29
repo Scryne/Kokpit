@@ -44,6 +44,32 @@ export interface Proje {
   git: GitDurum | null;
   design: string | null;
   skills: string[];
+  /** Proje-Envanteri.md durum hucresi ("🟢 aktif", "⏸️ olduğu gibi" ...); tabloda yoksa null. */
+  envanter?: string | null;
+}
+
+/** Saglik nobeti (saglik.py yazar, durum.py yalniz okur): CI, Dependabot, AI modelleri. */
+export interface NobetProjesi {
+  ad: string;
+  envanter?: string;
+  repo?: string;
+  ci?: { durum: string; dal?: string; son?: string; is?: string; url?: string; kac_gun?: number | null; neden?: string };
+  dependabot?: { durum: string; acik?: Record<string, number> };
+  modeller?: { saglayici: string; model: string; durum: string; neden?: string }[];
+  alarmlar: string[];
+}
+
+export interface SaglikNobeti {
+  ts: number;
+  tarih: string;
+  projeler: NobetProjesi[];
+  alarmlar: string[];
+}
+
+/** Acik oturumun son turdaki bağlam buyuklugu (transcript'ten). */
+export interface OturumBaglami {
+  token: number;
+  model: string;
 }
 
 /** Beyne dusmemis bir oturum (durum.py beyin.kapsama.dusmemis). */
@@ -111,6 +137,8 @@ export interface Durum {
   beyin: Beyin;
   envanter: Envanter;
   butce: Butce;
+  /** Sağlık nöbetinin son koşusu; hiç koşmadıysa null/yok. */
+  saglik?: SaglikNobeti | null;
 }
 
 export type DurumSonuc =
@@ -175,6 +203,7 @@ export interface SonOturum {
 export interface Ayarlar {
   kenarAcik: boolean;
   yaziBoyutu: number;
+  arsivAcik: boolean;
 }
 
 declare global {
@@ -210,6 +239,11 @@ declare global {
       defterOncekiler: () => Promise<OncekiOturum[]>;
       defterSonlar: () => Promise<Record<string, SonOturum>>;
       notEkle: (metin: string, kaynak: string | null) => Promise<{ dosya?: string; hata?: string }>;
+      notAcSorulunca: (cb: () => void) => () => void;
+      oturumBaglami: (
+        liste: { id: string; yol: string; baslangic: number }[]
+      ) => Promise<Record<string, OturumBaglami | null>>;
+      beyinDoldur: (session: string, proje: string) => Promise<{ sonuc: string; tamam: boolean }>;
     };
   }
 }

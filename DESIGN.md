@@ -135,6 +135,13 @@ yuzden sureler burada, kodda Tailwind sinifi olarak (`duration-[180ms]`) yasar.
 - **Not kutusu** — yerel `<dialog>`, `bg-yuzey-guclu`, arka plan `black/50`. Cam değil.
 - **Dikkat noktası** — zil sonrası `bg-dikkat` + `ring-2 ring-dikkat/30`, statik. Renk tek
   başına anlam taşımaz: sekmede `title` ve `sr-only` metin.
+- **Komut paleti** (2026-09-29) — not kutusuyla aynı yüzey (yerel `<dialog>`, cam değil),
+  üstten %12 aşağıda; grup etiketi `etiket` sınıfıyla sol sütunda, kısayol sağda soluk mono.
+  Seçili satır yalnız `bg-yuzey`; vurgu rengi yok.
+- **Proje grupları** (2026-09-29) — Aktif / Kullanımda / Arşiv; başlıklar `etiket`, arşiv
+  chevron'lu düğme ve varsayılan kapalı. Arşiv satır adları `metin-soluk`: geri planda durur.
+- **Alarm şeridi / güvenli kapatma şeridi** — `dikkat` tonu yalnız müdahale gerektiğinde;
+  kapanan oturumun noktası `animate-pulse bg-dikkat` (hareket azaltmada durur).
 - **İkon** — `public/kokpit.svg`: koyu indigo zemin, 270° ölçek yayı (violet gradient),
   beyaz ibre. Metin yok; 16 px'te tek şekil okunur. `npm run ikon` → `.ico` + `.png`.
 

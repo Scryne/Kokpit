@@ -47,7 +47,7 @@ interface Props {
 function uygulamaninKisayolu(e: KeyboardEvent) {
   if (!e.ctrlKey || e.altKey) return false;
   if (e.key === 'Tab') return true;
-  if (e.shiftKey) return e.key === 'W' || e.key === 'w' || e.key === 'N' || e.key === 'n';
+  if (e.shiftKey) return ['W', 'w', 'N', 'n', 'P', 'p'].includes(e.key);
   return ['1', '2', '3', '4', '=', '+', '-', '0'].includes(e.key);
 }
 

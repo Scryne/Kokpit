@@ -7,6 +7,7 @@ import {
   Hammer,
   Lightbulb,
   Map as MapIcon,
+  PauseCircle,
   ScanSearch,
   Snowflake,
   type LucideIcon,
@@ -41,6 +42,52 @@ export function projeSirala(projeler: Proje[]) {
       (a.git?.son_commit_gun ?? 9999) - (b.git?.son_commit_gun ?? 9999) ||
       a.ad.localeCompare(b.ad, 'tr')
   );
+}
+
+export type ProjeGrubu = 'aktif' | 'kullanimda' | 'arsiv';
+
+export const GRUP_BASLIK: Record<ProjeGrubu, string> = {
+  aktif: 'Aktif',
+  kullanimda: 'Kullanımda',
+  arsiv: 'Arşiv',
+};
+
+/**
+ * Proje-Envanteri.md durumu varsa o belirler (Scryne 09-29: eski projelere donulmez, "olduğu
+ * gibi"): 🟢 aktif, ✅ kullanimda, geri kalan her sey (⏸️ ⛔ 🛑) arsiv. Envanterde yoksa
+ * (yeni proje henuz eklenmediyse) state.json asamasi: akistaysa aktif, tamamlandiysa
+ * kullanimda, gerisi arsiv.
+ */
+export function projeGrubu(p: Proje): ProjeGrubu {
+  const e = p.envanter;
+  if (e) {
+    if (e.includes('🟢')) return 'aktif';
+    if (e.includes('✅')) return 'kullanimda';
+    return 'arsiv';
+  }
+  if (aktifMi(p)) return 'aktif';
+  if (p.asama === 'tamamlandi') return 'kullanimda';
+  return 'arsiv';
+}
+
+/** Gruplara ayrilmis, her grup kendi icinde `projeSirala` sirasinda. Bos grup donmez. */
+export function projeGruplari(projeler: Proje[]) {
+  const sirali = projeSirala(projeler);
+  return (['aktif', 'kullanimda', 'arsiv'] as ProjeGrubu[])
+    .map((grup) => ({ grup, projeler: sirali.filter((p) => projeGrubu(p) === grup) }))
+    .filter((g) => g.projeler.length > 0);
+}
+
+/** Envanter hucresinin bas isaretinden sonraki metni ("⏸️ olduğu gibi — bitmedi" -> "olduğu gibi — bitmedi"). */
+export function envanterMetni(e: string) {
+  return e.replace(/^[^A-Za-zÇĞİÖŞÜçğıöşü0-9]+/, '').trim();
+}
+
+/** Token sayisi kisa: 369440 -> "369k", 1.2M. */
+export function tokenMetni(n: number) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1_000) return Math.round(n / 1_000) + 'k';
+  return String(n);
 }
 
 export const ASAMA_IKON: Record<string, LucideIcon> = {
@@ -82,12 +129,13 @@ export function sureMetni(saniye: number) {
 }
 
 /** Asama rozeti: ikon + metin. Renk tek basina anlam tasimaz (DESIGN.md). */
-export function AsamaRozeti({ asama }: { asama: Proje['asama'] }) {
-  const Ikon = asama ? (ASAMA_IKON[asama] ?? CircleOff) : CircleOff;
+export function AsamaRozeti({ asama, yedek }: { asama: Proje['asama']; yedek?: string }) {
+  // state.json yoksa envanter durumu ("olduğu gibi") "sistem dışı"ndan daha cok sey soyler.
+  const Ikon = asama ? (ASAMA_IKON[asama] ?? CircleOff) : yedek ? PauseCircle : CircleOff;
   return (
     <span className="inline-flex items-center gap-1.5 rounded-rozet border border-kenar px-2 py-1">
       <Ikon className="size-3.5 shrink-0 text-metin-soluk" aria-hidden="true" />
-      <span className="text-xs whitespace-nowrap text-metin-ikincil">{asama ?? 'sistem dışı'}</span>
+      <span className="text-xs whitespace-nowrap text-metin-ikincil">{asama ?? yedek ?? 'sistem dışı'}</span>
     </span>
   );
 }

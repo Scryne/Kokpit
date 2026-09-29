@@ -13,6 +13,7 @@ const VARSAYILAN = Object.freeze({
   pencere: null, // { x, y, width, height, maksimize }
   kenarAcik: true,
   yaziBoyutu: 13,
+  arsivAcik: false, // proje listelerinde arsiv grubu (olduğu gibi / donduruldu / birakildi)
 });
 
 let bellek = null;
@@ -48,6 +49,7 @@ function rendererYamasi(ham) {
   const yama = {};
   if (!ham || typeof ham !== 'object') return yama;
   if (typeof ham.kenarAcik === 'boolean') yama.kenarAcik = ham.kenarAcik;
+  if (typeof ham.arsivAcik === 'boolean') yama.arsivAcik = ham.arsivAcik;
   if (Number.isInteger(ham.yaziBoyutu) && ham.yaziBoyutu >= 9 && ham.yaziBoyutu <= 28) {
     yama.yaziBoyutu = ham.yaziBoyutu;
   }

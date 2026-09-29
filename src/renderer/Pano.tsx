@@ -1,15 +1,16 @@
-import { FolderOpen, Play, TerminalSquare } from 'lucide-react';
+import { AlertTriangle, ArrowRight, ChevronRight, FolderOpen, Play, TerminalSquare } from 'lucide-react';
 import type { Durum, Oturum, Proje, SonOturum } from './types';
 import {
   AsamaRozeti,
   BeyinKaydiRozeti,
+  GRUP_BASLIK,
   GitDurumu,
   Ilerleme,
   Olcum,
-  aktifMi,
   duzMetin,
+  envanterMetni,
   gunMetni,
-  projeSirala,
+  projeGruplari,
   sureMetni,
   takvimGunFarki,
 } from './parcalar';
@@ -20,6 +21,9 @@ interface Props {
   /** Kokpit'in defterinden: yol -> son kapanan oturum. */
   sonOturumlar: Record<string, SonOturum>;
   simdi: number;
+  arsivAcik: boolean;
+  onArsivDegistir: () => void;
+  onSaglik: () => void;
   onBaslat: (p: Proje) => void;
   onOturumaGit: (id: string) => void;
 }
@@ -29,27 +33,54 @@ export default function Pano({
   oturumlar,
   sonOturumlar,
   simdi,
+  arsivAcik,
+  onArsivDegistir,
+  onSaglik,
   onBaslat,
   onOturumaGit,
 }: Props) {
-  // Kenar cubuguyla ayni sira: calisilanlar ustte.
-  const projeler = projeSirala(durum.projeler);
+  // Kenar cubuguyla ayni gruplar ve sira: aktif, kullanimda, arsiv.
+  const gruplar = projeGruplari(durum.projeler);
+  const projeler = durum.projeler;
   const kirliToplam = projeler.reduce((t, p) => t + (p.git?.kirli ?? 0), 0);
   const acikOturum = oturumlar.filter((o) => o.durumu === 'acik');
-  // 'donduruldu' da aktif sayiliyordu; yalniz akisin icindeki asamalar aktiftir.
-  const aktifProjeler = projeler.filter(aktifMi);
+  const sayi = (g: string) => gruplar.find((x) => x.grup === g)?.projeler.length ?? 0;
   const logGun = durum.beyin.son_log_gun;
+  const alarmlar = durum.saglik?.alarmlar ?? [];
 
   const oturumBul = (p: Proje) => oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
 
   return (
     <div className="space-y-6">
+      {/* Saglik nobeti alarmi: yalniz varken, tek serit. Ayrinti Saglik sayfasinda. */}
+      {alarmlar.length > 0 && (
+        <section
+          aria-label="Sağlık nöbeti alarmları"
+          className="halka relative flex flex-wrap items-center gap-x-4 gap-y-2 rounded-base border border-dikkat/30 bg-dikkat/10 px-4 py-3"
+        >
+          <AlertTriangle className="size-4 shrink-0 text-dikkat-metin" aria-hidden="true" />
+          <ul className="min-w-0 flex-1 space-y-0.5 text-sm text-metin">
+            {alarmlar.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={onSaglik}
+            className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-kontrol border border-kenar px-3 py-1.5 text-xs text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
+          >
+            Sağlık nöbeti
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </button>
+        </section>
+      )}
+
       {/* Olcum seridi: dort sayi, hepsi bir bakista. */}
       <section aria-label="Ölçümler" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Olcum
           etiket="Aktif proje"
-          deger={aktifProjeler.length}
-          alt={projeler.length + ' proje izleniyor'}
+          deger={sayi('aktif')}
+          alt={sayi('kullanimda') + ' kullanımda · ' + sayi('arsiv') + ' arşivde'}
         />
         <Olcum
           etiket="Kirli dosya"
@@ -102,8 +133,34 @@ export default function Pano({
               </th>
             </tr>
           </thead>
-          <tbody>
-            {projeler.map((p) => {
+          {gruplar.map(({ grup, projeler: liste }) => (
+          <tbody key={grup} className="border-t border-kenar first-of-type:border-t-0">
+            <tr className="border-b border-kenar">
+              <th scope="rowgroup" colSpan={6} className="px-4 py-1.5 text-left font-normal">
+                {grup === 'arsiv' ? (
+                  <button
+                    type="button"
+                    onClick={onArsivDegistir}
+                    aria-expanded={arsivAcik}
+                    className="etiket inline-flex cursor-pointer items-center gap-1.5 transition-colors duration-[180ms] hover:text-metin-ikincil"
+                  >
+                    <ChevronRight
+                      className={'size-3 shrink-0 ' + (arsivAcik ? 'rotate-90' : '')}
+                      aria-hidden="true"
+                    />
+                    {GRUP_BASLIK[grup]} <span className="enstruman">{liste.length}</span>
+                    <span className="font-arayuz normal-case tracking-normal">
+                      {arsivAcik ? '' : '· olduğu gibi, dondurulan, bırakılan'}
+                    </span>
+                  </button>
+                ) : (
+                  <span className="etiket">
+                    {GRUP_BASLIK[grup]} <span className="enstruman">{liste.length}</span>
+                  </span>
+                )}
+              </th>
+            </tr>
+            {(grup !== 'arsiv' || arsivAcik) && liste.map((p) => {
               const oturum = oturumBul(p);
               const dikkat = oturumlar.some((o) => o.yol === p.yol && o.dikkat);
               const sirada = p.roadmap?.sirada;
@@ -138,7 +195,10 @@ export default function Pano({
                     )}
                   </th>
                   <td className="px-3 py-3">
-                    <AsamaRozeti asama={p.asama} />
+                    <AsamaRozeti
+                      asama={p.asama}
+                      yedek={p.envanter ? envanterMetni(p.envanter).split(/\s[—(-]/)[0] : undefined}
+                    />
                   </td>
                   <td className="px-3 py-3">
                     <Ilerleme p={p} />
@@ -196,6 +256,7 @@ export default function Pano({
               );
             })}
           </tbody>
+          ))}
         </table>
       </section>
 

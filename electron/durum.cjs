@@ -3,7 +3,8 @@ const { DURUM_SCRIPT, PYTHON, VAULT } = require('./config.cjs');
 const { log } = require('./log.cjs');
 
 // Kokpit'in kendi toplayicisi YOK. Tek dogruluk kaynagi durum.py.
-// Olculdu: cache'li calisma ~457 ms -> dosya izleyici gereksiz.
+// Olculdu: cache'li calisma ~457 ms (09-10); 09-29'da 15 proje + saglik/kapsama ile ~1.6-2.2 sn.
+// Asenkron calisir, arayuzu kilitlemez; odak tazelemesi 30 sn'den sik degil -> izleyici gereksiz.
 function durumOku() {
   return new Promise((resolve) => {
     const t0 = Date.now();

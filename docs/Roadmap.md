@@ -361,3 +361,30 @@ sonra), SessionEnd çalışmadı, oturum beyne düşmedi (Sağlık sayfası "flu
   listeyle state ezmiyor.
 - Testler: `test:pty` 13/13 (çocuk sorgusu + güvenli çıkış eklendi, CI'da koşar), `test:ui`
   31/31 (sekmede ve uygulama kapanışında güvenli kapatma; `KOKPIT_TEST_SECIM` dikişi).
+
+### v2.1 özellikleri (2026-09-29, Scryne: "iyi olacağını düşündüğün her şeyi ekle")
+
+Denetimde önerilen altı madde, her biri ölçülerek eklendi:
+
+- **Sağlık nöbeti görünür** (✅): `durum.py` `saglik` alanını (CI, Dependabot, AI modelleri,
+  alarmlar) zaten veriyordu, Kokpit okumuyordu. Sağlık'ta tablo + alarm listesi; nöbet 8
+  günden eskiyse uyarı. Pano'da alarm varken tek şerit; kenar rozeti düşmemiş + alarm.
+- **Proje grupları** (✅): Aktif / Kullanımda / Arşiv, `Proje-Envanteri.md` durumundan
+  (`durum.py` `envanter`). Arşiv varsayılan kapalı ve kalıcı (`ayarlar.json` `arsivAcik`).
+  15 satırın 12'si arşivde; günlük görünüm 3 proje.
+- **Geri doldur** (✅): Sağlık'taki her düşmemiş satırda düğme. Vault'a yeni
+  `flush_kapsama.py --oturum <id>`: yalnız o oturum, son 30 dk'daki transcript reddedilir
+  (açık oturum), Kokpit'te o klasörde açık oturum varken düğme kapalı, main'de tek sıralı
+  kuyruk. `--doldur` bilerek kullanılmadı: dizindeki açık oturumları da doldururdu. Gerçek
+  kanıt: 09-29 kaybolan `01baf5c3` bu düğmeyle `ok:appended`, 23 sn.
+- **Bağlam göstergesi** (✅): terminal başlığında "bağlam 369k" (son tur input + cache yazma +
+  cache okuma), transcript'in son 512 KB'ı, 20 sn'de bir, ~3 ms.
+- **Komut paleti** (✅): Ctrl+Shift+P (Ctrl+K claude'da satır siler). Sayfa, proje aç/git,
+  vault, geri yükle, not, tazele, kenar, arşiv, klasör. Combobox + listbox, çok kelimeli arama.
+- **Her yerden Inbox notu** (✅): genel kısayol Ctrl+Alt+Shift+N (Türkçe klavyede Ctrl+Alt =
+  AltGr). Kayıt başarısızsa loglanır, Kokpit çalışmaya devam eder.
+- **Bağımlılık yamaları** (✅): Electron 44.3.0 → 44.4.5 (Chromium güvenlik yamaları), vite,
+  ws, lucide-react, @types/ws. `allowScripts` onayı sürüme bağlı, güncellendi; binary mirror'dan.
+- **Görsel düzeltme:** palet ve not kutusu yarı saydam yüzeydeydi, arkadaki tablo metni
+  içinden okunuyordu → opak taban.
+- Testler: `test:pty` 13/13, `test:ui` 37/37 (arşiv aç/kapa, palet, kısayol kaydı eklendi).
