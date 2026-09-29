@@ -74,4 +74,50 @@ function oturumBeyinDurumu(yol, baslangicMs) {
   return 'hata';
 }
 
-module.exports = { oturumBeyinDurumu, slug };
+/**
+ * Acik oturumun bağlam buyuklugu: transcript'in sonundaki ana ajan (sidechain degil) asistan
+ * mesajinin girdi toplami (input + cache yazma + cache okuma) = modele o turda giden bağlam.
+ * Yalniz dosyanin son 512 KB'i okunur; 3 MB'lik transcript'te her yoklama tum dosyayi okumaz.
+ */
+const KUYRUK_BAYT = 512 * 1024;
+
+function oturumBaglami(yol, baslangicMs) {
+  const t = transcriptBul(yol, baslangicMs);
+  if (!t) return null;
+  const dosya = path.join(PROJELER, slug(yol), t.id + '.jsonl');
+  let metin;
+  try {
+    const fd = fs.openSync(dosya, 'r');
+    try {
+      const boy = fs.fstatSync(fd).size;
+      const bas = Math.max(0, boy - KUYRUK_BAYT);
+      const tampon = Buffer.alloc(boy - bas);
+      fs.readSync(fd, tampon, 0, tampon.length, bas);
+      metin = tampon.toString('utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  const satirlar = metin.split('\n');
+  for (let i = satirlar.length - 1; i >= 0; i--) {
+    const s = satirlar[i];
+    if (!s.includes('"assistant"') || !s.includes('"usage"')) continue;
+    let k;
+    try {
+      k = JSON.parse(s);
+    } catch {
+      continue; // ilk satir yarim kesilmis olabilir
+    }
+    if (k.type !== 'assistant' || k.isSidechain) continue;
+    const u = k.message && k.message.usage;
+    if (!u) continue;
+    const token =
+      (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
+    return { token, model: String(k.message.model || '') };
+  }
+  return null;
+}
+
+module.exports = { oturumBeyinDurumu, oturumBaglami, slug };

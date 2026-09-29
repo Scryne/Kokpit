@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, screen, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, screen, session, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { DEV_URL, DEV_PORT } = require('./config.cjs');
@@ -10,6 +10,7 @@ const ayarlar = require('./ayarlar.cjs');
 const defter = require('./defter.cjs');
 const beyin = require('./beyin.cjs');
 const inboxNotu = require('./not.cjs');
+const geriDoldurma = require('./doldur.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
@@ -310,17 +311,34 @@ ipcMain.handle('defter:sonlar', () => {
   }
   return sonlar;
 });
+// Acik oturumlarin bağlam buyuklugu (transcript'in sonu, salt okuma).
+ipcMain.handle('oturum:baglam', (_e, liste) => {
+  const sonuc = {};
+  if (!Array.isArray(liste)) return sonuc;
+  for (const o of liste.slice(0, 24)) {
+    if (!o || typeof o.id !== 'string' || typeof o.yol !== 'string' || !Number.isFinite(o.baslangic)) continue;
+    try {
+      sonuc[o.id] = beyin.oturumBaglami(o.yol, o.baslangic);
+    } catch (e) {
+      log('bağlam okunamadi (' + o.yol + '): ' + e.message);
+      sonuc[o.id] = null;
+    }
+  }
+  return sonuc;
+});
+// Beyne dusmemis tek oturumu vault'un kendi betigiyle doldurur (bkz. doldur.cjs).
+ipcMain.handle('beyin:doldur', (_e, session, proje) => geriDoldurma.doldur(session, proje));
 // Vault'a TEK yazma: Inbox notu (bkz. not.cjs). Sona ekleme, ustune yazma yok.
 ipcMain.handle('not:ekle', (_e, metin, kaynak) =>
   inboxNotu.ekle(metin, typeof kaynak === 'string' ? kaynak.slice(0, 60) : null)
 );
 ipcMain.handle('ayar:getir', () => {
   const a = ayarlar.oku();
-  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu };
+  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik };
 });
 ipcMain.handle('ayar:kaydet', (_e, yama) => {
   const a = ayarlar.yaz(ayarlar.rendererYamasi(yama));
-  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu };
+  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik };
 });
 
 // Content-Security-Policy tek kaynaktan. Dev'de Vite'in HMR'i inline script ve ws
@@ -355,6 +373,15 @@ app.whenReady().then(() => {
   cspKur();
   if (!DEV) uretim.protokolKur(path.join(__dirname, '..', 'dist'), CSP);
   pencereKur();
+  // Genel kisayol: Kokpit arka plandayken de Inbox notu. Ctrl+Alt+Shift+N secildi:
+  // Turkce klavyede Ctrl+Alt = AltGr, AltGr+harf karakter yazar; uc degistirici cakismaz.
+  // Baska bir uygulama aldiysa kayit basarisiz olur, Kokpit yine calisir.
+  const notKisayolu = 'Control+Alt+Shift+N';
+  const kayitli = globalShortcut.register(notKisayolu, () => {
+    pencereyiOneGetir();
+    if (pencere) pencere.webContents.send('not:ac');
+  });
+  log('genel kisayol ' + notKisayolu + (kayitli ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
 });
 
@@ -372,6 +399,7 @@ app.on('before-quit', (olay) => {
   uygulamaKapaniyor = true;
   ptyKopru.durdur();
 });
+app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { log('tum pencereler kapandi, cikiliyor'); app.quit(); });
 process.on('uncaughtException', (e) => logHata('uncaughtException', e));
 process.on('unhandledRejection', (e) => logHata('unhandledRejection', e));

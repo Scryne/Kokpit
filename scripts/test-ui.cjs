@@ -94,7 +94,7 @@ class Cdp {
     await this.gonder('Input.insertText', { text: metin });
   }
 }
-const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, '1': 49, '2': 50, '3': 51, '4': 52, '=': 187, '-': 189, '0': 48 };
+const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, P: 80, p: 80, '1': 49, '2': 50, '3': 51, '4': 52, '=': 187, '-': 189, '0': 48 };
 
 /** Uygulamayi acar, CDP'ye baglanir. */
 async function baslat() {
@@ -248,6 +248,33 @@ async function main() {
     kontrol('Ctrl+4 Envanter sayfasini acti', true);
     kontrol('drift blogu + skill listesi cizildi', (await cdp.js(`document.querySelectorAll('[aria-label="Envanter"] section').length`)) >= 5);
     await cdp.tus('1', 2, 'Digit1');
+
+    console.log('Arsiv grubu');
+    const satirSay = `document.querySelectorAll('table tbody tr:not(:first-child)').length`;
+    const arsivOnce = await cdp.js(`document.querySelector('table [aria-expanded]')?.getAttribute('aria-expanded')`);
+    const satirOnce = await cdp.js(satirSay);
+    await cdp.js(`(() => { document.querySelector('table [aria-expanded]').click(); return true; })()`);
+    await uyu(300);
+    const satirSonra = await cdp.js(satirSay);
+    kontrol('arsiv dugmesi arsiv satirlarini ac/kapa yapiyor', satirSonra !== satirOnce, satirOnce + ' -> ' + satirSonra);
+    await cdp.js(`(() => { document.querySelector('table [aria-expanded]').click(); return true; })()`);
+    await uyu(300);
+    kontrol('arsiv durumu geri alindi', (await cdp.js(`document.querySelector('table [aria-expanded]')?.getAttribute('aria-expanded')`)) === arsivOnce);
+
+    console.log('Komut paleti (Ctrl+Shift+P)');
+    await cdp.tus('P', 2 | 8, 'KeyP');
+    await cdp.bekle(`!!document.querySelector('dialog[open] [role="combobox"]')`, 3000, 'palet');
+    kontrol('palet acildi, odak arama kutusunda', await cdp.js(`document.activeElement?.getAttribute('role') === 'combobox'`));
+    await cdp.yaz('envanter');
+    await uyu(150);
+    kontrol('arama suzuyor (tek sayfa sonucu ustte)', await cdp.js(`document.querySelector('[role="option"][aria-selected="true"]')?.textContent.includes('Envanter')`));
+    await cdp.tus('Enter');
+    await cdp.bekle(`document.querySelector('h1')?.textContent === 'Envanter'`, 3000, 'paletten envanter');
+    kontrol('Enter komutu calistirdi, palet kapandi', await cdp.js(`!document.querySelector('dialog[open]')`));
+    await cdp.tus('1', 2, 'Digit1');
+    const kisayolLogu = fs.readFileSync(path.join(os.homedir(), '.kokpit', 'kokpit.log'), 'utf8').split('\n').filter((s) => s.includes('genel kisayol')).pop() ?? '';
+    // Gercek Kokpit aciksa kisayol onda: test orneginde "KAYDEDILEMEDI" beklenen durum.
+    kontrol('genel kisayol kaydi denendi ve loglandi', /genel kisayol Control\+Alt\+Shift\+N (kayitli|KAYDEDILEMEDI)/.test(kisayolLogu), kisayolLogu);
 
     console.log('Inbox notu (Ctrl+Shift+N)');
     const d = new Date();

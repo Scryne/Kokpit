@@ -1,12 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, Brain, CheckCircle2, MessageSquareText } from 'lucide-react';
-import type { Durum, GunButcesi } from './types';
-import { gunMetni } from './parcalar';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Brain,
+  CheckCircle2,
+  MessageSquareText,
+  RotateCcw,
+  ShieldCheck,
+} from 'lucide-react';
+import type { Durum, GunButcesi, NobetProjesi, SaglikNobeti } from './types';
+import { envanterMetni, gunMetni } from './parcalar';
 
 interface Props {
   durum: Durum;
+  /** Kokpit'te acik oturumlarin klasorleri: o klasorun oturumu geri doldurulmaz. */
+  acikYollar: string[];
   /** Vault'ta claude oturumu ac ("Aria ile konus"). */
   onVaultOturumu: () => void;
+  /** Geri doldurma sonrasi durum.py'yi yeniden oku. */
+  onTazele: () => void;
 }
 
 type Seviye = 'iyi' | 'dikkat' | 'kotu';
@@ -217,9 +229,176 @@ function ButceGrafigi({ gunler }: { gunler: Record<string, GunButcesi> }) {
   );
 }
 
-export default function Saglik({ durum, onVaultOturumu }: Props) {
+/** CI hucresi: yesil sakin, kirmizi dikkat; bilgi olmayan durumlar soluk. */
+function CiHucresi({ ci }: { ci: NobetProjesi['ci'] }) {
+  if (!ci) return <span className="text-metin-soluk">—</span>;
+  if (ci.durum === 'yesil')
+    return (
+      <span className="text-metin-ikincil">
+        yeşil <span className="enstruman text-metin-soluk">· {ci.dal} · {ci.son?.slice(5)}</span>
+      </span>
+    );
+  if (ci.durum === 'kirmizi')
+    return (
+      <span className="text-hata-metin">
+        kırmızı{ci.is ? ' · ' + ci.is : ''}
+        {ci.url && (
+          <button
+            type="button"
+            onClick={() => void window.kokpit.linkAc(ci.url!)}
+            className="ml-1.5 cursor-pointer underline decoration-dotted underline-offset-2 hover:text-metin"
+          >
+            koşuyu aç
+          </button>
+        )}
+      </span>
+    );
+  return <span className="text-metin-soluk">{ci.durum}</span>;
+}
+
+function DependabotHucresi({ d }: { d: NobetProjesi['dependabot'] }) {
+  if (!d) return <span className="text-metin-soluk">—</span>;
+  if (d.durum !== 'okundu') return <span className="text-metin-soluk">{d.durum}</span>;
+  const acik = Object.entries(d.acik ?? {}).filter(([, n]) => n > 0);
+  if (acik.length === 0) return <span className="text-metin-ikincil">açık yok</span>;
+  const ciddi = (d.acik?.critical ?? 0) + (d.acik?.high ?? 0) > 0;
+  return (
+    <span className={ciddi ? 'text-dikkat-metin' : 'text-metin-ikincil'}>
+      {acik.map(([s, n]) => n + ' ' + s).join(', ')}
+    </span>
+  );
+}
+
+function ModelHucresi({ m }: { m: NobetProjesi['modeller'] }) {
+  if (!m || m.length === 0) return <span className="text-metin-soluk">—</span>;
+  return (
+    <ul className="space-y-0.5">
+      {m.map((x) => (
+        <li
+          key={x.saglayici + x.model}
+          title={x.neden}
+          className={
+            x.durum === 'OLU' ? 'text-hata-metin' : x.durum === 'yasiyor' ? 'text-metin-ikincil' : 'text-dikkat-metin'
+          }
+        >
+          <span className="enstruman">{x.model.split('/').pop()}</span> ·{' '}
+          {x.durum === 'yasiyor' ? 'yaşıyor' : x.durum === 'OLU' ? 'ÖLÜ' : x.durum}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Saglik nobeti (saglik.py, haftalik): CI, Dependabot, AI modelleri. Kokpit calistirmaz,
+ * yalniz son kosuyu gosterir. Nobet 8 gunden eskiyse zamanlanmis gorev calismiyor demektir.
+ */
+function NobetBolumu({ s }: { s: SaglikNobeti | null | undefined }) {
+  if (!s) {
+    return (
+      <section className="halka relative rounded-base bg-yuzey px-5 py-4">
+        <h2 className="etiket">Sağlık nöbeti</h2>
+        <p className="mt-2 text-sm text-metin-ikincil">
+          Nöbet hiç koşmamış. Vault'ta <span className="enstruman">python .claude/scripts/saglik.py</span>{' '}
+          çalıştır ya da ScryneOS-Saglik görevine bak.
+        </p>
+      </section>
+    );
+  }
+  const yas = Math.max(0, Math.floor((Date.now() / 1000 - s.ts) / 86_400));
+  const bayat = yas > 8;
+  return (
+    <section className="halka relative rounded-base bg-yuzey">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-kenar px-5 py-3">
+        <h2 className="etiket flex items-center gap-2">
+          <ShieldCheck className="size-3.5" aria-hidden="true" />
+          Sağlık nöbeti
+        </h2>
+        <span className={'text-xs ' + (bayat ? 'text-dikkat-metin' : 'text-metin-soluk')}>
+          son koşu <span className="enstruman">{s.tarih}</span> ({gunMetni(yas)})
+          {bayat && ' · haftalık görev çalışmıyor olabilir'}
+        </span>
+      </div>
+      {s.alarmlar.length > 0 ? (
+        <ul className="space-y-1 border-b border-kenar px-5 py-3">
+          {s.alarmlar.map((a) => (
+            <li key={a} className="flex items-start gap-2 text-sm text-dikkat-metin">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              {a}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="flex items-center gap-2 border-b border-kenar px-5 py-3 text-sm text-metin-ikincil">
+          <CheckCircle2 className="size-4 text-metin-soluk" aria-hidden="true" />
+          Alarm yok.
+        </p>
+      )}
+      <table className="w-full text-left text-xs">
+        <caption className="sr-only">Nöbetteki projelerin CI, bağımlılık ve model durumu</caption>
+        <thead>
+          <tr className="border-b border-kenar">
+            <th scope="col" className="etiket px-5 py-2 font-normal">Proje</th>
+            <th scope="col" className="etiket px-3 py-2 font-normal">CI</th>
+            <th scope="col" className="etiket px-3 py-2 font-normal">Dependabot</th>
+            <th scope="col" className="etiket px-5 py-2 font-normal">AI modelleri</th>
+          </tr>
+        </thead>
+        <tbody>
+          {s.projeler.map((p) => (
+            <tr key={p.ad} className="border-b border-kenar align-top last:border-b-0">
+              <th scope="row" className="px-5 py-2 font-normal">
+                <span className="enstruman text-sm text-metin">{p.ad}</span>
+                {p.envanter && (
+                  <span className="block text-metin-soluk">{envanterMetni(p.envanter)}</span>
+                )}
+              </th>
+              <td className="px-3 py-2">
+                <CiHucresi ci={p.ci} />
+              </td>
+              <td className="px-3 py-2">
+                <DependabotHucresi d={p.dependabot} />
+              </td>
+              <td className="px-5 py-2">
+                <ModelHucresi m={p.modeller} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+/** Geri doldurma sonucunun insan dili. Betik `sonuc: <durum>` satiri basar (flush_kapsama.py). */
+function doldurmaMetni(sonuc: string) {
+  if (sonuc === 'ok:appended') return 'günlüğe düştü ✓';
+  if (sonuc.startsWith('ok')) return 'kalıcı değer yok, normal';
+  if (sonuc === 'red:taze') return 'son 30 dk içinde yazılmış; açık olabilir';
+  if (sonuc === 'red:kisa') return 'çok kısa oturum';
+  if (sonuc === 'red:transcript-yok') return 'transcript bulunamadı';
+  return 'başarısız: ' + sonuc;
+}
+
+export default function Saglik({ durum, acikYollar, onVaultOturumu, onTazele }: Props) {
   const b = durum.beyin;
   const k = b.kapsama;
+  // Geri doldurma: oturum -> 'calisiyor' | sonuc. Ayni anda birden fazla istenebilir; main
+  // kuyruga alir (her biri bir model cagrisi).
+  const [doldurma, setDoldurma] = useState<Record<string, string>>({});
+  const projeYolu = (proje: string) =>
+    proje === 'vault'
+      ? durum.vault
+      : durum.projeler.find((p) => p.yol.split(/[\\/]/).pop() === proje)?.yol;
+  const doldur = async (session: string, proje: string) => {
+    setDoldurma((d) => ({ ...d, [session]: 'calisiyor' }));
+    const r = await window.kokpit.beyinDoldur(session, proje);
+    setDoldurma((d) => ({ ...d, [session]: r.sonuc }));
+    // Basarida satir listeden duser (tazeleme); sonuc bu şeritte kalir.
+    setSonDoldurma(proje + ' · ' + session.slice(0, 8) + ': ' + doldurmaMetni(r.sonuc));
+    if (r.tamam) onTazele();
+  };
+  const [sonDoldurma, setSonDoldurma] = useState<string | null>(null);
   const gunler = durum.butce.gunler ?? {};
   const tip = durum.butce.tip ?? {};
   const hookPayi = (() => {
@@ -315,38 +494,64 @@ export default function Saglik({ durum, onVaultOturumu }: Props) {
                 <th scope="col" className="etiket px-3 py-2 font-normal">Gün</th>
                 <th scope="col" className="etiket px-3 py-2 text-right font-normal">Mesaj</th>
                 <th scope="col" className="etiket px-3 py-2 font-normal">Flush</th>
-                <th scope="col" className="etiket px-5 py-2 font-normal">Oturum</th>
+                <th scope="col" className="etiket px-3 py-2 font-normal">Oturum</th>
+                <th scope="col" className="etiket px-5 py-2 text-right font-normal">
+                  <span className="sr-only">Eylem</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {k.dusmemis.map((r) => (
-                <tr key={r.session} className="border-b border-kenar last:border-b-0">
-                  <td className="enstruman px-5 py-2 text-sm text-metin">{r.proje}</td>
-                  <td className="enstruman px-3 py-2 text-xs text-metin-ikincil">{r.gun ?? '—'}</td>
-                  <td className="enstruman px-3 py-2 text-right text-xs text-metin-ikincil">{r.mesaj}</td>
-                  <td className="enstruman px-3 py-2 text-xs text-dikkat-metin">{r.flush}</td>
-                  <td className="enstruman px-5 py-2 text-xs text-metin-soluk">{r.session.slice(0, 8)}</td>
-                </tr>
-              ))}
+              {k.dusmemis.map((r) => {
+                const d = doldurma[r.session];
+                const yol = projeYolu(r.proje);
+                // Kokpit'te o klasorde acik oturum varsa doldurma yok: acik bir oturumu erken
+                // doldurmak ozeti yarim birakir, gercek SessionEnd'de ikinci kez yazilir.
+                const acik = !!yol && acikYollar.includes(yol);
+                return (
+                  <tr key={r.session} className="border-b border-kenar last:border-b-0">
+                    <td className="enstruman px-5 py-2 text-sm text-metin">{r.proje}</td>
+                    <td className="enstruman px-3 py-2 text-xs text-metin-ikincil">{r.gun ?? '—'}</td>
+                    <td className="enstruman px-3 py-2 text-right text-xs text-metin-ikincil">{r.mesaj}</td>
+                    <td className="enstruman px-3 py-2 text-xs text-dikkat-metin">{r.flush}</td>
+                    <td className="enstruman px-3 py-2 text-xs text-metin-soluk">{r.session.slice(0, 8)}</td>
+                    <td className="px-5 py-2 text-right text-xs">
+                      {d === 'calisiyor' ? (
+                        <span role="status" className="text-metin-soluk">
+                          dolduruluyor, ~1 dk…
+                        </span>
+                      ) : d && !d.startsWith('ok') ? (
+                        <span className="text-dikkat-metin">{doldurmaMetni(d)}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={acik}
+                          onClick={() => void doldur(r.session, r.proje)}
+                          title={
+                            acik
+                              ? 'Bu klasörde Kokpit\'te açık oturum var; önce onu kapat'
+                              : 'Oturumu şimdi özetleyip günlüğe düşür (model çağrısı, ~1 dk)'
+                          }
+                          className="inline-flex cursor-pointer items-center gap-1.5 rounded-kontrol border border-kenar px-2.5 py-1 text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <RotateCcw className="size-3.5" aria-hidden="true" />
+                          Geri doldur
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
-        {k && k.dusmemis.length > 0 && (
-          // Proje basina bir komut. Vault oturumlari --proje almaz; eskiden hep ilk satirin
-          // projesi yaziliyor, vault icin de bos "--proje  --doldur" cikiyordu.
-          <div className="border-t border-kenar px-5 py-2.5 text-xs text-metin-soluk">
-            <p>Geri doldurma (vault klasöründe çalıştır):</p>
-            <ul className="mt-1 space-y-0.5">
-              {[...new Set(k.dusmemis.map((r) => r.proje))].map((proje) => (
-                <li key={proje} className="enstruman select-text text-metin-ikincil">
-                  python .claude/scripts/flush_kapsama.py
-                  {proje === 'vault' ? '' : ' --proje ' + proje} --doldur
-                </li>
-              ))}
-            </ul>
-          </div>
+        {sonDoldurma && (
+          <p role="status" className="border-t border-kenar px-5 py-2.5 text-xs text-metin-ikincil">
+            Son geri doldurma: {sonDoldurma}
+          </p>
         )}
       </section>
+
+      <NobetBolumu s={durum.saglik} />
 
       {/* Butce + Aria: yan yana, esit degil — butce genis, Aria dar. */}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">

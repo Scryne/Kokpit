@@ -123,6 +123,12 @@ body {
   outline-offset: 2px;
 }
 
+/* Diyalogun tek arama kutusu (komut paleti): imlec ve acik diyalog odagi zaten soyluyor.
+   Katmansiz genel kural Tailwind yardimcisini ezdigi icin istisna burada. */
+.cercevesiz-odak:focus-visible {
+  outline: none;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

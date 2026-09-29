@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   Boxes,
+  ChevronRight,
   History,
   Inbox,
   LayoutDashboard,
@@ -13,16 +14,31 @@ import {
   TerminalSquare,
   X,
 } from 'lucide-react';
-import type { Durum, OncekiOturum, Oturum, OturumDurumu, Proje, SonOturum } from './types';
+import type {
+  Durum,
+  OncekiOturum,
+  Oturum,
+  OturumBaglami,
+  OturumDurumu,
+  Proje,
+  SonOturum,
+} from './types';
 import Pano from './Pano';
 import Saglik from './Saglik';
 import Envanter from './Envanter';
 import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
-import { BeyinKaydiRozeti, projeSirala, sureMetni } from './parcalar';
+import KomutPaleti, { type Komut } from './KomutPaleti';
+import {
+  BeyinKaydiRozeti,
+  GRUP_BASLIK,
+  projeGruplari,
+  sureMetni,
+  tokenMetni,
+} from './parcalar';
 
-// durum.py her cagrida ~500 ms'lik bir Python sureci demek. Iki koruma:
+// durum.py her cagrida ~2 sn'lik bir Python sureci demek (09-29 olcumu). Iki koruma:
 // - ayni anda tek istek (StrictMode'un cift effect'ini de yutar)
 // - odak olayi bu araliktan sik tazeleyemez (alt-tab firtinasi)
 const ODAK_ASGARI_ARALIK_MS = 30_000;
@@ -96,6 +112,11 @@ export default function App() {
   const [gorunum, setGorunum] = useState<Gorunum>('pano');
   const [kenarAcik, setKenarAcik] = useState(true);
   const [yaziBoyutu, setYaziBoyutu] = useState(YAZI_BOYUTU.varsayilan);
+  // Proje listelerinde arsiv grubu (olduğu gibi / donduruldu / birakildi) acik mi. Kalici.
+  const [arsivAcik, setArsivAcik] = useState(false);
+  const [paletAcik, setPaletAcik] = useState(false);
+  // Acik oturumlarin bağlam buyuklugu (transcript'ten, 20 sn'de bir).
+  const [baglamlar, setBaglamlar] = useState<Record<string, OturumBaglami | null>>({});
   // Ayarlar diskten gelene kadar yazma; yoksa varsayilan degerler ustune yazilir.
   const ayarHazir = useRef(false);
 
@@ -133,6 +154,7 @@ export default function App() {
       if (iptal) return;
       setKenarAcik(a.kenarAcik);
       setYaziBoyutu(a.yaziBoyutu);
+      setArsivAcik(a.arsivAcik === true);
       ayarHazir.current = true;
     });
     return () => {
@@ -141,8 +163,12 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!ayarHazir.current) return;
-    void window.kokpit.ayarKaydet({ kenarAcik, yaziBoyutu });
-  }, [kenarAcik, yaziBoyutu]);
+    void window.kokpit.ayarKaydet({ kenarAcik, yaziBoyutu, arsivAcik });
+  }, [kenarAcik, yaziBoyutu, arsivAcik]);
+
+  // Genel kisayol (Ctrl+Alt+Shift+N, Kokpit arka plandayken de): main pencereyi one getirir,
+  // burada not kutusu acilir.
+  useEffect(() => window.kokpit.notAcSorulunca(() => setNotAcik(true)), []);
 
   const yaziBoyutuDegistir = useCallback((fark: number | null) => {
     setYaziBoyutu((b) =>
@@ -161,6 +187,35 @@ export default function App() {
     const t = setInterval(() => setSimdi(Date.now()), oturumAcik ? 1000 : 60_000);
     return () => clearInterval(t);
   }, [oturumAcik]);
+
+  // Bağlam yoklamasi: yalniz acik oturum varken ve pencere gorunurken, 20 sn'de bir.
+  // Okuma transcript'in son 512 KB'i (~3 ms); claude'un yazdigi dosyaya dokunmaz.
+  const acikOturumAnahtari = oturumlar
+    .filter((o) => o.durumu === 'acik')
+    .map((o) => o.id)
+    .join('|');
+  useEffect(() => {
+    if (!acikOturumAnahtari) {
+      setBaglamlar({});
+      return;
+    }
+    let iptal = false;
+    const yokla = () => {
+      if (document.visibilityState !== 'visible') return;
+      const liste = oturumlarRef.current
+        .filter((o) => o.durumu === 'acik')
+        .map((o) => ({ id: o.id, yol: o.yol, baslangic: o.baslangic }));
+      void window.kokpit.oturumBaglami(liste).then((b) => {
+        if (!iptal) setBaglamlar(b);
+      });
+    };
+    yokla();
+    const t = setInterval(yokla, 20_000);
+    return () => {
+      iptal = true;
+      clearInterval(t);
+    };
+  }, [acikOturumAnahtari]);
 
   // Async akislar (diyalog, guvenli cikis) saniyeler surer; bittiklerinde o anki listeye
   // bakmalari gerekir, akisin basladigi andaki kapanisa degil.
@@ -604,9 +659,63 @@ export default function App() {
     return [...harita.entries()].map(([id, uyeler]) => ({ id, uyeler }));
   }, [oturumlar]);
 
-  const siraliProjeler = useMemo(() => (durum ? projeSirala(durum.projeler) : []), [durum]);
+  // Secicilerde de ayni sira: aktif, kullanimda, arsiv.
+  const siraliProjeler = useMemo(
+    () => projeGruplari(durum?.projeler ?? []).flatMap((g) => g.projeler),
+    [durum]
+  );
 
   const aktifOturum = oturumlar.find((o) => o.id === aktifOturumId) ?? null;
+
+  // Saglik rozeti: beyne dusmemis oturum + saglik nobeti alarmi.
+  const saglikSayisi = (() => {
+    const dusmemis = durum?.beyin.kapsama?.dusmemis.length ?? 0;
+    const alarm = durum?.saglik?.alarmlar.length ?? 0;
+    const parca = [];
+    if (dusmemis) parca.push(dusmemis + ' oturum beyne düşmedi');
+    if (alarm) parca.push(alarm + ' sağlık nöbeti alarmı');
+    return { toplam: dusmemis + alarm, baslik: parca.join(' · ') };
+  })();
+
+  // Komut paleti icerigi: sayfalar, projeler (ac / git / klasor), eylemler.
+  const komutlar = useMemo<Komut[]>(() => {
+    const k: Komut[] = [
+      { id: 's-pano', grup: 'Sayfa', baslik: 'Pano', ipucu: 'Ctrl+1', calistir: () => setGorunum('pano') },
+      { id: 's-term', grup: 'Sayfa', baslik: 'Terminaller', ipucu: 'Ctrl+2', calistir: () => setGorunum('terminal') },
+      { id: 's-saglik', grup: 'Sayfa', baslik: 'Sağlık', ipucu: 'Ctrl+3', calistir: () => setGorunum('saglik') },
+      { id: 's-env', grup: 'Sayfa', baslik: 'Envanter', ipucu: 'Ctrl+4', calistir: () => setGorunum('envanter') },
+    ];
+    for (const p of siraliProjeler) {
+      const acik = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
+      k.push(
+        acik
+          ? { id: 'g-' + p.ad, grup: 'Git', baslik: p.ad, ipucu: 'açık oturum', calistir: () => grubaGit(acik.grupId, acik.id) }
+          : { id: 'a-' + p.ad, grup: 'Aç', baslik: p.ad, calistir: () => sekmeAc(p) }
+      );
+    }
+    if (durum) {
+      k.push({
+        id: 'a-vault',
+        grup: 'Aç',
+        baslik: 'Aria ile konuş (vault)',
+        ipucu: 'claude oturumu',
+        calistir: () => sekmeAc({ ad: 'ScryneOS', yol: durum.vault }),
+      });
+    }
+    if (oncekiler.length > 0) {
+      k.push({ id: 'e-geri', grup: 'Eylem', baslik: 'Önceki oturumları geri yükle', ipucu: oncekiler.length + ' oturum', calistir: () => geriYukle() });
+    }
+    k.push(
+      { id: 'e-not', grup: 'Eylem', baslik: "Inbox'a not", ipucu: 'Ctrl+Shift+N', calistir: () => setNotAcik(true) },
+      { id: 'e-tazele', grup: 'Eylem', baslik: 'Durumu tazele', calistir: () => void tazele('elle') },
+      { id: 'e-kenar', grup: 'Eylem', baslik: 'Kenar çubuğunu aç/kapat', ipucu: 'Ctrl+B', calistir: () => setKenarAcik((a) => !a) },
+      { id: 'e-arsiv', grup: 'Eylem', baslik: arsivAcik ? 'Arşivi gizle' : 'Arşivi göster', calistir: () => setArsivAcik((a) => !a) }
+    );
+    for (const p of siraliProjeler) {
+      k.push({ id: 'k-' + p.ad, grup: 'Klasör', baslik: p.ad, ipucu: 'Gezgin', calistir: () => void window.kokpit.klasorAc(p.yol) });
+    }
+    return k;
+  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, grubaGit, sekmeAc, geriYukle, tazele]);
 
   // Pencere basligi Alt+Tab'da hangi projede oldugunu soyler; dikkat bekleyen varsa sayar.
   useEffect(() => {
@@ -638,6 +747,10 @@ export default function App() {
       } else if (e.key === '4') {
         e.preventDefault();
         setGorunum('envanter');
+      } else if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+        // Ctrl+Shift+P: komut paleti. Ctrl+K degil: claude'da satir sonuna kadar siler.
+        e.preventDefault();
+        setPaletAcik(true);
       } else if (e.shiftKey && (e.key === 'N' || e.key === 'n')) {
         // Ctrl+Shift+N: Inbox'a not. Kutu acikken tekrar basmak kapatmaz.
         e.preventDefault();
@@ -800,12 +913,9 @@ export default function App() {
           >
             <Activity className="size-4 shrink-0" aria-hidden="true" />
             {kenarAcik && 'Sağlık'}
-            {kenarAcik && durum?.beyin.kapsama && durum.beyin.kapsama.dusmemis.length > 0 && (
-              <span
-                className="enstruman ml-auto text-xs text-dikkat-metin"
-                title={durum.beyin.kapsama.dusmemis.length + ' oturum beyne düşmedi'}
-              >
-                {durum.beyin.kapsama.dusmemis.length}
+            {kenarAcik && saglikSayisi.toplam > 0 && (
+              <span className="enstruman ml-auto text-xs text-dikkat-metin" title={saglikSayisi.baslik}>
+                {saglikSayisi.toplam}
               </span>
             )}
           </button>
@@ -838,67 +948,103 @@ export default function App() {
           </button>
         </nav>
 
-        {kenarAcik && <p className="etiket mt-6 px-4">Projeler</p>}
-        <ul
-          aria-label="Projeler"
-          className={'min-h-0 flex-1 overflow-y-auto px-2 pb-3 ' + (kenarAcik ? 'mt-1' : 'mt-4')}
-        >
-          {siraliProjeler.map((p) => {
-            const oturum = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
-            const dikkat = oturumlar.some((o) => o.yol === p.yol && o.dikkat);
+        {/* Projeler, envanter grubuna gore. Arsiv (olduğu gibi / donduruldu / birakildi)
+            varsayilan kapali: Scryne 09-29'da eski projelere donmeme karari verdi, 15 satirin
+            10'u her gun gozun onunde duruyordu. */}
+        <div className={'min-h-0 flex-1 overflow-y-auto px-2 pb-3 ' + (kenarAcik ? 'mt-4' : 'mt-4')}>
+          {projeGruplari(durum?.projeler ?? []).map(({ grup, projeler }) => {
+            const arsiv = grup === 'arsiv';
+            const gorunur = !arsiv || arsivAcik;
             return (
-              <li key={p.ad}>
-                <button
-                  type="button"
-                  onClick={() => (oturum ? grubaGit(oturum.grupId, oturum.id) : sekmeAc(p))}
-                  title={oturum ? p.ad + ' — açık oturuma git' : p.ad + ' klasöründe oturum aç'}
-                  aria-label={oturum ? p.ad + ' — açık oturuma git' : p.ad + ' klasöründe oturum aç'}
-                  className={
-                    'group flex w-full cursor-pointer items-center gap-2 rounded-kontrol px-2.5 py-1.5 text-left transition-colors duration-[180ms] hover:bg-yuzey ' +
-                    (kenarAcik ? '' : 'justify-center')
-                  }
-                >
-                  {kenarAcik ? (
-                    <span
-                      className={
-                        'size-1.5 shrink-0 rounded-full ' +
-                        (dikkat
-                          ? noktaSinifi({ durumu: 'acik', dikkat: true })
-                          : oturum
-                            ? 'bg-aksan'
-                            : 'bg-kenar-guclu')
-                      }
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    // Daraltilmisken nokta hangi proje oldugunu soylemiyor; bas harf soyluyor.
-                    <span
-                      className={
-                        'enstruman relative text-xs ' + (oturum ? 'text-aksan' : 'text-metin-soluk')
-                      }
-                      aria-hidden="true"
+              <div key={grup} className={kenarAcik ? 'mb-3' : 'mb-2 border-b border-kenar pb-2 last:border-b-0'}>
+                {kenarAcik &&
+                  (arsiv ? (
+                    <button
+                      type="button"
+                      onClick={() => setArsivAcik((a) => !a)}
+                      aria-expanded={arsivAcik}
+                      aria-controls="kenar-arsiv"
+                      className="etiket flex w-full cursor-pointer items-center gap-1.5 rounded-kontrol px-2.5 py-1 text-left transition-colors duration-[180ms] hover:text-metin-ikincil"
                     >
-                      {p.ad.charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                  {kenarAcik && (
-                    <>
-                      <span className="enstruman truncate text-xs text-metin-ikincil group-hover:text-metin">
-                        {p.ad}
-                      </span>
-                      {!oturum && (
-                        <Plus
-                          className="ml-auto size-3.5 shrink-0 text-transparent group-hover:text-metin-soluk"
-                          aria-hidden="true"
-                        />
-                      )}
-                    </>
-                  )}
-                </button>
-              </li>
+                      <ChevronRight
+                        className={'size-3 shrink-0 ' + (arsivAcik ? 'rotate-90' : '')}
+                        aria-hidden="true"
+                      />
+                      {GRUP_BASLIK[grup]}
+                      <span className="enstruman ml-auto">{projeler.length}</span>
+                    </button>
+                  ) : (
+                    <p className="etiket px-2.5 py-1">{GRUP_BASLIK[grup]}</p>
+                  ))}
+                {gorunur && (
+                  <ul aria-label={GRUP_BASLIK[grup] + ' projeler'} id={arsiv ? 'kenar-arsiv' : undefined}>
+                    {projeler.map((p) => {
+                      const oturum = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
+                      const dikkat = oturumlar.some((o) => o.yol === p.yol && o.dikkat);
+                      return (
+                        <li key={p.ad}>
+                          <button
+                            type="button"
+                            onClick={() => (oturum ? grubaGit(oturum.grupId, oturum.id) : sekmeAc(p))}
+                            title={oturum ? p.ad + ' — açık oturuma git' : p.ad + ' klasöründe oturum aç'}
+                            aria-label={oturum ? p.ad + ' — açık oturuma git' : p.ad + ' klasöründe oturum aç'}
+                            className={
+                              'group flex w-full cursor-pointer items-center gap-2 rounded-kontrol px-2.5 py-1.5 text-left transition-colors duration-[180ms] hover:bg-yuzey ' +
+                              (kenarAcik ? '' : 'justify-center')
+                            }
+                          >
+                            {kenarAcik ? (
+                              <span
+                                className={
+                                  'size-1.5 shrink-0 rounded-full ' +
+                                  (dikkat
+                                    ? noktaSinifi({ durumu: 'acik', dikkat: true })
+                                    : oturum
+                                      ? 'bg-aksan'
+                                      : 'bg-kenar-guclu')
+                                }
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              // Daraltilmisken nokta hangi proje oldugunu soylemiyor; bas harf soyluyor.
+                              <span
+                                className={
+                                  'enstruman relative text-xs ' +
+                                  (oturum ? 'text-aksan' : 'text-metin-soluk')
+                                }
+                                aria-hidden="true"
+                              >
+                                {p.ad.charAt(0).toUpperCase()}
+                              </span>
+                            )}
+                            {kenarAcik && (
+                              <>
+                                <span
+                                  className={
+                                    'enstruman truncate text-xs group-hover:text-metin ' +
+                                    (arsiv ? 'text-metin-soluk' : 'text-metin-ikincil')
+                                  }
+                                >
+                                  {p.ad}
+                                </span>
+                                {!oturum && (
+                                  <Plus
+                                    className="ml-auto size-3.5 shrink-0 text-transparent group-hover:text-metin-soluk"
+                                    aria-hidden="true"
+                                  />
+                                )}
+                              </>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
             );
           })}
-        </ul>
+        </div>
 
         {kenarAcik && durum && (
           <div className="border-t border-kenar px-4 py-3">
@@ -940,6 +1086,20 @@ export default function App() {
             {gorunum === 'terminal' && aktifOturum && (
               <span className="enstruman truncate text-xs text-metin-soluk">{aktifOturum.yol}</span>
             )}
+            {gorunum === 'terminal' && aktifOturum && baglamlar[aktifOturum.id] && (
+              <span
+                className="enstruman shrink-0 rounded-rozet border border-kenar px-2 py-0.5 text-xs text-metin-ikincil"
+                title={
+                  'Bağlam: son turda modele giden ' +
+                  baglamlar[aktifOturum.id]!.token.toLocaleString('tr-TR') +
+                  ' token (' +
+                  baglamlar[aktifOturum.id]!.model +
+                  '). 20 sn\'de bir transcript\'ten okunur.'
+                }
+              >
+                bağlam {tokenMetni(baglamlar[aktifOturum.id]!.token)}
+              </span>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {notBildirimi && (
@@ -970,6 +1130,8 @@ export default function App() {
           </button>
           </div>
         </header>
+
+        <KomutPaleti acik={paletAcik} komutlar={komutlar} onKapat={() => setPaletAcik(false)} />
 
         <NotKutusu
           acik={notAcik}
@@ -1010,6 +1172,9 @@ export default function App() {
               oturumlar={oturumlar}
               sonOturumlar={sonOturumlar}
               simdi={simdi}
+              arsivAcik={arsivAcik}
+              onArsivDegistir={() => setArsivAcik((a) => !a)}
+              onSaglik={() => setGorunum('saglik')}
               onBaslat={sekmeAc}
               onOturumaGit={(id) => {
                 const o = oturumlar.find((x) => x.id === id);
@@ -1026,7 +1191,9 @@ export default function App() {
           {durum && (
             <Saglik
               durum={durum}
+              acikYollar={oturumlar.filter((o) => o.durumu === 'acik').map((o) => o.yol)}
               onVaultOturumu={() => sekmeAc({ ad: 'ScryneOS', yol: durum.vault })}
+              onTazele={() => void tazele('elle')}
             />
           )}
         </section>
@@ -1230,6 +1397,7 @@ export default function App() {
                               {o.durumu === 'acik' && (
                                 <span className="enstruman text-xs text-metin-soluk">
                                   {sureMetni(Math.floor((simdi - o.baslangic) / 1000))}
+                                  {baglamlar[o.id] && ' · ' + tokenMetni(baglamlar[o.id]!.token)}
                                 </span>
                               )}
                             </button>

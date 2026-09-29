@@ -54,7 +54,8 @@ export default function NotKutusu({ acik, kaynak, onKapat, onKaydedildi }: Props
         onKapat();
       }}
       aria-labelledby="not-baslik"
-      className="halka m-auto w-[min(36rem,calc(100vw-2rem))] rounded-base bg-yuzey-guclu p-0 text-metin shadow-2xl shadow-black/60 backdrop:bg-black/50"
+      // Opak taban: yuzey-guclu tek basina %85 saydam, arkadaki sayfa metni icinden okunuyordu.
+      className="halka m-auto w-[min(36rem,calc(100vw-2rem))] rounded-base bg-bg-base p-0 text-metin shadow-2xl shadow-black/60 backdrop:bg-black/50"
     >
       <form
         method="dialog"
@@ -62,7 +63,7 @@ export default function NotKutusu({ acik, kaynak, onKapat, onKaydedildi }: Props
           e.preventDefault();
           void kaydet();
         }}
-        className="p-5"
+        className="bg-yuzey-guclu p-5"
       >
         <h2 id="not-baslik" className="flex items-center gap-2 text-sm font-medium">
           <Inbox className="size-4 text-metin-soluk" aria-hidden="true" />

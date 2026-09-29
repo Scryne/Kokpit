@@ -32,4 +32,13 @@ contextBridge.exposeInMainWorld('kokpit', {
   defterSonlar: () => ipcRenderer.invoke('defter:sonlar'),
   // Vault'a tek yazma: Inbox notu.
   notEkle: (metin, kaynak) => ipcRenderer.invoke('not:ekle', metin, kaynak),
+  // Genel kisayol (Ctrl+Alt+Shift+N) basilinca main "notu ac" der.
+  notAcSorulunca: (cb) => {
+    const dinleyici = () => cb();
+    ipcRenderer.on('not:ac', dinleyici);
+    return () => ipcRenderer.removeListener('not:ac', dinleyici);
+  },
+  oturumBaglami: (liste) => ipcRenderer.invoke('oturum:baglam', liste),
+  // Beyne dusmemis tek oturumu vault'un betigiyle doldurur (yazan vault'tur, Kokpit degil).
+  beyinDoldur: (session, proje) => ipcRenderer.invoke('beyin:doldur', session, proje),
 });

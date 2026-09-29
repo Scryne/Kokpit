@@ -26,11 +26,27 @@ doğrudan onu hedefleseydi Electron'un yanında boş bir siyah pencere kalırdı
 açılınca derleme çıktısı görünmez — bir şey açılmıyorsa terminalden `kokpit` çalıştır.
 
 **Sayfalar:** Pano (Ctrl+1) · Terminaller (Ctrl+2) · Sağlık (Ctrl+3: beyin boru zinciri,
-beyne düşmemiş oturumlar, 7 günlük bütçe, thread'ler, "Aria ile konuş") · Envanter (Ctrl+4:
-CLAUDE.md drift, skill/MCP, transcript hijyeni).
+beyne düşmemiş oturumlar + satır başına **Geri doldur**, sağlık nöbeti (CI, Dependabot, AI
+modelleri), 7 günlük bütçe, thread'ler, "Aria ile konuş") · Envanter (Ctrl+4: CLAUDE.md drift,
+skill/MCP, transcript hijyeni).
 
-**Klavye:** Ctrl+B kenar çubuğu · Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü · Ctrl+Shift+W
-bölmeyi kapat · Ctrl+Shift+N Inbox'a not · sekme şeridinde ← →, bölme ayırıcısında ← →
+**Proje grupları** (kenar çubuğu, Pano, seçiciler): Aktif · Kullanımda · Arşiv. Grup
+`Proje-Envanteri.md` durumundan gelir (`durum.py` `envanter` alanı): 🟢 aktif, ✅ kullanımda,
+geri kalanı (⏸️ ⛔ 🛑) arşiv; envanterde olmayan proje state.json aşamasına göre. Arşiv
+varsayılan kapalı, açık/kapalı hali kalıcı. Sağlık nöbeti alarmı varsa Pano'nun üstünde şerit.
+
+**Bağlam göstergesi:** terminal başlığında "bağlam 354k" = claude'un son turda modele giden
+girdisi (input + cache yazma + cache okuma), transcript'in son 512 KB'ından 20 sn'de bir.
+
+**Geri doldur:** beyne düşmemiş TEK oturumu vault'un kendi zinciriyle özetler
+(`flush_kapsama.py --oturum`, ~20–60 sn, model çağrısı). Betik son 30 dk'da yazılmış transcript'i
+reddeder; Kokpit'te o klasörde açık oturum varken düğme kapalı. `--doldur` bilerek kullanılmaz:
+o, dizindeki açık oturumları da erken doldururdu.
+
+**Klavye:** Ctrl+Shift+P komut paleti (sayfa, proje aç/git, klasör, eylemler) · Ctrl+B kenar
+çubuğu · Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü · Ctrl+Shift+W bölmeyi kapat · Ctrl+Shift+N
+Inbox'a not · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
+Türkçe klavyede AltGr olduğu için üç değiştirici) · sekme şeridinde ← →, bölme ayırıcısında ← →
 (%5). **Terminalde:** Ctrl+Shift+F ara (Enter / Shift+Enter / Esc) · Ctrl+C seçim varken
 kopyalar, yokken `^C` · Ctrl+Shift+C/V · sağ tık yapıştır · Ctrl+= / Ctrl+- / Ctrl+0 yazı
 boyutu (kalıcı) · dosyayı sürükleyip bırakınca yolu yazılır. Terminal odaktayken **Ctrl+B
@@ -63,7 +79,7 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 
 ```bash
 npm run test:pty     # PTY sunucusunun uçtan uca testi (13 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi (31 kontrol, önce build)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi (37 kontrol, önce build)
 npm run typecheck
 npm run build
 npm run design:lint  # DESIGN.md spec denetimi
@@ -105,7 +121,9 @@ ELECTRON_MIRROR=https://registry.npmmirror.com/-/binary/electron/ node node_modu
 
 **(1) npm 11.19+ install script'lerini varsayılan olarak bloklar.** `node-pty` ve `electron`
 sessizce yarım kurulur — hata vermez, sadece çalışmaz. Onay verilmezse `node-pty`'nin native
-modülü ve Electron binary'si hiç inmez.
+modülü ve Electron binary'si hiç inmez. `package.json` `allowScripts` onayı **sürüme bağlıdır**
+(`electron@44.4.5`): Electron yükseltilince bu satır da değişmeli, binary yine (2) ile iner.
+Son yükseltme 2026-09-29: 44.3.0 → 44.4.5, `test:ui` 37/37.
 
 **(2) Electron binary'si `github.com`'dan inmiyor** (bu makinede Node'un `fetch`'i
 `UND_ERR_CONNECT_TIMEOUT` veriyor, `curl` aynı adrese 200 dönüyor). Mirror üzerinden iniyor.
@@ -168,5 +186,7 @@ der. Geri doldurma vault'ta: `python .claude/scripts/flush_kapsama.py --proje <a
 5. **Vault'a tek yazma: Inbox notu.** v1 hiç yazmazdı; v2 (2026-09-21) yalnız
    `📥 000-Inbox/Dump/YYYY-MM-DD.md`'ye **sona ekler** (`electron/not.cjs`). Başka dosya yok,
    üstüne yazma yok. Hook'lar zaten yazıyor; ikinci yazar yarış koşulu demek.
+   **Geri doldur** bu kuralı çiğnemez: yazan vault'un kendi flush zinciridir (oturum başına
+   kilitli `flush.py`), Kokpit yalnız tetikler — tıpkı SessionEnd hook'u gibi (2026-09-29).
 6. **Açılan terminallerden ebeveyn oturum işaretleri temizlenir.** Yoksa transcript
    yazılmaz ve ikinci beyin o oturumu kaydetmez.

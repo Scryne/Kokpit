@@ -47,7 +47,7 @@
     "vite": "^8.3.0"
   },
   "allowScripts": {
-    "electron@44.3.0": true,
+    "electron@44.4.5": true,
     "node-pty@1.1.0": true
   }
 }
