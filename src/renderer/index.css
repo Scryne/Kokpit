@@ -9,25 +9,28 @@
 /* Degerlerin kaynagi kokteki DESIGN.md frontmatter'i. Ayni token iki yerde yasamaz:
    burasi o dosyanin Tailwind'e cevrilmis halidir, ikinci bir karar yeri degil. */
 @theme {
-  --color-bg-base: #090a0c;
-  --color-yuzey: rgb(24 26 32 / 0.72);
-  --color-yuzey-guclu: rgb(30 33 40 / 0.85);
-  --color-cam: rgb(30 33 41 / 0.55);
-  --color-terminal: #06080f;
+  --color-bg-base: #0b0c0f;
+  /* Akrilik pencerenin ustundeki ton katmani. Alfa bir zevk degil bir hesap: arkada
+     beyaz olsa da metin-soluk 4.5:1'i gecsin diye en az 0.82 (DESIGN.md, Seffaflik). */
+  --color-zemin: rgb(11 12 15 / 0.65);
+  --color-yuzey: rgb(24 26 31 / 0.4);
+  --color-yuzey-guclu: rgb(34 37 43 / 0.82);
+  --color-cam: rgb(30 33 40 / 0.32);
+  --color-terminal: #07080a;
 
-  --color-kenar: rgb(244 244 245 / 0.08);
-  --color-kenar-guclu: rgb(244 244 245 / 0.16);
+  --color-kenar: rgb(220 226 235 / 0.09);
+  --color-kenar-guclu: rgb(220 226 235 / 0.2);
 
-  --color-metin: #f4f4f5;
-  --color-metin-ikincil: #a1a1aa;
-  --color-metin-soluk: #86868f;
+  --color-metin: #f3f5f8;
+  --color-metin-ikincil: #c2c8d1;
+  --color-metin-soluk: #a3a9b3;
 
-  --color-aksan: #8b5cf6;
-  --color-aksan-metin: #956af7;
-  --color-aksan-uzeri: #14101f;
+  --color-aksan: #c3cedb;
+  --color-aksan-metin: #d3dbe5;
+  --color-aksan-uzeri: #101216;
 
-  --color-birincil: #f4f4f5;
-  --color-birincil-uzeri: #090a0c;
+  --color-birincil: #e6eaf0;
+  --color-birincil-uzeri: #101216;
 
   --color-dikkat: #c99a3e;
   --color-dikkat-metin: #d9ab52;
@@ -48,9 +51,10 @@ body,
   height: 100%;
 }
 
-/* Pencere OPAK. Cam yuzeylerin arkasinda bir sey olmali (global glassmorphism kurali),
-   ama o sey masaustu degil uygulamanin kendi zemini: kisik bir indigo/violet mesh.
-   Isik kaynagi tutarli: sol-ust acik, sag-alt koyu. */
+/* Pencere AKRILIK: masaustu ve arkadaki pencereler bulanik olarak sizar. Kontrast yine de
+   bizim: ilk katman `zemin` tonu (alfasi hesapli), ustunde soguk gumus isik. Gumus
+   vurgular bilerek kisik (<= 0.06): parlak bir leke, arkada beyaz varken o bolgedeki
+   soluk metni esigin altina iterdi. Isik kaynagi tutarli: sol-ust acik, sag-alt koyu. */
 body {
   margin: 0;
   color: var(--color-metin);
@@ -58,10 +62,11 @@ body {
   font-size: 0.875rem;
   -webkit-font-smoothing: antialiased;
   background:
-    radial-gradient(52rem 34rem at 8% -4%, rgb(139 92 246 / 0.14), transparent 62%),
-    radial-gradient(46rem 30rem at 88% 8%, rgb(56 96 190 / 0.1), transparent 60%),
-    radial-gradient(40rem 30rem at 62% 104%, rgb(139 92 246 / 0.07), transparent 58%),
-    var(--color-bg-base);
+    radial-gradient(48rem 32rem at 6% -6%, rgb(226 232 242 / 0.06), transparent 62%),
+    radial-gradient(40rem 28rem at 92% 4%, rgb(170 182 200 / 0.045), transparent 60%),
+    linear-gradient(118deg, transparent 38%, rgb(255 255 255 / 0.02) 46%, transparent 54%),
+    radial-gradient(44rem 32rem at 70% 108%, rgb(0 0 0 / 0.35), transparent 60%),
+    var(--color-zemin);
   background-attachment: fixed;
 }
 
@@ -71,8 +76,11 @@ body {
  * Her yuzeye cam surmek hem cami siradanlastirir hem performansi dusurur.
  */
 .cam {
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 14px 32px -20px rgb(0 0 0 / 0.85);
 }
 
 /*
@@ -91,11 +99,14 @@ body {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
+  /* Fircalanmis metal: sol-ustte guclu parlama, sag-altta ikinci, zayif bir yansima. */
   background: linear-gradient(
     160deg,
-    rgb(244 244 245 / 0.18),
-    rgb(244 244 245 / 0.06) 38%,
-    rgb(244 244 245 / 0.02) 70%
+    rgb(255 255 255 / 0.36),
+    rgb(255 255 255 / 0.08) 34%,
+    rgb(255 255 255 / 0.03) 58%,
+    rgb(255 255 255 / 0.14) 84%,
+    rgb(255 255 255 / 0.04)
   );
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
@@ -103,6 +114,15 @@ body {
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
+}
+
+/* Birincil dugme duz renk lekesi degil, metal: ustten acik, alta inen gumus. Renk token'i
+   (bg-birincil) arka plan rengi olarak kalir; gradyan onun ustunde bir resim katmani. */
+.bg-birincil {
+  background-image: linear-gradient(180deg, #f8f9fb 0%, #dce1e8 55%, #bcc3cd 100%);
+}
+.bg-birincil:hover:not(:disabled) {
+  background-image: linear-gradient(180deg, #e9edf2 0%, #c8cfd8 55%, #a9b1bc 100%);
 }
 
 /* Olculmus her deger mono yuzludur: sayilar hizali olsun. */
@@ -134,7 +154,7 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgb(244 244 245 / 0.1);
+  background: rgb(220 226 235 / 0.14);
   border-radius: 8px;
 }
 ::-webkit-scrollbar-track {

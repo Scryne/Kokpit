@@ -57,12 +57,12 @@ function yolTirnakla(yol: string) {
 }
 
 const ARAMA_SUSLEME = {
-  matchBackground: '#3b2a6b',
-  matchBorder: '#3b2a6b',
-  matchOverviewRuler: '#8b5cf6',
-  activeMatchBackground: '#8b5cf6',
-  activeMatchBorder: '#8b5cf6',
-  activeMatchColorOverviewRuler: '#c4b5fd',
+  matchBackground: '#323a47',
+  matchBorder: '#4a5566',
+  matchOverviewRuler: '#c3cedb',
+  activeMatchBackground: '#5d6b80',
+  activeMatchBorder: '#c3cedb',
+  activeMatchColorOverviewRuler: '#f3f5f8',
 };
 
 /**
@@ -120,11 +120,11 @@ export default function TerminalOturumu({
       scrollback: 5000,
       // Terminal BILEREK opak (DESIGN.md: "cam degil, delik").
       theme: {
-        background: '#06080F',
+        background: '#07080a',
         foreground: '#e9edf4',
-        cursor: '#9cc4e4',
-        cursorAccent: '#06080F',
-        selectionBackground: 'rgba(156,196,228,0.26)',
+        cursor: '#d3dbe5',
+        cursorAccent: '#07080a',
+        selectionBackground: 'rgba(195,206,219,0.24)',
       },
     });
     const fit = new FitAddon();

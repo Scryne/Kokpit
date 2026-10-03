@@ -14,6 +14,7 @@ const VARSAYILAN = Object.freeze({
   kenarAcik: true,
   yaziBoyutu: 13,
   arsivAcik: false, // proje listelerinde arsiv grubu (olduğu gibi / donduruldu / birakildi)
+  seffaf: true, // akrilik pencere; false -> opak (Windows 11 22H2 alti zaten opak)
 });
 
 let bellek = null;
