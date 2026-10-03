@@ -12,6 +12,8 @@ const defter = require('./defter.cjs');
 const beyin = require('./beyin.cjs');
 const inboxNotu = require('./not.cjs');
 const geriDoldurma = require('./doldur.cjs');
+const kanca = require('./kanca.cjs');
+const ada = require('./ada.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
@@ -183,13 +185,33 @@ function pencereKur() {
   }
 
   pencere.on('closed', () => { pencere = null; });
+  // Ada yalniz Kokpit arka plandayken gorunur.
+  pencere.on('focus', () => ada.anaOdak(true));
+  pencere.on('blur', () => ada.anaOdak(false));
+}
+
+/** Ada penceresi: ayni arayuz paketi, #ada adresiyle. Test kosucularinda kurulmaz. */
+function adaKur() {
+  if (process.env.KOKPIT_TEST_KABUK === '1' && process.env.KOKPIT_TEST_ADA !== '1') return;
+  ada.kur({
+    url: (DEV ? DEV_URL : uretim.BASLANGIC_URL) + '#ada',
+    preload: path.join(__dirname, 'preload.cjs'),
+    acik: ayarlar.oku().ada !== false,
+    onGit: (id) => {
+      pencereyiOneGetir();
+      if (pencere) pencere.webContents.send('oturuma:git', id);
+    },
+  });
 }
 
 ipcMain.handle('durum:getir', async () => durumOku());
 ipcMain.handle('log:yol', () => LOG_DOSYA);
 ipcMain.handle('pty:bilgi', async () => {
   try {
-    return { bilgi: await ptyKopru.baslat() };
+    // Kanca koprusu once hazir olmali: PTY sunucusu claude'u onun ayar dosyasiyla acar.
+    // Kopru kurulamazsa oturumlar eskisi gibi (hook'suz) acilir.
+    await kanca.baslat().catch((e) => logHata('kanca baslatilamadi', e));
+    return { bilgi: await ptyKopru.baslat(kanca.ptyOrtami()) };
   } catch (e) {
     logHata('pty sunucusu baslatilamadi', e);
     return { hata: e.message };
@@ -296,12 +318,16 @@ ipcMain.on('defter:olay', (_e, o) => {
     defter.ekle({ olay: 'acildi', id: o.id, ad: o.ad, yol: o.yol });
   } else if (o.olay === 'kapandi') {
     if (uygulamaKapaniyor && o.sebep === 'kabuk') return;
+    // Kanca koprusunun tuttugu oturum ozeti (tur, arac, dosya, +/-) defterde kalir.
+    const ozet = kanca.ozet(o.id);
     defter.ekle({
       olay: 'kapandi',
       id: o.id,
       kod: Number.isInteger(o.kod) ? o.kod : null,
       sebep: DEFTER_SEBEP.has(o.sebep) ? o.sebep : 'kullanici',
+      ...(ozet ? { ozet } : {}),
     });
+    kanca.unut(o.id);
   }
 });
 let oncekilerVerildi = false;
@@ -326,6 +352,25 @@ ipcMain.handle('defter:sonlar', () => {
   }
   return sonlar;
 });
+// Kanca koprusu: oturum etkinligi, limitler, statusline baglami. Ilk yukleme icin anlik.
+ipcMain.handle('etkinlik:anlik', async () => {
+  await kanca.baslat().catch(() => {});
+  return kanca.anlik();
+});
+// Renderer'in acik oturum listesi: ada adlari ve sirayi buradan bilir.
+ipcMain.on('ada:liste', (_e, liste) => {
+  if (!Array.isArray(liste)) return;
+  ada.liste(
+    liste
+      .filter((x) => x && typeof x.id === 'string' && typeof x.ad === 'string')
+      .slice(0, 24)
+      .map((x) => ({ id: x.id, ad: x.ad, baslangic: Number(x.baslangic) || null, dikkat: x.dikkat === true }))
+  );
+});
+ipcMain.on('ada:ayar', (_e, acik) => {
+  ayarlar.yaz({ ada: acik !== false });
+  ada.ayar(acik !== false);
+});
 // Acik oturumlarin bağlam buyuklugu (transcript'in sonu, salt okuma).
 ipcMain.handle('oturum:baglam', (_e, liste) => {
   const sonuc = {};
@@ -349,11 +394,11 @@ ipcMain.handle('not:ekle', (_e, metin, kaynak) =>
 );
 ipcMain.handle('ayar:getir', () => {
   const a = ayarlar.oku();
-  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik };
+  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik, ada: a.ada !== false };
 });
 ipcMain.handle('ayar:kaydet', (_e, yama) => {
   const a = ayarlar.yaz(ayarlar.rendererYamasi(yama));
-  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik };
+  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik, ada: a.ada !== false };
 });
 
 // Content-Security-Policy tek kaynaktan. Dev'de Vite'in HMR'i inline script ve ws
@@ -387,7 +432,22 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   cspKur();
   if (!DEV) uretim.protokolKur(path.join(__dirname, '..', 'dist'), CSP);
+  // Kanca koprusu erken: olaylar hem ana pencereye hem adaya yayinlanir.
+  kanca
+    .baslat({
+      yayin: (a) => {
+        if (pencere) pencere.webContents.send('etkinlik:anlik', a);
+        ada.anlik(a);
+      },
+      sinyal: (id, sinyal, durum) => {
+        // Durum sinyalle birlikte gider: yayin 80 ms kisiliyor, bildirim metni bayat olmasin.
+        if (pencere) pencere.webContents.send('etkinlik:sinyal', { id, sinyal, durum });
+        ada.sinyal(id, sinyal);
+      },
+    })
+    .catch((e) => logHata('kanca baslatilamadi', e));
   pencereKur();
+  adaKur();
   // Genel kisayol: Kokpit arka plandayken de Inbox notu. Ctrl+Alt+Shift+N secildi:
   // Turkce klavyede Ctrl+Alt = AltGr, AltGr+harf karakter yazar; uc degistirici cakismaz.
   // Baska bir uygulama aldiysa kayit basarisiz olur, Kokpit yine calisir.
@@ -413,6 +473,8 @@ app.on('before-quit', (olay) => {
   if (!uygulamaKapaniyor) defter.calismaBitti();
   uygulamaKapaniyor = true;
   ptyKopru.durdur();
+  kanca.durdur();
+  ada.kapat();
 });
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { log('tum pencereler kapandi, cikiliyor'); app.quit(); });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -80,16 +80,25 @@ function tk(n: number) {
 }
 
 /** Kapsayicinin piksel genisligi; grafik viewBox esnetmek yerine gercek olcuyle cizilir. */
-function useGenislik<T extends HTMLElement>(ref: React.RefObject<T | null>) {
+/**
+ * Kabin genisligi. Callback ref: eleman SONRADAN ortaya cikarsa (grafik once "kayit yok"
+ * dalindan donup sonra veriyle cizilirse) gozlemci o an kurulur; eski hali ref'i yalniz ilk
+ * render'da okuyordu. Not (2026-10-03): test:ui'daki aralikli "butce grafigi yok" hatasinin
+ * nedeni bu degil, pencerenin ustu kapaliyken Chromium'un kare uretmemesiydi (rAF ve
+ * ResizeObserver durur); o test kosucusunda bayrakla cozuldu.
+ */
+function useGenislik<T extends HTMLElement>() {
+  const [el, setEl] = useState<T | null>(null);
   const [genislik, setGenislik] = useState(0);
   useEffect(() => {
-    const el = ref.current;
     if (!el) return;
-    const g = new ResizeObserver(([giris]) => setGenislik(Math.round(giris.contentRect.width)));
+    const olc = () => setGenislik(Math.round(el.getBoundingClientRect().width));
+    olc();
+    const g = new ResizeObserver(olc);
     g.observe(el);
     return () => g.disconnect();
-  }, [ref]);
-  return genislik;
+  }, [el]);
+  return [setEl, genislik] as const;
 }
 
 /** Eksen tavani: 1-2-5 katlari (4.5M -> 5M) ki izgara cizgileri okunur sayilara otursun. */
@@ -116,8 +125,7 @@ function cubukYolu(x: number, y: number, w: number, h: number, r: number) {
  * yana, ince cubuk, sessiz izgara, hover basligi, ekran okuyucu icin tablo.
  */
 function ButceGrafigi({ gunler }: { gunler: Record<string, GunButcesi> }) {
-  const kapRef = useRef<HTMLDivElement>(null);
-  const W = useGenislik(kapRef);
+  const [kapRef, W] = useGenislik<HTMLDivElement>();
   const sirali = Object.entries(gunler).sort(([a], [b]) => a.localeCompare(b));
   if (sirali.length === 0) return <p className="text-xs text-metin-soluk">7 günde kayıt yok.</p>;
 

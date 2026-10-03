@@ -98,7 +98,10 @@ const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, P: 8
 
 /** Uygulamayi acar, CDP'ye baglanir. */
 async function baslat() {
-  const app = spawn(electronBin, [KOK, '--remote-debugging-port=' + PORT], {
+  // Ustu kapali pencerede Chromium kare uretmeyi durdurur (visibilityState hidden, rAF ve
+  // ResizeObserver durur): Scryne makineyi kullanirken test penceresi arkada kalinca
+  // olcum gerektiren cizimler (butce grafigi) hic olusmuyordu. Olculdu 2026-10-03.
+  const app = spawn(electronBin, [KOK, '--remote-debugging-port=' + PORT, '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding'], {
     cwd: KOK,
     stdio: ['ignore', 'pipe', 'pipe'],
     // KOKPIT_TEST_SECIM=0: kapatma diyalogunda "Guvenli kapat" secilmis sayilir (yerel
@@ -187,14 +190,53 @@ async function main() {
     const rozetKalkti = await cdp.js(`!document.querySelector('[role="tab"][title*="dikkat bekliyor"]')`);
     kontrol('bakinca rozet dustu', rozetKalkti);
 
+    console.log('Kanca koprusu (oturumun icinden hook taklidi)');
+    // Test kabugu claude acmaz; hook'u, claude'un yapacagi gibi oturumun KENDI ortamindan
+    // (KOKPIT_KANCA_PORT/TOKEN, KOKPIT_OTURUM) gonderiyoruz. Bu, PTY'ye gecen ortami,
+    // alicinin token/oturum dogrulamasini ve arayuzu birlikte sinar.
+    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+    await cdp.yaz(
+      "$h=@{Authorization=\"Bearer $env:KOKPIT_KANCA_TOKEN\";'X-Kokpit-Oturum'=$env:KOKPIT_OTURUM};" +
+        "$u=\"http://127.0.0.1:$env:KOKPIT_KANCA_PORT/kanca\";" +
+        "function k($b){Invoke-RestMethod -Method Post -Uri $u -Headers $h -ContentType 'application/json' -Body $b|Out-Null};" +
+        "k '{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"t\"}';" +
+        "k '{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"t\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"C:/x/Sorular.tsx\"}}'"
+    );
+    await cdp.tus('Enter');
+    await cdp.bekle(`document.body.innerText.includes('Sorular.tsx') && document.body.innerText.includes('Çalışıyor')`, 15000, 'etkinlik seridi calisiyor');
+    kontrol('etkinlik seridi: Calisiyor + Edit Sorular.tsx', true);
+    kontrol('sekmede calisma isareti', await cdp.js(`!!document.querySelector('[role="tab"] .calisma-isareti')`));
+    await cdp.js(`(() => { document.hasFocus = () => false; return true; })()`);
+    await cdp.yaz(
+      "k '{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"t\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"C:/x/Sorular.tsx\"},\"tool_response\":{\"structuredPatch\":[{\"lines\":[\"+a\",\"+b\",\"-c\"]}]}}';" +
+        "k '{\"hook_event_name\":\"Stop\",\"session_id\":\"t\"}'"
+    );
+    await cdp.tus('Enter');
+    await cdp.bekle(`[...document.querySelectorAll('button[aria-expanded]')].some(b => b.textContent.includes('Bitti') && b.textContent.includes('1 dosya'))`, 15000, 'serit bitti + ozet');
+    kontrol('serit: Bitti + "1 dosya +2 −1"', await cdp.js(`document.body.innerText.includes('+2') && document.body.innerText.includes('−1')`));
+    await cdp.bekle(`!!document.querySelector('[role="tab"][title*="dikkat bekliyor"]')`, 5000, 'Stop -> dikkat');
+    kontrol('Stop sinyali sekmeye dikkat rozeti koydu (zil yok, hook var)', true);
+    await cdp.js(`(() => { document.hasFocus = () => true; window.dispatchEvent(new Event('focus')); return true; })()`);
+    await cdp.js(`(() => { [...document.querySelectorAll('button[aria-expanded]')].find(b => b.textContent.includes('Bitti')).click(); return true; })()`);
+    await cdp.bekle(`!!document.querySelector('ol[aria-label^="Son araçlar"] li')`, 3000, 'etkinlik akisi');
+    kontrol('seride tiklayinca son araclar akisi acildi', await cdp.js(`document.querySelector('ol[aria-label^="Son araçlar"]').textContent.includes('Sorular.tsx')`));
+    await cdp.tus('Escape');
+    await uyu(200);
+    kontrol('Escape akisi kapatti', await cdp.js(`!document.querySelector('ol[aria-label^="Son araçlar"]')`));
+    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+    await cdp.yaz('cls');
+    await cdp.tus('Enter');
+
     console.log('Arama');
     await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
     await cdp.tus('F', 2 | 8, 'KeyF');
     await cdp.bekle(`!!document.querySelector('[role="search"] input')`, 3000, 'arama kutusu');
     kontrol('Ctrl+Shift+F arama cubugunu acti', true);
+    // Escape odak inputa gectikten sonra gonderilir; once gonderilirse xterm'e gider (yuk
+    // altinda ara sira oluyordu). Sonuc ayni sekilde istenir, yalniz sabit uyku yerine beklenir.
+    await cdp.bekle(`document.activeElement?.closest('[role="search"]') != null`, 3000, 'arama odagi');
     await cdp.tus('Escape');
-    await uyu(200);
-    kontrol('Escape aramayi kapatti', await cdp.js(`!document.querySelector('[role="search"]')`));
+    kontrol('Escape aramayi kapatti', await cdp.bekle(`!document.querySelector('[role="search"]')`, 3000, 'arama kapandi').catch(() => false));
 
     console.log('Yazi boyutu');
     await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
@@ -218,6 +260,9 @@ async function main() {
     await cdp.js(`(() => { document.querySelector('[aria-label$="sekmesini kapat"]').click(); return true; })()`);
     await cdp.bekle(`document.querySelectorAll('[role="tab"]').length === 0`, 5000, 'sekme kapandi');
     kontrol('sekme kapandi, Pano\'ya donuldu', await cdp.js(`document.querySelector('h1')?.textContent === 'Pano'`));
+    await uyu(300);
+    const ozetSatiri = fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).map((x) => JSON.parse(x)).filter((x) => x.olay === 'kapandi' && x.ozet).pop();
+    kontrol('kapanan oturumun ozeti deftere yazildi (1 dosya +2 -1)', !!ozetSatiri && ozetSatiri.ozet.dosya === 1 && ozetSatiri.ozet.arti === 2 && ozetSatiri.ozet.eksi === 1, ozetSatiri && ozetSatiri.ozet);
 
     console.log('Guvenli kapat (cocuk surec var -> cikis tuslari, kendi kapanmasi beklenir)');
     await cdp.js(AC_DUGMESI);
@@ -240,7 +285,8 @@ async function main() {
     await cdp.bekle(`document.querySelector('h1')?.textContent === 'Sağlık'`, 3000, 'saglik basligi');
     kontrol('Ctrl+3 Saglik sayfasini acti', true);
     kontrol('boru zinciri cizildi (4 halka)', (await cdp.js(`document.querySelectorAll('[aria-label="Beyin boru zinciri"] p.etiket').length`)) === 4);
-    kontrol('butce grafigi var', await cdp.js(`!!document.querySelector('figure svg[role="img"]')`));
+    const grafik = await cdp.bekle(`!!document.querySelector('figure svg[role="img"]')`, 5000, 'butce grafigi').catch(() => false);
+    kontrol('butce grafigi var', grafik, grafik ? undefined : JSON.stringify(await cdp.js(`(() => { const f = document.querySelector('figure'); const s = [...document.querySelectorAll('section')].find(x => x.textContent.includes('Bütçe')); return new Promise(c => { let raf = false; requestAnimationFrame(() => { raf = true; }); setTimeout(() => c({ figure: !!f, divGenislik: f?.firstElementChild?.clientWidth, gorunurluk: document.visibilityState, rafTetiklendi: raf }), 500); }); })()`)));
     kontrol('Aria ile konus dugmesi var', await cdp.js(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Aria ile konuş'))`));
     console.log('Envanter sayfasi');
     await cdp.tus('4', 2, 'Digit4');

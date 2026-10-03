@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import Ada from './Ada';
 import './index.css';
 
 // Pencerenin herhangi bir yerine birakilan dosya sayfayi o dosyaya GOTURMESIN.
@@ -8,8 +9,10 @@ import './index.css';
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => e.preventDefault());
 
+// Ayni paket iki pencereye hizmet eder: ana pencere ve ada (electron/ada.cjs, #ada).
+const adaMi = window.location.hash === '#ada';
+if (adaMi) document.documentElement.classList.add('ada');
+
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
+  <StrictMode>{adaMi ? <Ada /> : <App />}</StrictMode>
 );

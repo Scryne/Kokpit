@@ -193,17 +193,93 @@ export interface OncekiOturum {
 /** Kapanan oturumun beyne dusme durumu (electron/beyin.cjs). */
 export type BeyinKaydi = 'dustu' | 'bekliyor' | 'dusmedi' | 'bos' | 'hata' | 'yok';
 
+/** Kanca koprusunun kapanan oturum icin tuttugu ozet (defterde kalir). */
+export interface OturumOzeti {
+  turlar: number;
+  araclar: number;
+  dosya: number;
+  arti: number;
+  eksi: number;
+}
+
 export interface SonOturum {
   baslangic: number;
   bitis: number;
   sureSn: number;
   beyin: BeyinKaydi;
+  ozet?: OturumOzeti | null;
 }
 
 export interface Ayarlar {
   kenarAcik: boolean;
   yaziBoyutu: number;
   arsivAcik: boolean;
+  ada?: boolean;
+}
+
+// --- Kanca koprusu (electron/etkinlik.cjs ile ayni sekil) ---
+
+export type EtkinlikDurumu = 'bosta' | 'calisiyor' | 'bekliyor' | 'bitti' | 'kapandi';
+
+export interface EtkinlikAraci {
+  ad: string;
+  hedef: string;
+  /** Alt ajanin araci (agent_id vardi). */
+  alt: boolean;
+  arti: number | null;
+  eksi: number | null;
+  basladi: number;
+  /** null: arac hala calisiyor (PreToolUse geldi, PostToolUse gelmedi). */
+  bitti: number | null;
+}
+
+export interface OturumEtkinligi {
+  durum: EtkinlikDurumu;
+  claudeOturumu: string | null;
+  arac: EtkinlikAraci | null;
+  soru: string | null;
+  turBasladi: number | null;
+  sonTurSuresiMs: number | null;
+  degisti: number;
+  ozet: { araclar: number; dosyalar: string[]; arti: number; eksi: number; turlar: number };
+  olaylar: { t: number; ad: string; hedef: string; alt: boolean; arti: number | null; eksi: number | null }[];
+}
+
+export interface Limit {
+  yuzde: number;
+  /** ms; claude'un verdigi sifirlanma ani. */
+  sifirlanma: number | null;
+}
+
+export interface Limitler {
+  besSaat: Limit | null;
+  hafta: Limit | null;
+  olculdu: number;
+}
+
+/** Statusline'dan gelen baglam: transcript yoklamasindan kesin ve aninda. */
+export interface DurumSatiriBaglami {
+  token: number;
+  yuzde: number | null;
+  boyut: number | null;
+  model: string | null;
+  olculdu: number;
+}
+
+export interface EtkinlikAnlik {
+  oturumlar: Record<string, OturumEtkinligi>;
+  baglamlar: Record<string, DurumSatiriBaglami>;
+  limitler: Limitler | null;
+}
+
+export type EtkinlikSinyali = { id: string; sinyal: 'bitti' | 'bekliyor'; durum?: OturumEtkinligi };
+
+/** Adaya giden oturum satiri (adlar ana pencerede yasar). */
+export interface AdaOturumu {
+  id: string;
+  ad: string;
+  baslangic: number | null;
+  dikkat: boolean;
 }
 
 declare global {
@@ -244,6 +320,15 @@ declare global {
         liste: { id: string; yol: string; baslangic: number }[]
       ) => Promise<Record<string, OturumBaglami | null>>;
       beyinDoldur: (session: string, proje: string) => Promise<{ sonuc: string; tamam: boolean }>;
+      etkinlikAnlik: () => Promise<EtkinlikAnlik>;
+      etkinlikDinle: (cb: (a: EtkinlikAnlik) => void) => () => void;
+      sinyalDinle: (cb: (s: EtkinlikSinyali) => void) => () => void;
+      adaListe: (liste: AdaOturumu[]) => void;
+      adaAyar: (acik: boolean) => void;
+      adaListeDinle: (cb: (l: AdaOturumu[]) => void) => () => void;
+      adaFare: (icinde: boolean) => void;
+      adaGit: (id: string) => void;
+      oturumaGitDinle: (cb: (id: string) => void) => () => void;
     };
   }
 }

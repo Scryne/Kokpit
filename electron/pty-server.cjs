@@ -212,7 +212,16 @@ wss.on('connection', (ws, istek) => {
       const testKabugu = process.env.KOKPIT_TEST_KABUK === '1';
       // 'claude-devam': onceki calismadan geri yukleme, o klasordeki son konusmayi surdurur.
       const claudeIle = (m.komut === 'claude' || m.komut === 'claude-devam') && !testKabugu;
-      const claudeKomutu = m.komut === 'claude-devam' ? 'claude --continue' : 'claude';
+      // Kanca koprusu (Kokpit main, kanca.cjs): claude kendi ayar dosyasiyla acilir; hook'lar
+      // projeninkilerle birlesir (olculdu 2026-10-03). Dosya yoksa duz claude.
+      const kancaAyari = process.env.KOKPIT_KANCA_AYAR;
+      const ayarArgumani =
+        kancaAyari && fs.existsSync(kancaAyari) && !kancaAyari.includes("'")
+          ? " --settings '" + kancaAyari + "'"
+          : '';
+      const claudeKomutu = (m.komut === 'claude-devam' ? 'claude --continue' : 'claude') + ayarArgumani;
+      // Hook basligi bu degiskeni tasir: olayin hangi sekmeye ait oldugu buradan bilinir.
+      const oturumId = typeof m.oturum === 'string' && /^[\w.-]{1,160}$/.test(m.oturum) ? m.oturum : '';
       const dosya = claudeIle || testKabugu ? POWERSHELL : KABUK;
       const argumanlar = claudeIle ? ['-NoLogo', '-NoExit', '-Command', claudeKomutu] : testKabugu ? ['-NoLogo', '-NoProfile'] : [];
 
@@ -222,7 +231,7 @@ wss.on('connection', (ws, istek) => {
           cols: Number(m.cols) || 100,
           rows: Number(m.rows) || 30,
           cwd,
-          env: ORTAM,
+          env: oturumId ? { ...ORTAM, KOKPIT_OTURUM: oturumId } : ORTAM,
         });
       } catch (e) {
         log('FAIL pty acilamadi: ' + e.message);

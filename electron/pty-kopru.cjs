@@ -13,7 +13,8 @@ let cocuk = null;
 let bilgi = null; // { port, token }
 let baslatmaSozu = null;
 
-function baslat() {
+/** @param {Record<string,string>} [ekOrtam] kanca koprusunun ortami (ilk cagrida gecerli). */
+function baslat(ekOrtam = {}) {
   if (baslatmaSozu) return baslatmaSozu;
 
   baslatmaSozu = new Promise((resolve, reject) => {
@@ -24,7 +25,7 @@ function baslat() {
     cocuk = spawn('node', [SUNUCU], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      env: { ...process.env, KOKPIT_PTY_TOKEN: token },
+      env: { ...process.env, ...ekOrtam, KOKPIT_PTY_TOKEN: token },
     });
 
     log('pty sunucusu baslatildi pid=' + cocuk.pid);
