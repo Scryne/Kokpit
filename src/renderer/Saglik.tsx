@@ -65,10 +65,11 @@ function Halka({
   );
 }
 
-// Butce serileri: DESIGN.md aksani + teal. dataviz validator ile koyu yuzeyde dogrulandi
-// (2026-09-21): lightness band, chroma, CVD ΔE 30+, kontrast 3:1 — hepsi gecti.
+// Butce serileri: celik mavisi + teal. Gumus aksan grafikte kullanilamaz (akromatik:
+// dataviz validator'da lightness band ve chroma floor FAIL). Bu cift 2026-10-03'te #16181c
+// yuzeyinde dogrulandi: lightness band, chroma, CVD ΔE 15.3, normal 17.7, kontrast 3:1 — gecti.
 const SERI = [
-  { anahtar: 'yeni_girdi', ad: 'Yeni girdi', renk: '#8b5cf6' },
+  { anahtar: 'yeni_girdi', ad: 'Yeni girdi', renk: '#5b8def' },
   { anahtar: 'cikti', ad: 'Çıktı', renk: '#0d9488' },
 ] as const;
 
@@ -159,7 +160,7 @@ function ButceGrafigi({ gunler }: { gunler: Record<string, GunButcesi> }) {
                   stroke="rgba(244,244,245,0.08)"
                   strokeWidth="1"
                 />
-                <text x={SOL - 6} y={y(v) + 3.5} textAnchor="end" fill="#86868f">
+                <text x={SOL - 6} y={y(v) + 3.5} textAnchor="end" fill="#a3a9b3">
                   {tk(v)}
                 </text>
               </g>
@@ -183,7 +184,7 @@ function ButceGrafigi({ gunler }: { gunler: Record<string, GunButcesi> }) {
                       />
                     );
                   })}
-                  <text x={SOL + i * grup + grup / 2} y={H - 6} textAnchor="middle" fill="#86868f">
+                  <text x={SOL + i * grup + grup / 2} y={H - 6} textAnchor="middle" fill="#a3a9b3">
                     {gun.slice(5).replace('-', '.')}
                   </text>
                 </g>

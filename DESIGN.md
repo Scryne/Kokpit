@@ -5,25 +5,28 @@ description: Scryne'in projelerini tek ekranda gosteren ve satirdan claude oturu
 colors:
   # Spec `primary` ister; degeri tekrar etmemek icin referans (ayni token iki yerde yasamaz).
   primary: "{colors.birincil}"
-  bg-base: "#090A0C"
-  yuzey: "rgb(24 26 32 / 0.72)"
-  yuzey-guclu: "rgb(30 33 40 / 0.85)"
-  cam: "rgb(30 33 41 / 0.55)"
-  terminal: "#06080F"
-  kenar: "rgb(244 244 245 / 0.08)"
-  kenar-guclu: "rgb(244 244 245 / 0.16)"
-  metin: "#F4F4F5"
-  metin-ikincil: "#A1A1AA"
-  metin-soluk: "#86868F"
-  aksan: "#8B5CF6"
-  aksan-metin: "#956AF7"
-  aksan-uzeri: "#14101F"
-  birincil: "#F4F4F5"
-  birincil-uzeri: "#090A0C"
+  bg-base: "#0B0C0F"
+  zemin: "rgb(11 12 15 / 0.65)"
+  yuzey: "rgb(24 26 31 / 0.4)"
+  yuzey-guclu: "rgb(34 37 43 / 0.82)"
+  cam: "rgb(30 33 40 / 0.32)"
+  terminal: "#07080A"
+  kenar: "rgb(220 226 235 / 0.09)"
+  kenar-guclu: "rgb(220 226 235 / 0.2)"
+  metin: "#F3F5F8"
+  metin-ikincil: "#C2C8D1"
+  metin-soluk: "#A3A9B3"
+  aksan: "#C3CEDB"
+  aksan-metin: "#D3DBE5"
+  aksan-uzeri: "#101216"
+  birincil: "#E6EAF0"
+  birincil-uzeri: "#101216"
   dikkat: "#C99A3E"
   dikkat-metin: "#D9AB52"
   hata: "#C4466E"
   hata-metin: "#CD6284"
+  grafik-1: "#5B8DEF"
+  grafik-2: "#0D9488"
 typography:
   sans:
     fontFamily: Inter
@@ -45,39 +48,64 @@ gosterdigi her sey `durum.py --json` ciktisindan turetilir.
 
 - **Mood:** *enstruman*. Ekran heyecanlandirmaz, yonlendirir. Kullanildigi an ise girmeden
   onceki 60 saniyedir.
-- **Gorsel dil:** OsintLab ile ayni taban — modern dark theme, koyu indigo/violet zemin, cam
-  yuzeyler, Inter + JetBrains Mono. Bu **bilincli bir karar** (2026-09-10, Scryne): global
-  kural "hicbir proje bir oncekinin reskin'i olmasin" der, burada ayni dil isteniyor.
+- **Gorsel dil: Gumus cam** (2026-10-03, Scryne secti; tema onizlemesinde dort yon arasindan).
+  Notr grafit zemin, soguk gumus isik, fircalanmis metal halka, akrilik pencere. 2026-09-10'dan
+  2026-10-02'ye kadar OsintLab'in indigo/violet tabanini tasiyordu; o bag artik yok.
 - **Kokpit'i ayiran sey renk degil, semantik:** OsintLab'da renk bir claim'in ne kadar saglam
   oldugunu tasir. Burada oyle bir sistem yok. Kokpit'in kendi kurali **mono = olculmus deger**:
   proje adi, faz sayisi, git sayisi, sure sayaci, branch. Mono gorursen bir olcum okuyorsun.
 
-## Seffaflik: denendi, geri alindi
+## Seffaflik: akrilik, kontrasti hesapli (2026-10-03)
 
-2026-09-10'da pencere Windows 11 native akriligiyle kuruldu
-(`backgroundMaterial: 'acrylic'`); masaustu duvar kagidi pencerenin arkasindan goruniyordu.
-**Geri alindi.** Sebep olculebilir: duvar kagidi acik gri oldugunda akrilik onu geciriyor, cam
-paneller aciliyor ve `metin-soluk` seviyesindeki her sey okunmaz hale geliyordu. Yari saydam
-bir yuzey, arkasinda ne oldugunu bilmedigi surece kendi kontrastini garanti edemez.
+Pencere Windows 11 akrilikli (`backgroundMaterial: 'acrylic'`, `nativeTheme` koyu): arkadaki
+masaustu ve pencereler bulanik olarak sizar. **Gecmis:** 2026-09-10'da ayni sey denenip geri
+alinmisti; acik gri duvar kagidinda cam paneller aciliyor, `metin-soluk` okunmuyordu. Yari
+saydam bir yuzey arkasinda ne oldugunu bilmeden kendi kontrastini garanti edemez.
 
-**Karar: pencere opak** (`backgroundColor: '#090a0c'`). Cam hala var, ama artik uygulamanin
-**kendi zemini** uzerinde: kisik bir indigo/violet radial mesh. "Camin arkasinda bir sey
-olmali" kurali korunuyor; o sey masaustu degil, bizim zeminimiz.
+**Fark artik zeminin kendisi:** body her zaman bir `zemin` ton katmani tasir (koyu, alfa 0.65).
+Alfa zevkle degil olcumle secildi: Kokpit'in arkasina bembeyaz tam ekran bir pencere konup
+gercek ekran goruntusu (DWM kompozisyonu dahil, CDP bunu goremez) piksel piksel olculdu
+(`seffaf-spike.ps1`, 2026-10-03):
+
+| zemin alfa | ciplak zemin (beyaz arkada) | `metin-soluk` kontrasti | karar |
+| --- | --- | --- | --- |
+| 0.82 | rgb(35 36 38) | 6.57 | gecer ama seffaflik hissedilmiyor |
+| 0.45 | rgb(82 83 85) | 3.26 | **kalir** |
+| 0.62 | rgb(61-63) | 4.44-4.53 | esikte |
+| **0.65** | rgb(56-58) | **4.74-4.84** | secilen |
+
+Tek istisna sol-ust kosedeki gumus isik lekesi (4.14): orasi nav panelinin altinda kalir, ciplak
+zeminde metin yok. **Kural: ciplak zemine `metin-soluk` konmaz eger o bolge sol-ust parlamanin
+altindaysa;** genel olarak metin panellerin uzerinde durur.
+
+Paneller (`yuzey` 0.4, `cam` 0.32) zeminden koyu oldugu icin kontrasti yalniz artirir; bu
+yuzden seffaflik payi panellerde harcanir. Olculen: beyaz arkada panel 5.4-5.8, normal duvar
+kagidinda 6.4-7.9.
+
+- Windows akriligi kendi koyu tonunu da ekliyor (beyaz arkada 0 alfada bile ~rgb(140)); bizim
+  zemin bunun ustune biner. Ayarlarda saydamlik kapaliysa DWM duz renge duser: yine guvenli.
+- **Pencere odakta degilken akrilik kapanir** (Windows davranisi, olculdu: beyaz arkada zemin
+  35 -> 24). Seffaflik yalniz aktif pencerede gorunur.
+- Windows 11 22H2 (build 22621) alti ya da `~/.kokpit/ayarlar.json` `seffaf: false` -> opak
+  pencere (`#0B0C0F`), gorunum ayni.
 
 ## Colors
 
-Taban OsintLab paletinden: `bg-base` #090A0C, metin rampasi #F4F4F5 → #A1A1AA → #86868F,
-`aksan` #8B5CF6.
+Taban notr grafit `bg-base` #0B0C0F (hafif soguk egilim), metin rampasi #F3F5F8 -> #C2C8D1 ->
+#A3A9B3. Rampa eski paletten bilerek daha acik ve sik: seffaf zeminde `metin-soluk`
+4.5:1'i beyaz arkada da gecmeli (yukaridaki tablo).
 
-- **`aksan` (violet) epistemik anlam tasimaz, "bu etkilesimli" demektir:** link, focus ring,
-  aktif nav, canli oturum noktasi.
-- **`birincil` neredeyse beyaz zemin + koyu metin.** Birincil buton bir renk lekesi degil,
-  bir isik lekesidir.
+- **`aksan` (buz-gumus) epistemik anlam tasimaz, "bu etkilesimli" demektir:** link, focus ring,
+  aktif nav, canli oturum noktasi. Akromatik oldugu icin etkilesim yalniz renkle degil bicimle de
+  okunur (dugme kenarligi, hover zemini).
+- **`birincil` metal:** duz renk degil, ustten acik alta inen gumus gradyan (`.bg-birincil`
+  icin index.css'te resim katmani; renk token'i zemin rengi olarak kalir).
 - **Metin icin ham rampa degeri kullanilmaz.** `dikkat` ve `hata`nin `*-metin` varyanti var;
   nokta/kenarlik/zemin ham degeri, metin `*-metin` degerini kullanir. Ayrim olculebilir:
   metin esigi 4.5:1, dekoratif bilesen esigi 3:1.
 - **"Temiz" durumunun rengi yoktur** — sadece metin. Her iyi seyi renklendirmek sinyali oldurur.
-- Dorduncu bir renk ailesi acilmaz.
+- Dorduncu bir renk ailesi acilmaz. Gumus akromatik oldugu icin ekrandaki tek tonlar amber ve
+  kirmizidir: renk gorduysen bir sey seni bekliyor.
 
 ## Typography
 
@@ -105,8 +133,10 @@ sekme seridi. **Olcum kutulari, proje tablosu, beyin blogu ve terminal cam DEGIL
 saydam opak yuzey (`yuzey`) kullanirlar. Her elemente cam surmek hem cami siradanlastirir
 hem GPU'yu yorar.
 
-Panellerin kenarinda duz tek renk border yerine ustten parlayip alta sonumlenen gradient bir
-"light-catcher" halka (`.halka`) var; isik kaynagi tutarli bicimde sol-usttedir.
+Panellerin kenarinda duz tek renk border yerine fircalanmis metal bir "light-catcher" halka
+(`.halka`) var: sol-ustte guclu parlama, sag-altta ikinci zayif yansima; isik kaynagi tutarli
+bicimde sol-usttedir. Cam yuzeyler (`.cam`) 18 px blur + hafif doygunluk ve ust kenarda 1 px ic
+isik tasir.
 
 `backdrop-filter` **asla anime edilmez.**
 
@@ -127,8 +157,9 @@ yuzden sureler burada, kodda Tailwind sinifi olarak (`duration-[180ms]`) yasar.
 
 - **Sağlık** — boru zinciri tek satırda dört halka + ok (kart ızgarası değil); düşmemiş
   oturumlar tablosu; bütçe grafiği geniş, "Aria ile konuş" dar (2:1, eşit değil). Grafik
-  paleti `dataviz` doğrulayıcısıyla koyu yüzeyde test edildi: yeni girdi `#8b5cf6` (aksan),
-  çıktı `#0d9488` (teal). Açık teal/mavi adaylar lightness bandını geçemedi. Renk yalnız
+  paleti `dataviz` doğrulayıcısıyla koyu yüzeyde test edildi (2026-10-03, #16181c): yeni girdi
+  `grafik-1` çelik mavisi, çıktı `grafik-2` teal. Gümüş aksan grafikte kullanılamaz (akromatik:
+  lightness band + chroma floor FAIL). Renk yalnız
   seri kimliği; değerler metin token'larında. Ekran okuyucu için `sr-only` tablo.
 - **Envanter** — drift en üstte (tek "müdahale" bilgisi; yoksa sakin yüzey), skill/MCP
   çipleri mono, transcript hijyeni ölçüm satırı.
@@ -142,7 +173,7 @@ yuzden sureler burada, kodda Tailwind sinifi olarak (`duration-[180ms]`) yasar.
   chevron'lu düğme ve varsayılan kapalı. Arşiv satır adları `metin-soluk`: geri planda durur.
 - **Alarm şeridi / güvenli kapatma şeridi** — `dikkat` tonu yalnız müdahale gerektiğinde;
   kapanan oturumun noktası `animate-pulse bg-dikkat` (hareket azaltmada durur).
-- **İkon** — `public/kokpit.svg`: koyu indigo zemin, 270° ölçek yayı (violet gradient),
+- **İkon** — `public/kokpit.svg`: grafit zemin, 270° ölçek yayı (gümüş gradyan),
   beyaz ibre. Metin yok; 16 px'te tek şekil okunur. `npm run ikon` → `.ico` + `.png`.
 
 ## Components
@@ -162,7 +193,8 @@ yuzden sureler burada, kodda Tailwind sinifi olarak (`duration-[180ms]`) yasar.
 
 ## Do's and Don'ts
 
-- **Yapma:** pencereyi tekrar seffaf/akrilik yapmak. Yukaridaki gerekce olculdu.
+- **Yapma:** `zemin` alfasini olcmeden dusurmek. 0.65 beyaz arkada olculdu; daha seffafi
+  `seffaf-spike` tekrarlanmadan girmez.
 - **Yapma:** her yuzeye `cam` surmek. Cam nav ve sekme seridine aittir.
 - **Yapma:** `backdrop-filter` animasyonu.
 - **Yapma:** dorduncu bir renk ailesi acmak.

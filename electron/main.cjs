@@ -1,5 +1,6 @@
-const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, screen, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, nativeTheme, screen, session, shell } = require('electron');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { DEV_URL, DEV_PORT } = require('./config.cjs');
 const { log, logHata, LOG_DOSYA } = require('./log.cjs');
@@ -57,7 +58,17 @@ function pencereKonumu() {
   return { x: p.x, y: p.y, width: p.width, height: p.height };
 }
 
+// Akrilik yalniz Windows 11 22H2+ (build 22621) DWM'inde var; eskisinde istek sessizce
+// yok sayilir ve saydam arka plan duz siyaha duser. O yuzden surum burada sorulur.
+function seffafPencere() {
+  if (process.platform !== 'win32' || ayarlar.oku().seffaf === false) return false;
+  const build = Number(os.release().split('.')[2]);
+  return Number.isFinite(build) && build >= 22621;
+}
+
 function pencereKur() {
+  // Akrilik sistem temasini izler; acik temada beyaz tonlu cikar. Kokpit hep koyu.
+  nativeTheme.themeSource = 'dark';
   const konum = pencereKonumu();
   pencere = new BrowserWindow({
     width: 1280,
@@ -66,10 +77,14 @@ function pencereKur() {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    // Pencere OPAK. Akrilik/seffaflik 2026-09-10'da denendi ve geri alindi:
-    // duvar kagidi acik oldugunda tum arayuz gri corbaya donuyordu ve cam yuzeyler
-    // kendi kontrastini garanti edemiyordu. Cam artik uygulamanin KENDI zemini uzerinde.
-    backgroundColor: '#090a0c',
+    // Pencere AKRILIK (2026-10-03, Gumus cam). 2026-09-10'daki ilk denemede acik duvar
+    // kagidi arayuzu gri corbaya ceviriyordu; fark artik zeminin kendisi: body her zaman
+    // %82 opak koyu bir ton katmani tasir (index.css `zemin`). Arkada BEMBEYAZ bir pencere
+    // olsa bile en soluk metin 4.5:1'i gecer — kontrast arkadaki seye degil bize bagli.
+    // Destek yoksa ya da ayarlarda `seffaf: false` ise pencere opak ve gorunum ayni kalir.
+    ...(seffafPencere()
+      ? { backgroundColor: '#00000000', backgroundMaterial: 'acrylic' }
+      : { backgroundColor: '#0b0c0f' }),
     title: 'Kokpit',
     // Ozel ikon (public/kokpit.svg -> npm run ikon). Paketlenmemis uygulamada Electron
     // varsayilan atomu gosterir; gorev cubugu ve Alt+Tab bunu kullanir.
