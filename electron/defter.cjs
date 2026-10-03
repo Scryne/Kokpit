@@ -7,7 +7,7 @@
 //
 // Olaylar:
 //   { t, calisma, olay: 'acildi',  id, ad, yol }
-//   { t, calisma, olay: 'kapandi', id, kod?, sebep? }   sebep: 'kullanici' | 'kabuk' | 'uygulama-kapandi'
+//   { t, calisma, olay: 'kapandi', id, kod?, sebep?, ozet? }  ozet: kanca koprusu (2026-10-03)   sebep: 'kullanici' | 'kabuk' | 'uygulama-kapandi'
 //   { t, calisma, olay: 'calisma-bitti' }                uygulama duzgun kapandi (2026-09-29'dan beri)
 //
 // 'uygulama-kapandi' kaydi bir SONRAKI acilista yazilir; t'si kapanis ani degil acilis ani.
@@ -70,7 +70,7 @@ function oturumlar(olaylar = oku()) {
         bitis = calismaBitis.get(k.calisma) ?? o.t;
         bilinmiyor = !calismaBitis.has(k.calisma);
       }
-      Object.assign(k, { bitis, kod: o.kod ?? null, sebep: o.sebep ?? null, bitisBilinmiyor: bilinmiyor });
+      Object.assign(k, { bitis, kod: o.kod ?? null, sebep: o.sebep ?? null, bitisBilinmiyor: bilinmiyor, ozet: o.ozet ?? null });
     }
   }
   return [...harita.values()];
@@ -109,6 +109,7 @@ function sonOturumlar() {
         baslangic: k.baslangic,
         bitis: k.bitis,
         sureSn: Math.max(0, Math.round((k.bitis - k.baslangic) / 1000)),
+        ozet: k.ozet ?? null,
       };
     }
   }

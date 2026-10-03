@@ -41,4 +41,31 @@ contextBridge.exposeInMainWorld('kokpit', {
   oturumBaglami: (liste) => ipcRenderer.invoke('oturum:baglam', liste),
   // Beyne dusmemis tek oturumu vault'un betigiyle doldurur (yazan vault'tur, Kokpit degil).
   beyinDoldur: (session, proje) => ipcRenderer.invoke('beyin:doldur', session, proje),
+  // Kanca koprusu: oturum etkinligi + limitler (main yayinlar, ana pencere ve ada dinler).
+  etkinlikAnlik: () => ipcRenderer.invoke('etkinlik:anlik'),
+  etkinlikDinle: (cb) => {
+    const d = (_e, a) => cb(a);
+    ipcRenderer.on('etkinlik:anlik', d);
+    return () => ipcRenderer.removeListener('etkinlik:anlik', d);
+  },
+  sinyalDinle: (cb) => {
+    const d = (_e, s) => cb(s);
+    ipcRenderer.on('etkinlik:sinyal', d);
+    return () => ipcRenderer.removeListener('etkinlik:sinyal', d);
+  },
+  // Ada: oturum listesi ana pencereden gider; adadan tiklama ana pencereye "oturuma git" doner.
+  adaListe: (liste) => ipcRenderer.send('ada:liste', liste),
+  adaAyar: (acik) => ipcRenderer.send('ada:ayar', acik),
+  adaListeDinle: (cb) => {
+    const d = (_e, l) => cb(l);
+    ipcRenderer.on('ada:liste', d);
+    return () => ipcRenderer.removeListener('ada:liste', d);
+  },
+  adaFare: (icinde) => ipcRenderer.send('ada:fare', icinde),
+  adaGit: (id) => ipcRenderer.send('ada:git', id),
+  oturumaGitDinle: (cb) => {
+    const d = (_e, id) => cb(id);
+    ipcRenderer.on('oturuma:git', d);
+    return () => ipcRenderer.removeListener('oturuma:git', d);
+  },
 });

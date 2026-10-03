@@ -35,8 +35,22 @@ skill/MCP, transcript hijyeni).
 geri kalanı (⏸️ ⛔ 🛑) arşiv; envanterde olmayan proje state.json aşamasına göre. Arşiv
 varsayılan kapalı, açık/kapalı hali kalıcı. Sağlık nöbeti alarmı varsa Pano'nun üstünde şerit.
 
-**Bağlam göstergesi:** terminal başlığında "bağlam 354k" = claude'un son turda modele giden
-girdisi (input + cache yazma + cache okuma), transcript'in son 512 KB'ından 20 sn'de bir.
+**Bağlam göstergesi:** terminal başlığında "bağlam 354k · %21" = claude'un son turda modele
+giden girdisi (input + cache yazma + cache okuma). Kokpit oturumlarında statusline'dan, her
+turda; yoksa transcript'in son 512 KB'ından 20 sn'de bir.
+
+**Kanca köprüsü (v2.2):** Kokpit claude'u `--settings ~/.kokpit/kanca/ayar-<pid>.json` ile
+açar. O dosyadaki HTTP hook'lar Kokpit'e "ne yapıyor" bilgisini verir; projenin kendi
+hook'larıyla **birleşir**, global `~/.claude/settings.json`'a dokunulmaz, Kokpit dışında
+açılan claude etkilenmez. Bölmenin üstündeki **etkinlik şeridi**: durum (çalışıyor / seni
+bekliyor / bitti), son araç ve dosyası, `+N −M`, tur süresi, oturum özeti; tıklayınca son 30
+araç. Kenarın altında **limit** (5 saat, hafta). Statusline Kokpit oturumlarında
+`electron/durum-satiri.cjs` üzerinden geçer ve senin statusline komutunu aynen çalıştırır.
+
+**Ada:** Kokpit arka plandayken ekranın üst ortasında küçük şerit: seni bekleyen ya da
+çalışan oturum, 5 saatlik limit. Üstüne gelince oturum listesi açılır; bir oturum bitince
+ya da soru sorunca 5 sn kendiliğinden açılır. Tıklayınca Kokpit o sekmeyle öne gelir.
+Komut paletinden "Ada'yı kapat".
 
 **Geri doldur:** beyne düşmemiş TEK oturumu vault'un kendi zinciriyle özetler
 (`flush_kapsama.py --oturum`, ~20–60 sn, model çağrısı). Betik son 30 dk'da yazılmış transcript'i
@@ -54,7 +68,9 @@ claude'a gider** (Claude Code'un "arka plana at" kısayolu; Ctrl+V de `^V` olara
 resim yapıştırma). Uygulamanın öbür kısayolları terminale hiç ulaşmaz.
 
 **Zil:** claude bitince/soru sorunca sekme, bölme, kenar ve Pano noktası amber olur;
-pencere odakta değilse Windows bildirimi gelir, tıklayınca o sekmeye gidilir. Bakınca düşer.
+pencere odakta değilse Windows bildirimi gelir ("Otomat bitti · 3 dk · 2 dosya +40 −6" ya da
+"Otomat seni bekliyor"), tıklayınca o sekmeye gidilir. "Bitti" rozeti bakınca düşer;
+"seni bekliyor" cevaplanana kadar kalır.
 
 **Kapatma koruması:** kabuğun altında süreç varken (claude çalışıyorken) sekme/bölme/uygulama
 kapatılırsa üç seçenekli yerel diyalog çıkar: **Güvenli kapat** (varsayılan) · Zorla kapat ·
@@ -79,7 +95,9 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 
 ```bash
 npm run test:pty     # PTY sunucusunun uçtan uca testi (13 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi (37 kontrol, önce build)
+npm run test:kanca   # kanca köprüsü: durum makinesi, alıcı, statusline köprüsü (39 kontrol)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi (43 kontrol, önce build)
+npm run e2e:kanca    # GERÇEK claude ile hook zinciri (10 kontrol; elle, plan kullanır)
 npm run typecheck
 npm run build
 npm run design:lint  # DESIGN.md spec denetimi
@@ -108,7 +126,7 @@ bırakmama**.
 `test:ui` gibi `~/.kokpit/ayarlar.json` ve oturum defterini sonra geri koyar (kapanış bekleyen
 "geri yükle" teklifini tüketmesin diye).
 
-**CI** (`windows-latest`): typecheck + build + `test:pty`. `test:ui` CI'da koşmaz — vault ve
+**CI** (`windows-latest`): typecheck + build + `test:pty` + `test:kanca`. `test:ui` CI'da koşmaz — vault ve
 `durum.py` ister; yerelde çalıştırılır.
 
 ## Kurulum (temiz makinede)
@@ -136,6 +154,9 @@ Son yükseltme 2026-09-29: 44.3.0 → 44.4.5, `test:ui` 37/37.
 | `KOKPIT_VAULT` | `~/Documents/ScryneOS` | Vault kökü — `durum.py` buradan bulunur |
 | `KOKPIT_PYTHON` | `python` | Python yorumlayıcısı |
 | `KOKPIT_DEV` | — | `0` yapılırsa dev sunucusu yerine `dist/` yüklenir |
+| `KOKPIT_TEST_ADA` | — | Test koşucusunda (`KOKPIT_TEST_KABUK=1`) adayı da kur |
+
+`~/.kokpit/ayarlar.json`: `seffaf: false` pencereyi opak yapar, `ada: false` adayı kapatır.
 
 ## Teşhis
 
@@ -190,3 +211,7 @@ der. Geri doldurma vault'ta: `python .claude/scripts/flush_kapsama.py --proje <a
    kilitli `flush.py`), Kokpit yalnız tetikler — tıpkı SessionEnd hook'u gibi (2026-09-29).
 6. **Açılan terminallerden ebeveyn oturum işaretleri temizlenir.** Yoksa transcript
    yazılmaz ve ikinci beyin o oturumu kaydetmez.
+7. **Kanca köprüsü global ayara yazmaz ve toplayıcı değildir.** Hook'lar yalnız Kokpit'in
+   açtığı oturumlara `--settings` ile verilir; veri bellekte, Kokpit'in kendi oturumları
+   hakkında (kapanınca yalnız özet deftere). Token dosyaya yazılmaz, ortamla gider. Kokpit
+   kapalıyken hook claude'u bekletmez (2 sn zaman aşımı, bağlantı hatası bloklamaz).

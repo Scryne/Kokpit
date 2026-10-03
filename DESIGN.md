@@ -176,6 +176,23 @@ yuzden sureler burada, kodda Tailwind sinifi olarak (`duration-[180ms]`) yasar.
 - **İkon** — `public/kokpit.svg`: grafit zemin, 270° ölçek yayı (gümüş gradyan),
   beyaz ibre. Metin yok; 16 px'te tek şekil okunur. `npm run ikon` → `.ico` + `.png`.
 
+## Kanca yüzeyleri (2026-10-03, v2.2)
+
+- **Etkinlik şeridi** — bölmenin üstünde tek satır, `bg-yuzey`, `text-xs`. Soldan sağa: durum
+  işareti + adı, son araç (lucide ikonu + ad + mono hedef + `+N −M`), sağda tur süresi ve
+  oturum özeti (mono, soluk). **Durumların rengi:** *çalışıyor* renksiz, üç noktalı nabız
+  (`.calisma-isareti`, 1.2 sn; hareket azaltmada durur); *bitti* ve *hazır* boş halka;
+  yalnız *seni bekliyor* amber (`dikkat`), satır zemini `dikkat/10`. `+` metin rengi, `−`
+  soluk: ekleme/silme iyi-kötü diye boyanmaz. Ekran okuyucuya yalnız durum değişimi
+  duyurulur (her araç değil). Tıklayınca son 30 araç: opak `yuzey-guclu` panel, zaman mono.
+- **Limit ölçerleri** — kenarın altında, 1 px yüksek çubuk; dolgu `metin-ikincil`, ≥ %80
+  `dikkat`, ≥ %95 `hata`. Değer mono, sıfırlanma "sıfırlanma 22:14" (ek yok: saate göre
+  Türkçe ek üretmek hata kaynağı).
+- **Ada** — saydam pencere, kart `rgb(14 15 18 / 0.93)` + halka (saydam pencere masaüstünü
+  bulanıklaştıramaz; ton opak denecek kadar koyu, arkada ne olursa olsun okunur).
+  Kapalıyken hap (`rounded-full`), açıkken `rounded-2xl` 440 px kart; açılış 160 ms
+  `scaleY` + opaklık, `backdrop-filter` yok. Renk kuralı aynı: amber yalnız seni bekleyen.
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;

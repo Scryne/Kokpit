@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import type {
   Durum,
+  EtkinlikAnlik,
+  OturumEtkinligi,
   OncekiOturum,
   Oturum,
   OturumBaglami,
@@ -30,6 +32,7 @@ import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
 import KomutPaleti, { type Komut } from './KomutPaleti';
+import { DurumIsareti, EtkinlikSeridi, LimitGostergesi, etkinlikCumlesi } from './Etkinlik';
 import {
   BeyinKaydiRozeti,
   GRUP_BASLIK,
@@ -117,6 +120,12 @@ export default function App() {
   const [paletAcik, setPaletAcik] = useState(false);
   // Acik oturumlarin bağlam buyuklugu (transcript'ten, 20 sn'de bir).
   const [baglamlar, setBaglamlar] = useState<Record<string, OturumBaglami | null>>({});
+  // Kanca koprusu (electron/kanca.cjs): oturum etkinligi, limitler, statusline baglami.
+  const [etkinlik, setEtkinlik] = useState<EtkinlikAnlik>({ oturumlar: {}, baglamlar: {}, limitler: null });
+  const etkinlikRef = useRef(etkinlik);
+  etkinlikRef.current = etkinlik;
+  // Ada (Kokpit arka plandayken ust ortadaki serit) acik mi; komut paletinden degisir.
+  const [adaAcik, setAdaAcik] = useState(true);
   // Ayarlar diskten gelene kadar yazma; yoksa varsayilan degerler ustune yazilir.
   const ayarHazir = useRef(false);
 
@@ -155,6 +164,7 @@ export default function App() {
       setKenarAcik(a.kenarAcik);
       setYaziBoyutu(a.yaziBoyutu);
       setArsivAcik(a.arsivAcik === true);
+      setAdaAcik(a.ada !== false);
       ayarHazir.current = true;
     });
     return () => {
@@ -165,6 +175,11 @@ export default function App() {
     if (!ayarHazir.current) return;
     void window.kokpit.ayarKaydet({ kenarAcik, yaziBoyutu, arsivAcik });
   }, [kenarAcik, yaziBoyutu, arsivAcik]);
+
+  useEffect(() => {
+    void window.kokpit.etkinlikAnlik().then(setEtkinlik);
+    return window.kokpit.etkinlikDinle(setEtkinlik);
+  }, []);
 
   // Genel kisayol (Ctrl+Alt+Shift+N, Kokpit arka plandayken de): main pencereyi one getirir,
   // burada not kutusu acilir.
@@ -424,19 +439,29 @@ export default function App() {
   /**
    * Zil: claude bitti ya da soru soruyor. Kullanici o an o bolmeye bakiyorsa hicbir sey
    * yapilmaz; bakmiyorsa rozet, pencere odakta degilse Windows bildirimi.
+   *
+   * Iki kaynak: kanca koprusunun sinyali ('bitti' / 'bekliyor', sebebi bilir) ve xterm zili
+   * ('zil', sebebi bilmez). Kopru o oturumu goruyorsa zil yok sayilir; yoksa ikisi birden
+   * cift rozet ve cift bildirim uretirdi. Kopru kurulamadiysa zil eskisi gibi calisir.
    */
   const onZil = useCallback(
-    (id: string) => {
+    (id: string, sebep: 'bitti' | 'bekliyor' | 'zil', e?: OturumEtkinligi) => {
       const o = oturumlar.find((x) => x.id === id);
       if (!o) return;
+      const kopru = e ?? etkinlikRef.current.oturumlar[id];
+      if (sebep === 'zil' && kopru) return;
       const bakiyor =
         document.hasFocus() && gorunum === 'terminal' && aktifGrupId === o.grupId;
       if (bakiyor) return;
       setOturumlar((liste) => liste.map((x) => (x.id === id ? { ...x, dikkat: true } : x)));
       if (!document.hasFocus() && 'Notification' in window) {
         const goster = () => {
-          const b = new Notification(o.ad, {
-            body: 'Oturum dikkat bekliyor — claude bitti ya da soru soruyor.',
+          const baslik =
+            sebep === 'bekliyor' ? o.ad + ' seni bekliyor' : sebep === 'bitti' ? o.ad + ' bitti' : o.ad;
+          const b = new Notification(baslik, {
+            body: kopru
+              ? etkinlikCumlesi(kopru, Date.now())
+              : 'Oturum dikkat bekliyor — claude bitti ya da soru soruyor.',
             tag: 'kokpit-' + id,
           });
           b.onclick = () => {
@@ -451,6 +476,28 @@ export default function App() {
       }
     },
     [oturumlar, gorunum, aktifGrupId, grubaGit]
+  );
+  const onZilRef = useRef(onZil);
+  onZilRef.current = onZil;
+  const onZilXterm = useCallback((id: string) => onZilRef.current(id, 'zil'), []);
+  useEffect(() => window.kokpit.sinyalDinle((s) => onZilRef.current(s.id, s.sinyal, s.durum)), []);
+
+  // Adaya acik oturumlar: adlar burada yasar, ada yalniz kimlikle etkinligi eslestirir.
+  useEffect(() => {
+    window.kokpit.adaListe(
+      oturumlar
+        .filter((o) => o.durumu === 'acik' || o.durumu === 'baglaniyor')
+        .map((o) => ({ id: o.id, ad: o.ad, baslangic: o.baslangic, dikkat: o.dikkat === true }))
+    );
+  }, [oturumlar]);
+  // Adadan tiklama: main pencereyi one getirdi, burada o oturuma gecilir.
+  useEffect(
+    () =>
+      window.kokpit.oturumaGitDinle((id) => {
+        const o = oturumlarRef.current.find((x) => x.id === id);
+        if (o) grubaGit(o.grupId, o.id);
+      }),
+    [grubaGit]
   );
 
   // Rozet, kullanici o bolmeye BAKINCA duser: aktif grup + terminal gorunumu + pencere odakta.
@@ -667,6 +714,17 @@ export default function App() {
 
   const aktifOturum = oturumlar.find((o) => o.id === aktifOturumId) ?? null;
 
+  // Gorunen dikkat: zil rozeti (bakinca duser) VEYA kanca koprusunde "seni bekliyor" durumu
+  // (cevaplanana kadar surer — bakmak soruyu cevaplamaz). Yalniz gosterim; rozet mantigi
+  // `oturumlar` uzerinde kalir.
+  const gorunenOturumlar = useMemo(
+    () =>
+      oturumlar.map((o) =>
+        !o.dikkat && etkinlik.oturumlar[o.id]?.durum === 'bekliyor' ? { ...o, dikkat: true } : o
+      ),
+    [oturumlar, etkinlik]
+  );
+
   // Saglik rozeti: beyne dusmemis oturum + saglik nobeti alarmi.
   const saglikSayisi = (() => {
     const dusmemis = durum?.beyin.kapsama?.dusmemis.length ?? 0;
@@ -709,13 +767,33 @@ export default function App() {
       { id: 'e-not', grup: 'Eylem', baslik: "Inbox'a not", ipucu: 'Ctrl+Shift+N', calistir: () => setNotAcik(true) },
       { id: 'e-tazele', grup: 'Eylem', baslik: 'Durumu tazele', calistir: () => void tazele('elle') },
       { id: 'e-kenar', grup: 'Eylem', baslik: 'Kenar çubuğunu aç/kapat', ipucu: 'Ctrl+B', calistir: () => setKenarAcik((a) => !a) },
-      { id: 'e-arsiv', grup: 'Eylem', baslik: arsivAcik ? 'Arşivi gizle' : 'Arşivi göster', calistir: () => setArsivAcik((a) => !a) }
+      { id: 'e-arsiv', grup: 'Eylem', baslik: arsivAcik ? 'Arşivi gizle' : 'Arşivi göster', calistir: () => setArsivAcik((a) => !a) },
+      {
+        id: 'e-ada',
+        grup: 'Eylem',
+        baslik: adaAcik ? "Ada'yı kapat" : "Ada'yı aç",
+        ipucu: 'arka plandaki şerit',
+        calistir: () => {
+          const yeni = !adaAcik;
+          setAdaAcik(yeni);
+          window.kokpit.adaAyar(yeni);
+        },
+      }
     );
     for (const p of siraliProjeler) {
       k.push({ id: 'k-' + p.ad, grup: 'Klasör', baslik: p.ad, ipucu: 'Gezgin', calistir: () => void window.kokpit.klasorAc(p.yol) });
     }
     return k;
-  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, grubaGit, sekmeAc, geriYukle, tazele]);
+  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, grubaGit, sekmeAc, geriYukle, tazele]);
+
+  // Bağlam: statusline'dan (kesin, her turda) varsa o; yoksa transcript yoklamasi (20 sn).
+  const baglamOku = (id: string) => {
+    const ds = etkinlik.baglamlar[id];
+    if (ds) return { token: ds.token, yuzde: ds.yuzde, model: ds.model, kaynak: 'durum-satiri' as const };
+    const t = baglamlar[id];
+    return t ? { token: t.token, yuzde: null, model: t.model, kaynak: 'transcript' as const } : null;
+  };
+  const aktifBaglam = aktifOturum ? baglamOku(aktifOturum.id) : null;
 
   // Pencere basligi Alt+Tab'da hangi projede oldugunu soyler; dikkat bekleyen varsa sayar.
   useEffect(() => {
@@ -980,7 +1058,7 @@ export default function App() {
                   <ul aria-label={GRUP_BASLIK[grup] + ' projeler'} id={arsiv ? 'kenar-arsiv' : undefined}>
                     {projeler.map((p) => {
                       const oturum = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
-                      const dikkat = oturumlar.some((o) => o.yol === p.yol && o.dikkat);
+                      const dikkat = gorunenOturumlar.some((o) => o.yol === p.yol && o.dikkat);
                       return (
                         <li key={p.ad}>
                           <button
@@ -1046,6 +1124,12 @@ export default function App() {
           })}
         </div>
 
+        {kenarAcik && etkinlik.limitler && (
+          <div className="border-t border-kenar px-4 py-3">
+            <LimitGostergesi limitler={etkinlik.limitler} simdi={simdi} />
+          </div>
+        )}
+
         {kenarAcik && durum && (
           <div className="border-t border-kenar px-4 py-3">
             <p className="etiket">Bilgi tabanı</p>
@@ -1086,18 +1170,21 @@ export default function App() {
             {gorunum === 'terminal' && aktifOturum && (
               <span className="enstruman truncate text-xs text-metin-soluk">{aktifOturum.yol}</span>
             )}
-            {gorunum === 'terminal' && aktifOturum && baglamlar[aktifOturum.id] && (
+            {gorunum === 'terminal' && aktifBaglam && (
               <span
                 className="enstruman shrink-0 rounded-rozet border border-kenar px-2 py-0.5 text-xs text-metin-ikincil"
                 title={
                   'Bağlam: son turda modele giden ' +
-                  baglamlar[aktifOturum.id]!.token.toLocaleString('tr-TR') +
-                  ' token (' +
-                  baglamlar[aktifOturum.id]!.model +
-                  '). 20 sn\'de bir transcript\'ten okunur.'
+                  aktifBaglam.token.toLocaleString('tr-TR') +
+                  ' token' +
+                  (aktifBaglam.model ? ' (' + aktifBaglam.model + ')' : '') +
+                  (aktifBaglam.kaynak === 'durum-satiri'
+                    ? '. Durum satırından, her turda.'
+                    : ". 20 sn'de bir transcript'ten okunur.")
                 }
               >
-                bağlam {tokenMetni(baglamlar[aktifOturum.id]!.token)}
+                bağlam {tokenMetni(aktifBaglam.token)}
+                {aktifBaglam.yuzde !== null && ' · %' + Math.round(aktifBaglam.yuzde)}
               </span>
             )}
           </div>
@@ -1169,7 +1256,7 @@ export default function App() {
           {durum && (
             <Pano
               durum={durum}
-              oturumlar={oturumlar}
+              oturumlar={gorunenOturumlar}
               sonOturumlar={sonOturumlar}
               simdi={simdi}
               arsivAcik={arsivAcik}
@@ -1237,8 +1324,12 @@ export default function App() {
                 const secili = g.id === aktifGrupId;
                 const ilk = g.uyeler[0];
                 const etiket = g.uyeler.length > 1 ? ilk.ad + ' +' + (g.uyeler.length - 1) : ilk.ad;
-                const dikkat = g.uyeler.some((o) => o.dikkat);
-                const nokta = g.uyeler.some((o) => o.kapaniyor)
+                const dikkat = g.uyeler.some(
+                  (o) => o.dikkat || etkinlik.oturumlar[o.id]?.durum === 'bekliyor'
+                );
+                const kapaniyor = g.uyeler.some((o) => o.kapaniyor);
+                const calisiyor = g.uyeler.some((o) => etkinlik.oturumlar[o.id]?.durum === 'calisiyor');
+                const nokta = kapaniyor
                   ? 'animate-pulse bg-dikkat'
                   : dikkat
                   ? noktaSinifi({ durumu: 'acik', dikkat: true })
@@ -1269,8 +1360,13 @@ export default function App() {
                       title={dikkat ? etiket + ' — dikkat bekliyor' : undefined}
                       className="flex cursor-pointer items-center gap-2"
                     >
-                      <span className={'size-1.5 shrink-0 rounded-full ' + nokta} aria-hidden="true" />
+                      {calisiyor && !dikkat && !kapaniyor ? (
+                        <DurumIsareti durum="calisiyor" />
+                      ) : (
+                        <span className={'size-1.5 shrink-0 rounded-full ' + nokta} aria-hidden="true" />
+                      )}
                       {dikkat && <span className="sr-only">dikkat bekliyor</span>}
+                      {calisiyor && <span className="sr-only">çalışıyor</span>}
                       <span
                         className={
                           'enstruman text-xs ' + (secili ? 'text-metin' : 'text-metin-ikincil')
@@ -1397,7 +1493,7 @@ export default function App() {
                               {o.durumu === 'acik' && (
                                 <span className="enstruman text-xs text-metin-soluk">
                                   {sureMetni(Math.floor((simdi - o.baslangic) / 1000))}
-                                  {baglamlar[o.id] && ' · ' + tokenMetni(baglamlar[o.id]!.token)}
+                                  {baglamOku(o.id) && ' · ' + tokenMetni(baglamOku(o.id)!.token)}
                                 </span>
                               )}
                             </button>
@@ -1452,6 +1548,9 @@ export default function App() {
                             )}
                           </p>
                         )}
+                        {o.durumu === 'acik' && etkinlik.oturumlar[o.id] && (
+                          <EtkinlikSeridi e={etkinlik.oturumlar[o.id]} simdi={simdi} />
+                        )}
                         <div
                           onMouseDown={() => setAktifOturumId(o.id)}
                           onFocus={() => setAktifOturumId(o.id)}
@@ -1464,7 +1563,7 @@ export default function App() {
                             devam={o.devam}
                             yaziBoyutu={yaziBoyutu}
                             onDurum={oturumDurumu}
-                            onZil={onZil}
+                            onZil={onZilXterm}
                             onKayit={onKayit}
                           />
                         </div>

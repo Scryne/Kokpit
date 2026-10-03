@@ -31,3 +31,6 @@ jobs:
 
       - name: PTY server end-to-end
         run: npm run test:pty
+
+      - name: Hook bridge (kanca)
+        run: npm run test:kanca

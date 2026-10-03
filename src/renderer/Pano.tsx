@@ -189,6 +189,12 @@ export default function Pano({
                         son oturum{' '}
                         <span className="enstruman">
                           {gunMetni(sonGun)} · {sureMetni(son.sureSn)}
+                          {son.ozet && son.ozet.dosya > 0 && (
+                            <>
+                              {' · '}
+                              {son.ozet.dosya} dosya +{son.ozet.arti} −{son.ozet.eksi}
+                            </>
+                          )}
                         </span>{' '}
                         · <BeyinKaydiRozeti kaydi={son.beyin} />
                       </span>

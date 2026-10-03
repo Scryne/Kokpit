@@ -40,7 +40,7 @@ function jsonGetir(url) {
 }
 
 (async () => {
-  const app = spawn(electronBin, [KOK, '--remote-debugging-port=' + PORT], {
+  const app = spawn(electronBin, [KOK, '--remote-debugging-port=' + PORT, '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding'], {
     cwd: KOK, stdio: 'ignore', env: { ...process.env, KOKPIT_DEV: '0', KOKPIT_TEST_KABUK: '1' },
   });
   let hedef = null;

@@ -309,6 +309,8 @@ export default function TerminalOturumu({
             t: 'ac',
             cwd: yol,
             komut: devam ? 'claude-devam' : 'claude',
+            // Kanca koprusu bu kimlikle olaylari sekmeye baglar (KOKPIT_OTURUM).
+            oturum: id,
             cols: term.cols,
             rows: term.rows,
           })

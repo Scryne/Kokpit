@@ -1,7 +1,7 @@
 ---
 proje: Kokpit
 created: 2026-09-10
-modified: 2026-09-21
+modified: 2026-10-03
 type: roadmap
 status: aktif
 ---
@@ -26,6 +26,11 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 8 | Beyin senkronu + Sağlık sayfası | ✅ Tamamlandı | Proje oturumları `daily/`'ye düşüyor; `durum.py` düşmemişleri sayıyor; Sağlık sayfası boru zincirini gösteriyor; Inbox'a not |
 | 9 | Envanter sayfası | ✅ Tamamlandı | Skill/MCP/drift ve bütçe dağılımı Kokpit'te okunuyor |
 | 10 | Kimlik ve cila | ✅ Tamamlandı | Özel ikon, a11y/motion pasları yeni yüzeylerde geçti, README/DESIGN.md güncel |
+| 11 | Gümüş cam + akrilik pencere | ✅ Tamamlandı | Tema değişti, pencere akrilik; arkada beyaz pencereyle ölçülen en soluk metin ≥ 4.5:1 |
+| 12 | Kanca köprüsü | ✅ Tamamlandı | Kokpit'ten açılan claude'un HTTP hook'ları doğru sekmeye düşüyor; proje hook'ları bozulmuyor (gerçek claude ile `e2e:kanca` 10/10) |
+| 13 | Etkinlik şeridi + zil ayrımı | ✅ Tamamlandı | Bölmede "ne yapıyor" satırı ve son araçlar akışı; "bitti" ile "seni bekliyor" ayrı; bildirim metni neyin olduğunu söylüyor |
+| 14 | Limit ve kesin bağlam | ✅ Tamamlandı | 5 saat / haftalık limit kenarda; bağlam statusline'dan; Scryne'ın kendi durum satırı aynen kalıyor |
+| 15 | Ada | ✅ Tamamlandı | Kokpit arka plandayken üst ortada şerit; bekleyen/çalışan oturum, limit; tıklayınca o sekme; gerçek ekranda görüldü |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -388,3 +393,45 @@ Denetimde önerilen altı madde, her biri ölçülerek eklendi:
 - **Görsel düzeltme:** palet ve not kutusu yarı saydam yüzeydeydi, arkadaki tablo metni
   içinden okunuyordu → opak taban.
 - Testler: `test:pty` 13/13, `test:ui` 37/37 (arşiv aç/kapa, palet, kısayol kaydı eklendi).
+
+### v2.2 (2026-10-03): Gümüş cam, kanca köprüsü, Ada
+
+**Neden:** Scryne Coucou'yu (Louis-CFM/coucou, notch'ta yaşayan ajan izleyici) sordu,
+"entegre mi edelim, kendimiz mi yapalım" dedi ve sonra işi tamamen bıraktı ("profesyonel ve
+eşsiz bir iş çıkar"). Coucou doğrudan alınmadı: Windows sürümü Tauri/Rust ve kurulum dosyası
+Defender yüzünden geri çekilmiş; hook'larını global `settings.json`'a yazıyor (Scryne'ın
+flush zincirine ikinci yazar); asıl özelliği izin onayı, Scryne `bypassPermissions` modunda.
+Alınan üç fikir: oturumun o an ne yaptığı, arka planda küçük bir yüzey, limit göstergesi.
+
+- **Faz 11, Gümüş cam** (✅): bkz. DESIGN.md "Şeffaflık". Dört yön önizleme sayfasında sunuldu,
+  Scryne gümüş camı ve "ekstra şeffaf"ı seçti. 09-10'da geri alınan akrilik, zemin tonunun
+  alfası ölçülerek geri geldi (0.45'te soluk metin 3.26:1 kalıyordu, 0.65'te 4.74:1).
+- **Faz 12, Kanca köprüsü** (✅): önce spike (gerçek etkileşimli claude, node-pty):
+  `--settings` ile verilen hook'lar projeninkilerle **birleşiyor** (proje SessionStart ve
+  SessionEnd yine çalıştı), HTTP hook başlığındaki `$KOKPIT_OTURUM` `allowedEnvVars` ile
+  doğru açılıyor, **SessionStart HTTP hook'u gelmiyor** (ilk olay UserPromptSubmit),
+  statusline girdisinde `rate_limits` var. Uygulama: `electron/kanca.cjs` (127.0.0.1 rastgele
+  port, token, Kokpit süreci başına `~/.kokpit/kanca/ayar-<pid>.json`), `electron/etkinlik.cjs`
+  (saf durum makinesi), PTY her oturuma `KOKPIT_OTURUM` verir, claude `--settings` ile açılır.
+  Kokpit kapalıyken hook bağlanamaz, claude bunu bloklamayan hata sayar.
+- **Faz 13, Etkinlik şeridi** (✅): bölme başına tek satır (durum, son araç + dosya + `+N −M`,
+  tur süresi, oturum özeti); tıklayınca son 30 araç. Zil artık sebebini biliyor: Stop =
+  "bitti", AskUserQuestion / izin / elicitation = "seni bekliyor" (cevaplanana kadar amber;
+  bakmak soruyu cevaplamaz). Kanca o oturumu görüyorsa xterm zili yok sayılır (çift rozet
+  olmasın). Kapanan oturumun özeti defterde kalır, Pano'da "son oturum … · 6 dosya +210 −40".
+- **Faz 14, Limit ve bağlam** (✅): Kokpit oturumlarında statusline `electron/durum-satiri.cjs`;
+  girdiyi Kokpit'e iletir (300 ms sınırı) ve Scryne'ın kendi statusline komutunu aynı girdiyle
+  çalıştırıp çıktısını aynen basar. Kenarda 5 saat / hafta ölçerleri (≥ %80 amber, ≥ %95
+  kırmızı). Bağlam göstergesi statusline'dan (her tur, yüzdeyle); yoksa eski transcript yoklaması.
+- **Faz 15, Ada** (✅): `electron/ada.cjs`, saydam, hep üstte, odak çalmayan pencere; yalnız
+  Kokpit odakta değilken ve oturum varken görünür. Kapalıyken tek satır (en önemli tek şey),
+  üstüne gelince ya da bir oturum "bitti/seni bekliyor" deyince 5 sn açılır. Tıklama Kokpit'i
+  o sekmeyle öne getirir. Komut paletinden kapatılır (`ayarlar.json` `ada`).
+- **Testler:** `test:kanca` 39 kontrol (durum makinesi gerçek payload şekilleriyle, alıcı,
+  statusline köprüsü, Kokpit kapalıyken takılmama; CI'da). Mutasyon sınaması 8/8 bozuk
+  sürümü yakaladı; ilk turda fark sayımı mutasyonu kaçtı (test verisinde bağlam ve ekleme
+  satırı sayısı eşitti), veri asimetrik yapıldı. `e2e:kanca` gerçek claude ile 10/10 (elle;
+  plan kullanır). `test:ui` 43 kontrol (oturumun içinden hook taklidiyle şerit, rozet, akış,
+  defter özeti). Test koşucuları `--disable-backgrounding-occluded-windows` ile açılıyor:
+  pencerenin üstü kapalıyken Chromium kare üretmiyor, ölçüm isteyen bütçe grafiği hiç
+  çizilmiyordu (ölçüldü: `visibilityState hidden`, rAF tetiklenmiyor).
