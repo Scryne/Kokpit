@@ -40,6 +40,10 @@ const SEVINC_MS = 8000;
 const UYKU_MS = 30 * 60 * 1000;
 /** SubagentStop kacarsa alt ajan noktasi bu kadar sessizlikten sonra duser (etkinlik.cjs ile ayni). */
 const ALT_AJAN_MS = 15 * 60 * 1000;
+/** Hap bu kadar suruklenmeden tiklama sayilir (v2.6 surukle-birak). */
+const SURUKLE_ESIGI = 4;
+/** Suruklerken main'e en sik bu aralikla konum gider (rAF degil: gizli pencerede durur). */
+const SURUKLE_MS = 8;
 
 const SIRA: Record<OturumEtkinligi['durum'], number> = { bekliyor: 0, calisiyor: 1, bitti: 2, bosta: 3, kapandi: 4 };
 
@@ -128,6 +132,21 @@ export default function Ada() {
     });
     return () => cancelAnimationFrame(id);
   }, [klavyeIstegi]);
+
+  // Surukle-birak (v2.6): hapi tutup cekince ada pencereyle gider, birakinca o ekranin ust
+  // ortasina oturur (electron/ada.cjs). Koordinat screenX/Y: pencere imlecle birlikte kaydigi
+  // icin clientX sabit kalir, ekran koordinati kaymaz. Esik altinda kalan basis tiklamadir.
+  const surukleme = useRef<{ x: number; y: number; basladi: boolean; son: number } | null>(null);
+  const surukledi = useRef(false);
+  const [surukleniyor, setSurukleniyor] = useState(false);
+  const surukleBitir = useCallback((x: number, y: number) => {
+    const s = surukleme.current;
+    surukleme.current = null;
+    if (!s?.basladi) return;
+    surukledi.current = true;
+    setSurukleniyor(false);
+    window.kokpit.adaSurukle('bitir', x, y);
+  }, []);
 
   const fare = useCallback((icinde: boolean) => {
     setUzerinde(icinde);
@@ -238,8 +257,40 @@ export default function Ada() {
       >
         <button
           type="button"
-          onClick={() => ilk && window.kokpit.adaGit(ilk.o.id)}
-          className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2 text-left text-xs"
+          onPointerDown={(ev) => {
+            if (ev.button !== 0) return;
+            surukledi.current = false;
+            surukleme.current = { x: ev.screenX, y: ev.screenY, basladi: false, son: 0 };
+            ev.currentTarget.setPointerCapture(ev.pointerId);
+          }}
+          onPointerMove={(ev) => {
+            const s = surukleme.current;
+            if (!s) return;
+            if (!s.basladi) {
+              if (Math.hypot(ev.screenX - s.x, ev.screenY - s.y) < SURUKLE_ESIGI) return;
+              s.basladi = true;
+              setSurukleniyor(true);
+              window.kokpit.adaSurukle('basla', s.x, s.y);
+            }
+            if (ev.timeStamp - s.son < SURUKLE_MS) return;
+            s.son = ev.timeStamp;
+            window.kokpit.adaSurukle('tasi', ev.screenX, ev.screenY);
+          }}
+          onPointerUp={(ev) => surukleBitir(ev.screenX, ev.screenY)}
+          onPointerCancel={(ev) => surukleBitir(ev.screenX, ev.screenY)}
+          onLostPointerCapture={(ev) => surukleBitir(ev.screenX, ev.screenY)}
+          onClick={() => {
+            // Surukleme bitince tarayici yine click uretir; o tiklama Kokpit'i one getirmesin.
+            if (surukledi.current) {
+              surukledi.current = false;
+              return;
+            }
+            if (ilk) window.kokpit.adaGit(ilk.o.id);
+          }}
+          className={
+            'flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-xs ' +
+            (surukleniyor ? 'cursor-grabbing' : 'cursor-pointer')
+          }
         >
           <span ref={gozRef} className="-my-1 -ml-1 flex">
             <AdaGoz hal={gozHali} poz={gozPozu(calisan[0]?.e ?? null, simdi)} altSayisi={altSayisi} onay={onay} takip={takip} />

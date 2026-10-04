@@ -52,8 +52,8 @@ interface Props {
  * Uygulamanin kendi kisayollari xterm'e ULASMAZ; yoksa hem claude'a kontrol karakteri
  * gider hem uygulama tepki verir (xterm keydown'i stopPropagation yapmaz, olculdu).
  * Ctrl+B bilerek listede DEGIL: Claude Code onu kullaniyor, terminal odaktayken onun.
- * Ctrl+V de listede degil: xterm onu ^V olarak gonderir, Claude Code bununla panodaki
- * resmi yapistirir.
+ * Ctrl+V ozel isleyicide: metni tarayicinin yapistirmasi getirir, panoda yalniz resim varsa
+ * ^V gider (bkz. `yapistir`).
  */
 function uygulamaninKisayolu(e: KeyboardEvent) {
   if (!e.ctrlKey || e.altKey) return false;
@@ -176,7 +176,12 @@ export default function TerminalOturumu({
         e.preventDefault();
         return false;
       }
+      // Ctrl+V: xterm bunu ^V'ye cevirip yapistirmayi iptal ediyordu; panodaki METIN hic
+      // gelmiyordu (olculdu 2026-10-04: PTY'ye yalniz 0x16 gitti, claude metinle bir sey yapmadi).
+      // false + preventDefault YOK: tarayici kendi yapistirmasini calistirir, paste olayi xterm'e
+      // gider (bracketed paste). Panoda metin yoksa `yapistir` ^V'yi geri koyar.
       // Ctrl+Shift+V: tarayicinin paste olayi zaten xterm'e ulasiyor; dokunma.
+      if (!e.shiftKey && (e.key === 'v' || e.key === 'V')) return false;
       return true;
     });
 
@@ -198,14 +203,31 @@ export default function TerminalOturumu({
       console.warn('[terminal] webgl yuklenemedi, canvas renderer: ' + String(e));
     }
 
-    // Sag tik: yapistir (Windows Terminal davranisi).
+    // Sag tik: yapistir (Windows Terminal davranisi). Uygulama fareyi izliyorsa (claude izliyor:
+    // ?1000/1002/1003/1006) xterm sag tiki ona fare olayi olarak zaten iletti ve claude panoyu
+    // KENDISI yapistiriyor; Kokpit de yapistirinca metin iki kez dusuyordu (olculdu 2026-10-04:
+    // tek sag tikta PTY'ye \e[<2;..M/m + metin). O zaman sag tik uygulamanindir. Shift'le xterm
+    // fare olayi gondermez (secim zorlanir), yapistirma Kokpit'te kalir.
     const sagTik = (e: MouseEvent) => {
       e.preventDefault();
+      if (term.modes.mouseTrackingMode !== 'none' && !e.shiftKey) return;
       void navigator.clipboard.readText().then((metin) => {
         if (metin) term.paste(metin);
       });
     };
     kutu.addEventListener('contextmenu', sagTik);
+
+    // Yapistirma olayi xterm'in textarea dinleyicisinden ONCE (yakalama asamasi). Metin varsa
+    // dokunulmaz, xterm yapistirir. Yoksa (panoda resim) xterm bos bir bracketed paste
+    // gonderirdi; onun yerine ^V gider: Claude Code panodaki resmi onunla kendisi okur.
+    const yapistir = (e: ClipboardEvent) => {
+      if (!e.clipboardData || e.clipboardData.getData('text/plain')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'veri', d: '\x16' }));
+    };
+    kutu.addEventListener('paste', yapistir, true);
 
     term.onBell(() => onZilRef.current(id));
 
@@ -403,6 +425,7 @@ export default function TerminalOturumu({
       gozlemci.disconnect();
       if (olcumKaresi) cancelAnimationFrame(olcumKaresi);
       kutu.removeEventListener('contextmenu', sagTik);
+      kutu.removeEventListener('paste', yapistir, true);
       try {
         wsRef.current?.close();
       } catch {

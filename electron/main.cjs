@@ -231,6 +231,9 @@ function adaKur() {
     },
     // Ada odagi birakirken ana pencere bir an etkinlestirilemez olur (bkz. ada.cjs odakla).
     ana: () => pencere,
+    // v2.6: surukle-birakla secilen ekran hatirlanir.
+    ekran: ayarlar.oku().adaEkran,
+    onEkran: (kayit) => ayarlar.yaz({ adaEkran: kayit }),
   });
 }
 
@@ -432,6 +435,8 @@ ipcMain.on('ada:gonder', (e, ham) => {
 // Ada'da yazi kutusu: ada normalde odak almaz (oyun/yazi ortasinda odak calmasin); kutuya
 // tiklaninca gecici olarak odaklanabilir olur, gonderince ya da kutudan cikinca geri doner.
 ipcMain.on('ada:odak', (_e, istek) => ada.odak(istek === true));
+// Komut paleti: ada'yi siradaki ekrana tasi (surukle-birakin klavye yedegi).
+ipcMain.handle('ada:sonraki-ekran', () => ada.sonrakiEkran());
 // Acik oturumlarin bağlam buyuklugu (transcript'in sonu, salt okuma).
 ipcMain.handle('oturum:baglam', (_e, liste) => {
   const sonuc = {};

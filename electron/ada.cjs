@@ -13,6 +13,12 @@
 //
 // v2.4: Ctrl+Alt+Shift+A ada'ya klavye odagi verir (genel kisayol surece on plan hakki verir,
 // olculdu: ~110 ms). Birakinca odak onceki uygulamaya doner; bkz. odakla(false).
+//
+// v2.6: ada surukle-birakla baska ekrana tasinir (Scryne 2026-10-04). Birakilan ekranin ust
+// ortasina oturur, ekran ayarlar.json'da hatirlanir. Suruklemeyi renderer surer (hap
+// dugmesinde 4 px esigi, ekran koordinatlari IPC ile); Electron'un `app-region: drag`'i
+// KULLANILMAZ: tiklamayi yutar (hap tiklayinca Kokpit one gelir) ve Windows surukleneni
+// etkinlestirir (ada odak calardi).
 
 const { BrowserWindow, ipcMain, screen } = require('electron');
 const { log } = require('./log.cjs');
@@ -23,6 +29,11 @@ const GENISLIK = 460;
 const YUKSEKLIK = 520;
 
 let ada = null;
+/** Kayitli ekran: { id, x, y } (x/y ekranin sol ustu; kimlik degisirse yedek esleme). */
+let ekranKaydi = null;
+let ekranDinleyici = () => {};
+/** Surukleme surerken imlecin pencereye gore yeri; null = suruklenmiyor. */
+let surukleme = null;
 let anaOdakta = true;
 let acik = true; // ayarlar.ada
 let oturumSayisi = 0;
@@ -33,8 +44,43 @@ let gordumDinleyici = () => {};
 /** @type {() => import('electron').BrowserWindow | null} */
 let anaPencere = () => null;
 
+/** Ada'nin ekrani: kayitli ekran hala bagliysa o, yoksa birincil. */
+function hedefEkran() {
+  const ekranlar = screen.getAllDisplays();
+  const k = ekranKaydi;
+  return (
+    (k && (ekranlar.find((d) => d.id === k.id) ?? ekranlar.find((d) => d.bounds.x === k.x && d.bounds.y === k.y))) ||
+    screen.getPrimaryDisplay()
+  );
+}
+
+function ekraniSec(ekran) {
+  ekranKaydi = { id: ekran.id, x: ekran.bounds.x, y: ekran.bounds.y };
+  ekranDinleyici(ekranKaydi);
+  log(`ada ekrani: ${ekran.id} (${ekran.bounds.x},${ekran.bounds.y} ${ekran.bounds.width}x${ekran.bounds.height})`);
+}
+
+/** Pencereyi hedef ekranin ust ortasina koyar (suruklenirken dokunulmaz). */
+function yerlestir() {
+  if (!ada || ada.isDestroyed() || surukleme) return;
+  ada.setBounds(konum());
+}
+
+/**
+ * Yarim kalan suruklemeyi keser: `bitir` yalniz renderer'dan gelir; renderer coker, yeniden
+ * yuklenir ya da pencere gizlenirse bayrak kalirdi ve ada bir daha yerine oturmaz, saydam
+ * pencere alttakinin tiklamalarini yerdi. Fare yeniden gecirgen olur, ada yerine doner.
+ */
+function suruklemeyiKes() {
+  if (!surukleme) return;
+  surukleme = null;
+  if (!ada || ada.isDestroyed()) return;
+  ada.setIgnoreMouseEvents(true, { forward: true });
+  yerlestir();
+}
+
 function konum() {
-  const alan = screen.getPrimaryDisplay().workArea;
+  const alan = hedefEkran().workArea;
   return {
     x: Math.round(alan.x + (alan.width - GENISLIK) / 2),
     y: alan.y,
@@ -47,9 +93,10 @@ function gorunurlukGuncelle() {
   if (!ada || ada.isDestroyed()) return;
   const goster = acik && !anaOdakta && oturumSayisi > 0;
   if (goster && !ada.isVisible()) {
-    ada.setBounds(konum());
+    yerlestir();
     ada.showInactive();
   } else if (!goster && ada.isVisible()) {
+    suruklemeyiKes();
     ada.hide();
   }
 }
@@ -59,7 +106,7 @@ function gonder(kanal, veri) {
 }
 
 /**
- * @param {{ url: string, preload: string, onGit: (id: string) => void, onGordum: (id: string) => void, ana: () => import('electron').BrowserWindow | null, acik: boolean }} s
+ * @param {{ url: string, preload: string, onGit: (id: string) => void, onGordum: (id: string) => void, ana: () => import('electron').BrowserWindow | null, acik: boolean, ekran?: { id: number, x: number, y: number } | null, onEkran?: (kayit: { id: number, x: number, y: number }) => void }} s
  */
 function kur(s) {
   if (ada) return;
@@ -67,6 +114,8 @@ function kur(s) {
   gitDinleyici = s.onGit;
   gordumDinleyici = s.onGordum;
   anaPencere = s.ana;
+  ekranKaydi = s.ekran && typeof s.ekran === 'object' && Number.isFinite(s.ekran.id) ? s.ekran : null;
+  ekranDinleyici = s.onEkran ?? (() => {});
   ada = new BrowserWindow({
     ...konum(),
     show: false,
@@ -93,14 +142,21 @@ function kur(s) {
   ada.setAlwaysOnTop(true, 'floating');
   ada.setIgnoreMouseEvents(true, { forward: true });
   ada.webContents.on('did-finish-load', () => {
+    suruklemeyiKes();
     if (sonAnlik) gonder('etkinlik:anlik', sonAnlik);
     gonder('ada:liste', sonListe);
   });
-  ada.webContents.on('render-process-gone', (_e, d) => log('FAIL ada renderer coktu: ' + JSON.stringify(d)));
+  ada.webContents.on('render-process-gone', (_e, d) => {
+    log('FAIL ada renderer coktu: ' + JSON.stringify(d));
+    suruklemeyiKes();
+  });
   ada.on('closed', () => {
     ada = null;
   });
   ada.loadURL(s.url).catch((e) => log('FAIL ada yuklenemedi: ' + e.message));
+  // Ekran cikarilinca / eklenince / cozunurluk degisince ada yerine doner; kayitli ekran
+  // gittiyse birincile duser (kayit silinmez: ekran geri takilinca ada oraya doner).
+  for (const olay of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(olay, yerlestir);
   log('ada kuruldu');
 }
 
@@ -133,7 +189,7 @@ function odakla(istek) {
       setTimeout(() => {
         if (!ada || ada.isDestroyed()) return;
         ada.showInactive();
-        ada.setBounds(konum());
+        yerlestir();
         ada.setOpacity(1);
         gorunurlukGuncelle();
       }, 60);
@@ -144,7 +200,29 @@ function odakla(istek) {
 
 ipcMain.on('ada:fare', (e, icinde) => {
   if (!ada || e.sender !== ada.webContents) return;
+  // Suruklerken fare yakalanir kalir; hizli cekiste imlec bir an karttan tasabilir.
+  if (surukleme && !icinde) return;
   ada.setIgnoreMouseEvents(!icinde, { forward: true });
+});
+// Surukle-birak (v2.6). x/y ekran koordinati (DIP, renderer'in screenX/Y'si).
+ipcMain.on('ada:surukle', (e, m) => {
+  if (!ada || ada.isDestroyed() || e.sender !== ada.webContents || !m || typeof m !== 'object') return;
+  if (!Number.isFinite(m.x) || !Number.isFinite(m.y)) return;
+  const x = Math.round(m.x);
+  const y = Math.round(m.y);
+  if (m.asama === 'basla') {
+    const b = ada.getBounds();
+    surukleme = { dx: x - b.x, dy: y - b.y };
+    ada.setIgnoreMouseEvents(false);
+  } else if (m.asama === 'tasi' && surukleme) {
+    // setBounds, setPosition degil: boyut her adimda yeniden verilir (saydam pencere ekran
+    // sinirinda boyut kaydirmasin).
+    ada.setBounds({ x: x - surukleme.dx, y: y - surukleme.dy, width: GENISLIK, height: YUKSEKLIK });
+  } else if (m.asama === 'bitir' && surukleme) {
+    surukleme = null;
+    ekraniSec(screen.getDisplayNearestPoint({ x, y }));
+    yerlestir();
+  }
 });
 ipcMain.on('ada:git', (e, id) => {
   if (!ada || e.sender !== ada.webContents || typeof id !== 'string') return;
@@ -198,6 +276,21 @@ module.exports = {
     }
     gonder('ada:klavye', { anaOdakta: anaOdakta === true });
     return true;
+  },
+  /**
+   * Komut paleti: ada'yi siradaki ekrana tasir (soldan saga, sonda basa doner).
+   * @returns {{ toplam: number, sira: number, alan: Electron.Rectangle }}
+   */
+  sonrakiEkran() {
+    const ekranlar = screen.getAllDisplays().sort((a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y);
+    const simdiki = hedefEkran();
+    const i = ekranlar.findIndex((d) => d.id === simdiki.id);
+    const yeni = ekranlar[(i + 1) % ekranlar.length];
+    if (ekranlar.length > 1) {
+      ekraniSec(yeni);
+      yerlestir();
+    }
+    return { toplam: ekranlar.length, sira: ekranlar.indexOf(yeni) + 1, alan: yeni.workArea };
   },
   kapat() {
     if (ada && !ada.isDestroyed()) ada.destroy();

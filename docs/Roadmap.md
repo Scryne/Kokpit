@@ -40,6 +40,8 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 22 | Ada: klavye | ✅ Tamamlandı | Ctrl+Alt+Shift+A gerçek tuşla Ada'ya odak veriyor (ölçüldü ~110 ms); 1–4 / Tab / Enter / Esc; bırakınca Kokpit ana penceresi öne gelmiyor |
 | 23 | Ada'nın gözü | ✅ Tamamlandı | Hapta gümüş göz; hal ve bakış kanca durumundan (araç, soru, bitti, uyku), alt ajan noktaları, limit kenarı; her hal `ekran:goz` ile görüldü, `test:ui`'da DOM'dan doğrulandı |
 | 24 | Hareket bütçesi | ✅ Tamamlandı | Ada görünürken süreç başına CPU/GPU ölçüldü; göz canlı/durgun farkı gürültü düzeyinde (üç dönüşümlü tur); arka plandaki ana pencerede animasyon yok |
+| 25 | Yapıştırma | ✅ Tamamlandı | Ctrl+V metni yapıştırıyor, panoda yalnız resim varken ^V gidiyor; claude fareyi izlerken sağ tık bir kez yapıştırıyor (çift yapışmanın kök nedeni ölçüldü); `test:ui`'da PTY'ye giden baytlardan doğrulandı |
+| 26 | Ada'yı ekranlar arasında taşı | ✅ Tamamlandı | Hap sürüklenince Ada imleçle gidiyor, bırakılan ekranın üst ortasına oturuyor, ekran `ayarlar.json`'da hatırlanıyor; palette "sonraki ekran"; iki gerçek ekranda `test:ui` ile doğrulandı |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -577,3 +579,32 @@ hook → durum → küçük üstte pencerede animasyon; asıl risk performans (E
   süreçteki pencere `blur`'undan geliyor (Ada'nın görünürlüğüyle aynı kaynak).
 - **Testler:** `test:kanca` 101 (89'dan; alt ajanlar, damga kararlılığı, köprü olayları), `test:ui` 84 (81'den;
   gözün hali, bakışı ve alt ajan noktası DOM'dan), `test:pty` 18.
+
+### v2.6 (2026-10-04): Yapıştırma ve çok ekranlı Ada
+
+**Neden:** Scryne'ın ilk geri bildirimi: "ada'yı monitörlerarası taşıyabilmek", "ctrl+v basınca yapışmıyor,
+sağ tıka basınca iki kez yapışıyor". Önce denetim (tahmin değil ölçüm), sonra plan; Scryne Ada için
+sürükle-bırakı seçti (serbest konum ve otomatik takip yerine).
+
+- **Denetim — Ctrl+V:** xterm Ctrl+V'yi ^V'ye (0x16) çevirip olayı iptal ediyor; tarayıcının yapıştırması
+  hiç çalışmıyordu. Ölçüldü: CDP ile gerçek tuşta PTY'ye yalnız `\u0016` gitti; gerçek claude ^V'yi panoda
+  metin varken yok sayıyor. Eski yorum ("Claude Code bununla panodaki resmi yapıştırır") yalnız resim için doğru.
+- **Denetim — çift yapışma:** claude 2.1.x fare izlemeyi açıyor (`?1000h ?1002h ?1003h ?1006h`). Bu modda
+  xterm sağ tıkı fare olayı olarak iletiyor ve claude panoyu **kendisi** yapıştırıyor (yalnız `\e[<2;20;25M/m`
+  gönderilen gerçek claude panodaki metni yazdı); Kokpit'in `contextmenu` yapıştırması da ikinci kez yazıyordu.
+  Ölçüldü: fare modu açıkken tek sağ tıkta PTY'ye `\e[<2;81;17M`, `\e[<2;81;17m`, metin. Elenenler: ConPTY
+  (bracketed paste alt sürece tek parça, bir kez ulaşıyor), StrictMode (tek xterm, tek `contextmenu`).
+- **Faz 25, yapıştırma** (✅): Ctrl+V özel tuş işleyicisinde `false` (preventDefault yok) → Blink'in kendi
+  yapıştırması → xterm bracketed paste. Yakalama aşamasındaki `paste` dinleyicisi: panoda metin yoksa ^V
+  (claude resmi okusun). Sağ tık: uygulama fareyi izliyorsa onundur; Shift+sağ tık ya da fare modu açmayan
+  bölme (kabuk, servis) için Kokpit yapıştırır (Windows Terminal davranışı).
+- **Faz 26, Ada'yı taşı** (✅): hap düğmesinde 4 px eşiği; üstü tıklama (Kokpit'i o sekmeyle öne getirir),
+  sonrası sürükleme. Renderer `screenX/Y`'yi IPC ile verir, main pencereyi taşır; bırakınca imlece en yakın
+  ekranın üst ortası, kayıt `adaEkran {id, x, y}` (kimlik değişirse ekranın konumuyla eşlenir; ekran yoksa
+  birincil, ekran geri takılınca oraya döner). `-webkit-app-region: drag` bilerek yok: tıklamayı yutar ve
+  Windows sürükleneni etkinleştirir (Ada odak çalardı). Ekran ekle/çıkar/çözünürlük değişiminde yeniden
+  yerleşir. Klavye yedeği: palette "Ada'yı sonraki ekrana taşı".
+- **Testler:** `test:ui` 96 (84'ten): Ctrl+V metin, yalnız resimde ^V, fare modu kapalı/açık sağ tık,
+  Shift+sağ tık (PTY'ye giden baytlar sayılarak; fare modu sunucudan gelmiş gibi enjekte); Ada sürüklerken
+  imleçle gidiyor, bırakınca üst ortaya oturuyor, ayara yazılıyor, sonraki ekran komutu iki gerçek ekranda
+  doğru yere taşıyıp başa dönüyor; hap ikinci ekrana sürüklenince pencere oraya geçiyor, bırakınca o ekranın üst ortasına oturup o ekranı kaydediyor. Gate (Opus): bulgu — sürükleme bayrağını yalnız renderer temizliyordu (çökme/yeniden yükleme/gizlenmede ada kilitli kalırdı) → `suruklemeyiKes`; ekranlar arası sürükleme testi eklendi. Ölçülmedi: karışık DPI (iki ekranın ölçeği de 1).

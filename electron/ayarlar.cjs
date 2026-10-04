@@ -15,6 +15,7 @@ const VARSAYILAN = Object.freeze({
   yaziBoyutu: 13,
   arsivAcik: false, // proje listelerinde arsiv grubu (olduğu gibi / donduruldu / birakildi)
   ada: true, // Kokpit arka plandayken ust ortadaki ada
+  adaEkran: null, // { id, x, y }: ada'nin surukle-birakla secilen ekrani (v2.6); null = birincil
   seffaf: true, // akrilik pencere; false -> opak (Windows 11 22H2 alti zaten opak)
 });
 

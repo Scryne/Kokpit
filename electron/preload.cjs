@@ -76,6 +76,9 @@ contextBridge.exposeInMainWorld('kokpit', {
   komutlarDuzenle: () => ipcRenderer.invoke('komutlar:duzenle'),
   adaGonder: (istek) => ipcRenderer.send('ada:gonder', istek),
   adaOdak: (istek) => ipcRenderer.send('ada:odak', istek),
+  // v2.6: surukle-birak (asama: basla / tasi / bitir; x, y ekran koordinati) ve klavye yedegi.
+  adaSurukle: (asama, x, y) => ipcRenderer.send('ada:surukle', { asama, x, y }),
+  adaSonrakiEkran: () => ipcRenderer.invoke('ada:sonraki-ekran'),
   oturumaGonderDinle: (cb) => {
     const d = (_e, istek) => cb(istek);
     ipcRenderer.on('oturuma:gonder', d);

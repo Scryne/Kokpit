@@ -394,6 +394,8 @@ declare global {
       komutlarDuzenle: () => Promise<boolean>;
       adaGonder: (istek: GonderIstegi) => void;
       adaOdak: (istek: boolean) => void;
+      adaSurukle: (asama: 'basla' | 'tasi' | 'bitir', x: number, y: number) => void;
+      adaSonrakiEkran: () => Promise<{ toplam: number; sira: number; alan: { x: number; y: number; width: number; height: number } }>;
       oturumaGonderDinle: (cb: (istek: GonderIstegi) => void) => () => void;
       adaGordum: (id: string) => void;
       oturumGordumDinle: (cb: (id: string) => void) => () => void;

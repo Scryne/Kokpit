@@ -102,7 +102,7 @@ class Cdp {
     await this.gonder('Input.insertText', { text: metin });
   }
 }
-const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, P: 80, p: 80, '1': 49, '2': 50, '3': 51, '4': 52, '=': 187, '-': 189, '0': 48 };
+const KODLAR = { Enter: 13, Escape: 27, Tab: 9, Backspace: 8, F: 70, f: 70, N: 78, n: 78, P: 80, p: 80, '1': 49, '2': 50, '3': 51, '4': 52, '=': 187, '-': 189, '0': 48 };
 
 /** Uygulamayi acar, CDP'ye baglanir. */
 async function baslat() {
@@ -409,6 +409,57 @@ async function main() {
     await cdp.yaz("k '{\"hook_event_name\":\"Stop\",\"session_id\":\"t\"}'; cls");
     await cdp.tus('Enter');
 
+    console.log('Ada (v2.6): surukle-birak, ekran hatirlanir, sonraki ekran komutu');
+    // Pencere surukleme boyunca imlecle gider, birakinca ayni ekranin ust ortasina oturur (tek
+    // ekranlik surukleme). CDP fare olayinin screenX'i pencere konumundan turetilir: pencere
+    // kaydiktan sonra ayni ekran noktasi istemcide eski yerine duser.
+    const adaYeri = () => adaCdp.js(`({ x: window.screenX, y: window.screenY })`);
+    const hap = await adaCdp.js(`(() => { const b = document.querySelector('.ada-kart > button').getBoundingClientRect(); return { x: Math.round(b.x + 40), y: Math.round(b.y + b.height / 2) }; })()`);
+    const ilkYer = await adaYeri();
+    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mousePressed', ...hap, button: 'left', buttons: 1, clickCount: 1 });
+    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hap.x + 60, y: hap.y + 40, button: 'left', buttons: 1 });
+    await uyu(400);
+    const ortaYer = await adaYeri();
+    kontrol('ada: suruklerken pencere imlecle gitti (+60, +40)', ortaYer.x === ilkYer.x + 60 && ortaYer.y === ilkYer.y + 40, JSON.stringify({ ilkYer, ortaYer }));
+    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseReleased', ...hap, button: 'left', buttons: 0, clickCount: 1 });
+    await uyu(400);
+    const sonYer = await adaYeri();
+    kontrol('ada: birakinca ekranin ust ortasina oturdu', sonYer.x === ilkYer.x && sonYer.y === ilkYer.y, JSON.stringify({ ilkYer, sonYer }));
+    const adaEkran = JSON.parse(fs.readFileSync(AYARLAR, 'utf8')).adaEkran;
+    kontrol("ada: secilen ekran ayarlar.json'a yazildi", !!adaEkran && Number.isFinite(adaEkran.id), JSON.stringify(adaEkran));
+    const sonraki = await cdp.js(`window.kokpit.adaSonrakiEkran()`);
+    if (sonraki.toplam > 1) {
+      await uyu(300);
+      const yeniYer = await adaYeri();
+      kontrol("ada: sonraki ekran komutu ada'yi o ekranin ust ortasina tasidi", yeniYer.x === Math.round(sonraki.alan.x + (sonraki.alan.width - 460) / 2) && yeniYer.y === sonraki.alan.y, JSON.stringify({ sonraki, yeniYer }));
+      for (let i = 1; i < sonraki.toplam; i++) await cdp.js(`window.kokpit.adaSonrakiEkran()`);
+      await uyu(300);
+      kontrol('ada: komut dongusu ilk ekrana dondu', JSON.stringify(await adaYeri()) === JSON.stringify(ilkYer), '');
+      // Ekranlar arasi surukleme: hap tutulur, imlec diger ekranin icine (ust ortanin 300 px
+      // altina) cekilir. Istemci koordinati = ekran noktasi - pencere konumu; pencere imlecle
+      // kaydiktan sonra ayni ekran noktasi istemcide yine `hap`a duser.
+      const hedef = { x: Math.round(sonraki.alan.x + sonraki.alan.width / 2), y: sonraki.alan.y + 300 };
+      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mousePressed', ...hap, button: 'left', buttons: 1, clickCount: 1 });
+      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hap.x + 30, y: hap.y + 10, button: 'left', buttons: 1 });
+      await uyu(150);
+      const kayanYer = await adaYeri(); // ilk adimda pencere zaten +30, +10 kaydi
+      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hedef.x - kayanYer.x, y: hedef.y - kayanYer.y, button: 'left', buttons: 1 });
+      await uyu(400);
+      const gecisYeri = await adaYeri();
+      kontrol('ada: ekranlar arasi suruklerken pencere diger ekrana gecti', gecisYeri.x === hedef.x - hap.x && gecisYeri.y === hedef.y - hap.y, JSON.stringify({ hedef, gecisYeri }));
+      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseReleased', ...hap, button: 'left', buttons: 0, clickCount: 1 });
+      await uyu(400);
+      const digerYer = await adaYeri();
+      const digerKayit = JSON.parse(fs.readFileSync(AYARLAR, 'utf8')).adaEkran;
+      kontrol('ada: diger ekrana birakinca onun ust ortasina oturdu ve o ekran kaydedildi', digerYer.x === Math.round(sonraki.alan.x + (sonraki.alan.width - 460) / 2) && digerYer.y === sonraki.alan.y && digerKayit?.id !== adaEkran.id, JSON.stringify({ digerYer, digerKayit }));
+      // Sonraki bolumler ada'yi ilk ekranda bekler.
+      for (let i = 1; i < sonraki.toplam; i++) await cdp.js(`window.kokpit.adaSonrakiEkran()`);
+      await uyu(300);
+    } else {
+      kontrol('ada: tek ekran, sonraki ekran komutu yerinde birakti', sonraki.toplam === 1 && JSON.stringify(await adaYeri()) === JSON.stringify(ilkYer), JSON.stringify(sonraki));
+    }
+    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 510 });
+
     console.log('Calistir (v2.3): servis bolmesi claude sekmesinin yaninda, adres, yeniden baslat, durdur');
     const projeAdi = await cdp.js(`document.querySelector('[role="tab"] .enstruman')?.textContent ?? ''`);
     const projeYolu = await cdp.js(`window.kokpit.durumGetir().then(d => d.veri.projeler.find(p => p.ad === ${JSON.stringify(projeAdi)})?.yol ?? null)`);
@@ -491,6 +542,68 @@ async function main() {
     await cdp.tus('2', 2, 'Digit2');
     await uyu(200);
     kontrol('Ctrl+2 Terminaller\'e dondu', await cdp.js(`document.querySelector('h1')?.textContent !== 'Pano'`));
+
+    console.log('Yapistirma (v2.6): Ctrl+V metin, resimde ^V, fare modunda sag tik tek');
+    // PTY'ye giden her 'veri' mesaji sayilir; fare modu sunucudan gelmis gibi enjekte edilir
+    // (claude ?1000/1006 aciyor, test kabugu acmiyor). Kullanicinin panosu sonda geri konur.
+    const panoYedek = await cdp.js(`navigator.clipboard.readText().catch(() => null)`);
+    await cdp.js(`(() => {
+      window.__giden = [];
+      window.__ozgunSend = WebSocket.prototype.send;
+      WebSocket.prototype.send = function (m) {
+        try { const j = JSON.parse(m); if (j.t === 'veri') { window.__giden.push(j.d); window.__ws = this; } } catch {}
+        return window.__ozgunSend.call(this, m);
+      };
+      return true;
+    })()`);
+    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+    await cdp.yaz('x'); // __ws yakalansin
+    await cdp.tus('Backspace');
+    const yapisan = 'kokpit-yapistir-' + Date.now().toString(36);
+    await cdp.js(`navigator.clipboard.writeText(${JSON.stringify(yapisan)}).then(() => true)`);
+    const giden = async () => cdp.js(`(() => { const g = window.__giden; window.__giden = []; return g; })()`);
+    await giden();
+    // commands verilmez: gercek tusta oldugu gibi yapistirmayi Blink'in kendi tus eslemesi yapar.
+    const ctrlV = { key: 'v', code: 'KeyV', windowsVirtualKeyCode: 86, modifiers: 2 };
+    await cdp.gonder('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...ctrlV });
+    await cdp.gonder('Input.dispatchKeyEvent', { type: 'keyUp', ...ctrlV });
+    await uyu(600);
+    let g = await giden();
+    kontrol('Ctrl+V panodaki metni yapistirdi (^V degil)', g.some((d) => d.includes(yapisan)) && !g.includes('\x16'), JSON.stringify(g));
+    // Panoda yalniz resim: claude resmi ^V ile kendisi okur.
+    const resimYazildi = await cdp.js(`(async () => {
+      const c = document.createElement('canvas'); c.width = c.height = 4;
+      const b = await new Promise((r) => c.toBlob(r, 'image/png'));
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]);
+      return true;
+    })().catch((e) => String(e))`);
+    await cdp.gonder('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...ctrlV });
+    await cdp.gonder('Input.dispatchKeyEvent', { type: 'keyUp', ...ctrlV });
+    await uyu(600);
+    g = await giden();
+    kontrol('Ctrl+V panoda yalniz resim varken ^V gonderdi', resimYazildi === true && g.length === 1 && g[0] === '\x16', resimYazildi + ' ' + JSON.stringify(g));
+    await cdp.js(`navigator.clipboard.writeText(${JSON.stringify(yapisan)}).then(() => true)`);
+    const ekranOrta = await cdp.js(`(() => { const b = document.querySelector('.xterm-screen').getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; })()`);
+    const sagTikla = async (modifiers = 0) => {
+      await cdp.gonder('Input.dispatchMouseEvent', { type: 'mousePressed', ...ekranOrta, button: 'right', clickCount: 1, modifiers });
+      await cdp.gonder('Input.dispatchMouseEvent', { type: 'mouseReleased', ...ekranOrta, button: 'right', clickCount: 1, modifiers });
+      await uyu(600);
+    };
+    await sagTikla();
+    g = await giden();
+    kontrol('sag tik (fare modu kapali): Kokpit bir kez yapistirdi', g.filter((d) => d.includes(yapisan)).length === 1, JSON.stringify(g));
+    await cdp.js(`(window.__ws.onmessage({ data: JSON.stringify({ t: 'veri', d: '\u001b[?1000h\u001b[?1006h' }) }), true)`);
+    await cdp.bekle(`document.querySelector('.xterm').classList.contains('enable-mouse-events')`, 3000, 'fare modu');
+    await giden();
+    await sagTikla();
+    g = await giden();
+    kontrol('sag tik (fare modu acik): yalniz fare olayi gitti, Kokpit yapistirmadi (cift yapisma yok)', g.some((d) => d.startsWith('\x1b[<2;')) && !g.some((d) => d.includes(yapisan)), JSON.stringify(g));
+    await sagTikla(8);
+    g = await giden();
+    kontrol('Shift+sag tik (fare modu acik): fare olayi yok, Kokpit bir kez yapistirdi', !g.some((d) => d.startsWith('\x1b[<')) && g.filter((d) => d.includes(yapisan)).length === 1, JSON.stringify(g));
+    await cdp.js(`(window.__ws.onmessage({ data: JSON.stringify({ t: 'veri', d: '\u001b[?1000l\u001b[?1006l' }) }), WebSocket.prototype.send = window.__ozgunSend, true)`);
+    await cdp.tus('Escape');
+    if (typeof panoYedek === 'string') await cdp.js(`navigator.clipboard.writeText(${JSON.stringify(panoYedek)}).then(() => true)`);
 
     console.log('Sekmeyi kapat (cocuk surec yok -> diyalog yok)');
     await cdp.js(`(() => { document.querySelector('[aria-label$="sekmesini kapat"]').click(); return true; })()`);

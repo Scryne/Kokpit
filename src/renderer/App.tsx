@@ -989,6 +989,16 @@ export default function App() {
           setAdaAcik(yeni);
           window.kokpit.adaAyar(yeni);
         },
+      },
+      {
+        id: 'e-ada-ekran',
+        grup: 'Eylem',
+        baslik: "Ada'yı sonraki ekrana taşı",
+        ipucu: 'sürükleyerek de taşınır',
+        calistir: () =>
+          void window.kokpit.adaSonrakiEkran().then(({ toplam, sira }) =>
+            setNotBildirimi(toplam > 1 ? `Ada ${sira}/${toplam}. ekranda` : 'Tek ekran bağlı')
+          ),
       }
     );
     for (const p of siraliProjeler) {
