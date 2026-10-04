@@ -49,10 +49,31 @@ bekliyor / bitti), son araç ve dosyası, `+N −M`, tur süresi, oturum özeti;
 araç. Kenarın altında **limit** (5 saat, hafta). Statusline Kokpit oturumlarında
 `electron/durum-satiri.cjs` üzerinden geçer ve senin statusline komutunu aynen çalıştırır.
 
-**Ada:** Kokpit arka plandayken ekranın üst ortasında küçük şerit: seni bekleyen ya da
-çalışan oturum, 5 saatlik limit. Üstüne gelince oturum listesi açılır; bir oturum bitince
-ya da soru sorunca 5 sn kendiliğinden açılır. Tıklayınca Kokpit o sekmeyle öne gelir.
-Komut paletinden "Ada'yı kapat".
+**Ada:** ekranın üst ortasında küçük şerit: seni bekleyen ya da çalışan oturum, limitler. Üstüne
+gelince oturum listesi açılır; bir oturum bitince ya da soru sorunca 5 sn kendiliğinden açılır.
+Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
+
+**Ada v2.6, masaüstü ajanı:**
+- **Hep açık.** Oturum yokken, Kokpit öndeyken ve ana pencere tepsideyken de görünür (eskiden yalnız
+  Kokpit arka plandayken ve bir oturum varken). Tepsi menüsü: "Ada'yı göster", "Kokpit öndeyken de göster".
+- **Limitler oturumsuz.** Hapta `5s %15  hafta %92`, açık kartta sıfırlanma saatleri ve "ölçüldü 14:05".
+  Kaynak, Claude Code'un `/usage` ekranının okuduğu uç (`api.anthropic.com/api/oauth/usage`), 5 dakikada
+  bir; token `~/.claude/.credentials.json`'dan her yoklamada okunur, yalnız main süreçte kalır, diske/loga
+  yazılmaz. Kokpit token **yenilemez**: claude ~8 saattir açılmadıysa son ölçüm kalır ve "claude açılınca
+  tazelenir" yazar. Oturum açıkken statusline'ın her turdaki değeri de gelir, yeni olan kazanır. Son ölçüm
+  `~/.kokpit/limit.json`.
+- **Kokpit dışındaki oturumlar.** Terminalden ya da VS Code'dan açtığın claude oturumları "Kokpit dışında"
+  bölümünde (çalışıyor / seni bekliyor / hazır + süre). Kaynak Claude Code'un kendi kaydı
+  `~/.claude/sessions/<pid>.json`; salt okunur. Seni beklemeye geçen dış oturum Ada'yı 5 sn açar.
+- **Görev ver.** Açık kartta proje seç + yaz + Enter: Kokpit o projede arka planda yeni bir claude oturumu
+  açar, metin ilk mesaj olur; oturum Ada'da satır olarak belirir, Kokpit öne gelmez. Metin kabuğa komut
+  satırı olarak değil ortam değişkeniyle gider (`electron/gorev.cjs`; tırnak, `$`, `;`, `&` gerçek pwsh'ta
+  birebir ölçüldü). Ctrl+Alt+Shift+A oturum yokken de Ada'ya odak verir.
+- **Tepsi.** Pencerenin X'i Kokpit'i kapatmaz, tepsiye indirir: oturumlar çalışmaya devam eder. Çıkış: tepsi
+  simgesi → "Kokpit'ten çık" ya da palet "Kokpit'ten çık" (açık oturum sorusu yine çalışır). Tepsi
+  ipucunda limitler.
+- **Windows açılışında başlar** (ilk çalışmada açılır, tepsi menüsünden kapatılır): `HKCU\...\Run`'a
+  `wscript kokpit-sessiz.vbs --arka`. `--arka` ana pencereyi gizli açar, yalnız Ada ve tepsi görünür.
 
 **Hızlı komutlar (v2.3):** etkinlik şeridinin sağındaki ⚡ menüsü ya da paletteki "Gönder" grubu, seçilen
 mesajı o oturuma yazıp gönderir (klavyeden yazılmış gibi). Varsayılanlar son 30 günün prompt'larından:
@@ -141,9 +162,11 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 ```bash
 npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ağacı dahil (18 kontrol)
 npm run test:kanca   # kanca köprüsü, soru/son söz/istek/komut/tarif/adres/kimlik (101 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada penceresi ve gözü dahil (84 kontrol, önce build)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada penceresi, gözü ve tepsi dahil (110 kontrol, önce build)
+npm run test:ada     # v2.6: oturumsuz limit (sahte uç), dış oturumlar, görevin gerçek pwsh'tan geçişi (35 kontrol)
 npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontrol; elle, plan kullanır)
 npm run ekran:ada    # v2.3–v2.4 yüzeylerinin ekran görüntüsü (ada, ada-klavye, ada-bitti, terminal, Pano)
+npm run ekran:ajan   # v2.6: oturumsuz hap, dış oturum, açık kart, proje listesi
 npm run ekran:goz    # Ada gözünün her hali, hap 4x (boşta, düşün, oku, yaz, komut, web, ajan, soru, kenar, sevinç, bitti, uyku)
 npm run typecheck
 npm run build
@@ -213,8 +236,13 @@ Son yükseltme 2026-09-29: 44.3.0 → 44.4.5, `test:ui` 37/37.
 | `KOKPIT_DEV` | — | `0` yapılırsa dev sunucusu yerine `dist/` yüklenir |
 | `KOKPIT_TEST_ADA` | — | Test koşucusunda (`KOKPIT_TEST_KABUK=1`) adayı da kur |
 | `KOKPIT_DIZIN` | `~/.kokpit` | Kokpit'in kendi veri dizini; test/ekran koşucuları geçici dizin verir |
+| `KOKPIT_LIMIT_URL` | Anthropic usage ucu | Test: limit yoklaması bu adrese gider (test kabuğunda verilmezse hiç gitmez) |
+| `KOKPIT_KIMLIK` | `~/.claude/.credentials.json` | Test: limit tokeninin okunduğu dosya |
+| `KOKPIT_CLAUDE_OTURUMLAR` | `~/.claude/sessions` | Test: dış oturum kaydının okunduğu dizin |
+| `KOKPIT_TEST_TEPSI` | — | Test koşucusunda tepsiyi de kur (X tepsiye indirir) |
 
-`~/.kokpit/ayarlar.json`: `seffaf: false` pencereyi opak yapar, `ada: false` adayı kapatır.
+`~/.kokpit/ayarlar.json`: `seffaf: false` pencereyi opak yapar, `ada: false` adayı kapatır, `adaHep: false`
+eski davranış (yalnız Kokpit arka plandayken), `tepsi: false` X'i yine kapatma yapar.
 
 ## Teşhis
 

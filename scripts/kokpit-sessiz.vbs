@@ -6,4 +6,9 @@ Set kabuk = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 kok = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
 kabuk.CurrentDirectory = kok
-kabuk.Run "node """ & kok & "\scripts\uretim.cjs""", 0, False
+' Argumanlar aynen gecer: Windows acilis kaydi `--arka` verir (pencere gizli, Ada + tepsi).
+argumanlar = ""
+For Each a In WScript.Arguments
+  argumanlar = argumanlar & " " & a
+Next
+kabuk.Run "node """ & kok & "\scripts\uretim.cjs""" & argumanlar, 0, False

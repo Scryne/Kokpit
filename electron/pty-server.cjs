@@ -16,6 +16,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawnSync, execFile } = require('child_process');
 const { adresBul } = require('./adres.cjs');
+const GOREV = require('./gorev.cjs');
 
 const TOKEN = process.env.KOKPIT_PTY_TOKEN || '';
 // Kokpit'in veri dizini (config.cjs; testlerde KOKPIT_DIZIN ile ayrilir, ortamdan miras).
@@ -260,18 +261,17 @@ wss.on('connection', (ws, istek) => {
       // Oturum kimligi Kokpit'te dogar (v2.3): yeni oturum `--session-id <uuid>`, geri yukleme /
       // surdurme `--resume <uuid>` — tam o konusma. Kimlik yoksa (eski defter kaydi) eskisi gibi
       // `--continue`: o klasordeki EN SON konusma, Kokpit disinda acilan baska bir oturum olabilir.
-      const claudeId =
-        typeof m.claude === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(m.claude)
-          ? m.claude
-          : '';
-      const claudeKomutu =
-        (m.komut === 'claude-devam'
-          ? claudeId
-            ? 'claude --resume ' + claudeId
-            : 'claude --continue'
-          : claudeId
-            ? 'claude --session-id ' + claudeId
-            : 'claude') + ayarArgumani;
+      const claudeId = typeof m.claude === 'string' && GOREV.UUID.test(m.claude) ? m.claude : '';
+      // Ada'dan gorev (v2.6): metin claude'un ilk mesaji olur; ortam degiskeniyle gecer, komut
+      // satirina yazilmaz (bkz. gorev.cjs). Yalniz yeni oturumda: devamda ilk mesaj yok.
+      const gorevMetni = m.komut === 'claude' ? GOREV.gorevMetni(m.gorev) : '';
+      if (gorevMetni) log('gorev alindi: ' + gorevMetni.length + ' karakter' + (claudeIle ? '' : ' (test kabugu: kullanilmadi)'));
+      const claudeKomutu = GOREV.claudeKomutu({
+        devam: m.komut === 'claude-devam',
+        claudeId,
+        ayarArgumani,
+        gorev: gorevMetni,
+      });
       // Hook basligi bu degiskeni tasir: olayin hangi sekmeye ait oldugu buradan bilinir.
       const oturumId = typeof m.oturum === 'string' && /^[\w.-]{1,160}$/.test(m.oturum) ? m.oturum : '';
       // Servis bolmesi (Calistir): projenin kendi komutu, claude degil. -NoExit: sunucu cokerse
@@ -300,7 +300,11 @@ wss.on('connection', (ws, istek) => {
           cols: Number(m.cols) || 100,
           rows: Number(m.rows) || 30,
           cwd,
-          env: oturumId ? { ...ORTAM, KOKPIT_OTURUM: oturumId } : ORTAM,
+          env: {
+            ...ORTAM,
+            ...(oturumId ? { KOKPIT_OTURUM: oturumId } : {}),
+            ...(gorevMetni && claudeIle ? { KOKPIT_GOREV: gorevMetni } : {}),
+          },
         });
       } catch (e) {
         log('FAIL pty acilamadi: ' + e.message);

@@ -39,6 +39,8 @@ interface Props {
   claudeId?: string;
   /** Servis bolmesi: claude yerine bu komut (Calistir). */
   servis?: string;
+  /** Ada'dan gorev (v2.6): claude'un ilk mesaji. Yalniz acilista bir kez gider. */
+  gorev?: string;
   /** Servis ciktisinda yerel adres goruldu (pty-server bildirir). */
   onAdres?: (id: string, adres: string) => void;
   yaziBoyutu: number;
@@ -88,6 +90,7 @@ export default function TerminalOturumu({
   devam = false,
   claudeId,
   servis,
+  gorev,
   yaziBoyutu,
   onDurum,
   onZil,
@@ -336,6 +339,7 @@ export default function TerminalOturumu({
                   cwd: yol,
                   komut: devam ? 'claude-devam' : 'claude',
                   claude: claudeId,
+                  ...(gorev && !devam ? { gorev } : {}),
                   // Kanca koprusu bu kimlikle olaylari sekmeye baglar (KOKPIT_OTURUM).
                   oturum: id,
                   cols: term.cols,

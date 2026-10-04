@@ -11,11 +11,16 @@
 // Boyut degistirmek yerine bu yol secildi: saydam pencereyi her acilista yeniden boyutlamak
 // Windows'ta titriyor.
 //
+// v2.6, masaustu ajani: Ada HEP gorunur (ayar `adaHep`, varsayilan acik) — oturum yokken de,
+// Kokpit ondeyken de, ana pencere tepsideyken de. Oturumsuz limitler (limit.cjs), Kokpit disindaki
+// claude oturumlari (dis-oturumlar.cjs) ve "gorev ver" (proje + metin -> arka planda yeni oturum).
+//
 // v2.4: Ctrl+Alt+Shift+A ada'ya klavye odagi verir (genel kisayol surece on plan hakki verir,
 // olculdu: ~110 ms). Birakinca odak onceki uygulamaya doner; bkz. odakla(false).
 
 const { BrowserWindow, ipcMain, screen } = require('electron');
 const { log } = require('./log.cjs');
+const disOturumlar = require('./dis-oturumlar.cjs');
 
 const GENISLIK = 460;
 // Acik kart + soru secenekleri + yazi kutusu sigsin (v2.3). Bos alan fareyi gecirdigi icin
@@ -25,11 +30,18 @@ const YUKSEKLIK = 520;
 let ada = null;
 let anaOdakta = true;
 let acik = true; // ayarlar.ada
+let hep = true; // ayarlar.adaHep: Kokpit ondeyken ve oturum yokken de gorunur
 let oturumSayisi = 0;
 let sonAnlik = null;
 let sonListe = [];
 let gitDinleyici = () => {};
 let gordumDinleyici = () => {};
+let gorevDinleyici = () => {};
+let limitTazeleDinleyici = () => {};
+let sonProjeler = []; // { ad, yol } — gorev hedefi yalniz bu listeden olabilir
+let sonDis = [];
+let disZamanlayici = null;
+const DIS_ARALIK_MS = 4000;
 /** @type {() => import('electron').BrowserWindow | null} */
 let anaPencere = () => null;
 
@@ -45,13 +57,38 @@ function konum() {
 
 function gorunurlukGuncelle() {
   if (!ada || ada.isDestroyed()) return;
-  const goster = acik && !anaOdakta && oturumSayisi > 0;
+  const goster = acik && (hep || (!anaOdakta && oturumSayisi > 0));
   if (goster && !ada.isVisible()) {
     ada.setBounds(konum());
     ada.showInactive();
   } else if (!goster && ada.isVisible()) {
     ada.hide();
   }
+  disYoklamaAyarla(goster);
+}
+
+/** Dis oturumlar yalniz ada gorunurken okunur (4 sn; birkac kucuk JSON). Degisince gonderilir. */
+function disYoklamaAyarla(gorunur) {
+  if (gorunur && !disZamanlayici) {
+    disOku();
+    disZamanlayici = setInterval(disOku, DIS_ARALIK_MS);
+  } else if (!gorunur && disZamanlayici) {
+    clearInterval(disZamanlayici);
+    disZamanlayici = null;
+  }
+}
+
+function disOku() {
+  let liste;
+  try {
+    liste = disOturumlar.oku(new Set(sonListe.map((o) => o.claude).filter(Boolean)));
+  } catch (e) {
+    log('dis oturumlar okunamadi: ' + e.message);
+    return;
+  }
+  if (JSON.stringify(liste) === JSON.stringify(sonDis)) return;
+  sonDis = liste;
+  gonder('ada:dis', sonDis);
 }
 
 function gonder(kanal, veri) {
@@ -59,13 +96,18 @@ function gonder(kanal, veri) {
 }
 
 /**
- * @param {{ url: string, preload: string, onGit: (id: string) => void, onGordum: (id: string) => void, ana: () => import('electron').BrowserWindow | null, acik: boolean }} s
+ * @param {{ url: string, preload: string, onGit: (id: string) => void, onGordum: (id: string) => void,
+ *   onGorev: (g: { ad: string, yol: string, metin: string }) => void, onLimitTazele: () => void,
+ *   ana: () => import('electron').BrowserWindow | null, acik: boolean, hep: boolean }} s
  */
 function kur(s) {
   if (ada) return;
   acik = s.acik !== false;
+  hep = s.hep !== false;
   gitDinleyici = s.onGit;
   gordumDinleyici = s.onGordum;
+  gorevDinleyici = s.onGorev;
+  limitTazeleDinleyici = s.onLimitTazele;
   anaPencere = s.ana;
   ada = new BrowserWindow({
     ...konum(),
@@ -95,13 +137,18 @@ function kur(s) {
   ada.webContents.on('did-finish-load', () => {
     if (sonAnlik) gonder('etkinlik:anlik', sonAnlik);
     gonder('ada:liste', sonListe);
+    gonder('ada:projeler', sonProjeler);
+    gonder('ada:dis', sonDis);
+    gonder('ada:ayar', { hep });
   });
   ada.webContents.on('render-process-gone', (_e, d) => log('FAIL ada renderer coktu: ' + JSON.stringify(d)));
   ada.on('closed', () => {
     ada = null;
   });
   ada.loadURL(s.url).catch((e) => log('FAIL ada yuklenemedi: ' + e.message));
-  log('ada kuruldu');
+  log('ada kuruldu' + (hep ? ' (hep gorunur)' : ''));
+  // Oturumsuz da gorunur: yuklenir yuklenmez.
+  ada.once('ready-to-show', gorunurlukGuncelle);
 }
 
 /**
@@ -154,6 +201,22 @@ ipcMain.on('ada:gordum', (e, id) => {
   if (!ada || e.sender !== ada.webContents || typeof id !== 'string') return;
   gordumDinleyici(id);
 });
+// Gorev: hedef klasor renderer'dan YOL olarak gelmez, ana pencerenin verdigi proje listesinden
+// adla secilir. Metin tek parca, sinirli; kabuga gecisi pty-server'da ortam degiskeniyle (bkz. orada).
+ipcMain.on('ada:gorev', (e, ham) => {
+  if (!ada || e.sender !== ada.webContents || !ham || typeof ham !== 'object') return;
+  const p = sonProjeler.find((x) => x.ad === ham.ad);
+  const metin = typeof ham.metin === 'string' ? ham.metin.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim() : '';
+  if (!p || !metin || metin.length > 4000) {
+    log('ada gorevi reddedildi (' + (p ? 'metin' : 'proje') + ')');
+    return;
+  }
+  gorevDinleyici({ ad: p.ad, yol: p.yol, metin });
+});
+ipcMain.on('ada:limit-tazele', (e) => {
+  if (!ada || e.sender !== ada.webContents) return;
+  limitTazeleDinleyici();
+});
 
 module.exports = {
   kur,
@@ -162,9 +225,17 @@ module.exports = {
     anaOdakta = odakta;
     gorunurlukGuncelle();
   },
-  ayar(yeniAcik) {
+  ayar(yeniAcik, yeniHep) {
     acik = yeniAcik !== false;
+    if (typeof yeniHep === 'boolean') hep = yeniHep;
+    gonder('ada:ayar', { hep });
     gorunurlukGuncelle();
+  },
+  durum: () => ({ acik, hep }),
+  /** Gorev hedefleri: ana pencerenin sirali proje listesi (ad + yol). */
+  projeler(liste) {
+    sonProjeler = Array.isArray(liste) ? liste : [];
+    gonder('ada:projeler', sonProjeler);
   },
   /** Renderer'in oturum listesi (id, ad, grup): adlar Kokpit'te, ada onlari bilmez. */
   liste(liste) {
@@ -191,7 +262,7 @@ module.exports = {
    * @returns {boolean} bir sey yapildi mi (ada kapali / oturum yok -> false)
    */
   klavye(anaOdakta) {
-    if (!ada || ada.isDestroyed() || !acik || oturumSayisi === 0) return false;
+    if (!ada || ada.isDestroyed() || !acik || (oturumSayisi === 0 && !hep)) return false;
     if (!anaOdakta) {
       gorunurlukGuncelle();
       odakla(true);
@@ -200,6 +271,7 @@ module.exports = {
     return true;
   },
   kapat() {
+    disYoklamaAyarla(false);
     if (ada && !ada.isDestroyed()) ada.destroy();
     ada = null;
   },

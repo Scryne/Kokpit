@@ -18,9 +18,11 @@
     "ekran": "node scripts/ekran.cjs",
     "ekran:ada": "node scripts/ekran-ada.cjs",
     "ekran:goz": "node scripts/ekran-goz.cjs",
+    "ekran:ajan": "node scripts/ekran-ajan.cjs",
     "kisayol": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/kisayol.ps1",
     "design:lint": "npx -p @google/design.md designmd lint DESIGN.md",
     "test:kanca": "node scripts/test-kanca.cjs",
+    "test:ada": "node scripts/test-ada.cjs",
     "e2e:kanca": "node scripts/e2e-kanca.cjs"
   },
   "dependencies": {

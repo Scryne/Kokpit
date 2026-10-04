@@ -6,7 +6,7 @@
 // sunucusu duz pwsh acar (her gercek claude acilisi transcript + hook tetikler).
 //
 // Kullanim: npm run build && npm run test:ui
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
@@ -27,6 +27,21 @@ const KOMUTLAR = path.join(TEST_DIZIN, 'komutlar.json');
 const CALISTIR = path.join(TEST_DIZIN, 'calistir.json');
 const LOG = (ad) => path.join(TEST_DIZIN, ad);
 const { VAULT } = require('../electron/config.cjs');
+// v2.6: oturumsuz limit ucu sahte (yerel sunucu), kimlik dosyasi ve ~/.claude/sessions gecici.
+const KIMLIK = path.join(TEST_DIZIN, 'test-credentials.json');
+const DIS_DIZIN = path.join(TEST_DIZIN, 'claude-sessions');
+fs.mkdirSync(DIS_DIZIN, { recursive: true });
+fs.writeFileSync(KIMLIK, JSON.stringify({ claudeAiOauth: { accessToken: 'ui-test-token', expiresAt: Date.now() + 6 * 3600_000 } }));
+const limitIstekleri = [];
+const limitSunucusu = http.createServer((req, res) => {
+  limitIstekleri.push(req.headers.authorization);
+  res.writeHead(200, { 'Content-Type': 'application/json' }).end(
+    JSON.stringify({
+      five_hour: { utilization: 15, resets_at: new Date(Date.now() + 2 * 3600_000).toISOString() },
+      seven_day: { utilization: 92, resets_at: new Date(Date.now() + 50 * 3600_000).toISOString() },
+    })
+  );
+});
 const INBOX = path.join(VAULT, '\u{1F4E5} 000-Inbox', 'Dump');
 
 let basarisiz = 0;
@@ -65,8 +80,14 @@ class Cdp {
         this.konsol.push(m.params.args.map((a) => a.value ?? a.description ?? '').join(' '));
       }
     });
+    // Uygulama beklenmedik cikarsa bekleyen cagri asili kalmasin, kontrol olarak dussun.
+    ws.on('close', () => {
+      for (const { red } of this.bekleyen.values()) red(new Error('CDP baglantisi kapandi (uygulama cikti?)'));
+      this.bekleyen.clear();
+    });
   }
   gonder(method, params = {}) {
+    if (this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error('CDP baglantisi kapali'));
     const id = ++this.sira;
     this.ws.send(JSON.stringify({ id, method, params }));
     return new Promise((coz, red) => this.bekleyen.set(id, { coz, red }));
@@ -105,7 +126,7 @@ class Cdp {
 const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, P: 80, p: 80, '1': 49, '2': 50, '3': 51, '4': 52, '=': 187, '-': 189, '0': 48 };
 
 /** Uygulamayi acar, CDP'ye baglanir. */
-async function baslat() {
+async function baslat(ekOrtam = {}) {
   // Ustu kapali pencerede Chromium kare uretmeyi durdurur (visibilityState hidden, rAF ve
   // ResizeObserver durur): Scryne makineyi kullanirken test penceresi arkada kalinca
   // olcum gerektiren cizimler (butce grafigi) hic olusmuyordu. Olculdu 2026-10-03.
@@ -115,7 +136,18 @@ async function baslat() {
     // KOKPIT_TEST_SECIM=0: kapatma diyalogunda "Guvenli kapat" secilmis sayilir (yerel
     // diyalog CDP'den tiklanamaz).
     // KOKPIT_TEST_ADA=1: ada penceresi de kurulur (v2.4 ada bolumu onu ayri CDP hedefi olarak surer).
-    env: { ...process.env, KOKPIT_DEV: '0', KOKPIT_TEST_KABUK: '1', KOKPIT_TEST_SECIM: '0', KOKPIT_TEST_ADA: '1', KOKPIT_DIZIN: TEST_DIZIN },
+    env: {
+      ...process.env,
+      KOKPIT_DEV: '0',
+      KOKPIT_TEST_KABUK: '1',
+      KOKPIT_TEST_SECIM: '0',
+      KOKPIT_TEST_ADA: '1',
+      KOKPIT_DIZIN: TEST_DIZIN,
+      KOKPIT_LIMIT_URL: 'http://127.0.0.1:' + limitSunucusu.address().port + '/api/oauth/usage',
+      KOKPIT_KIMLIK: KIMLIK,
+      KOKPIT_CLAUDE_OTURUMLAR: DIS_DIZIN,
+      ...ekOrtam,
+    },
   });
   app.stderr.on('data', () => {});
   app.stdout.on('data', () => {});
@@ -158,6 +190,56 @@ async function kapat(app, cdp, ad, ms = 8000) {
   if (cikis === 'zaman-asimi') try { app.kill(); } catch { /* */ }
 }
 
+/**
+ * Gercek X: pencereye Win32 WM_CLOSE. Renderer'dan window.close() BrowserWindow'un `close`
+ * olayini atlayip pencereyi dogrudan yok ediyor (olculdu 2026-10-04) — X'i temsil etmez.
+ * Hedef: surecin "Kokpit — <sayfa>" baslikli ust penceresi (Ada'ninki "Kokpit Ada").
+ */
+const PENCERE_CS = `
+Add-Type @'
+using System; using System.Runtime.InteropServices; using System.Text;
+public static class Pencere {
+  public delegate bool Gez(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(Gez g, IntPtr l);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  public static int Kapat(uint hedef) {
+    int n = 0;
+    EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p != hedef) return true;
+      var s = new StringBuilder(64); GetWindowText(h, s, 64);
+      var t = s.ToString(); if (t.StartsWith("Kokpit") && t != "Kokpit Ada") { PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); n++; } return true; }, IntPtr.Zero);
+    return n;
+  }
+  public static string Liste(uint hedef) {
+    var sb = new StringBuilder();
+    EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p != hedef) return true;
+      var s = new StringBuilder(64); GetWindowText(h, s, 64);
+      if (s.ToString().StartsWith("Kokpit")) sb.Append(s.ToString() + "|" + (IsWindowVisible(h) ? "1" : "0") + ";"); return true; }, IntPtr.Zero);
+    return sb.ToString();
+  }
+}
+'@`;
+function pwshPencere(cagri) {
+  const r = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', PENCERE_CS + '\n' + cagri], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+  return (r.stdout || '').trim();
+}
+function xBas(pid) {
+  return Number(pwshPencere(`[Pencere]::Kapat(${pid})`)) || 0;
+}
+/**
+ * Surecin "Kokpit..." baslikli ust pencerelerinin OS gorunurlugu (IsWindowVisible). Renderer'daki
+ * visibilityState hic gosterilmemis pencerede de "visible" donuyor (olculdu 2026-10-04, mutasyonla).
+ */
+function osGorunur(pid, ana) {
+  const satirlar = pwshPencere(`[Pencere]::Liste(${pid})`).split(';').filter(Boolean);
+  return satirlar.some((s) => {
+    const [t, v] = s.split('|');
+    return v === '1' && (ana ? t !== 'Kokpit Ada' : t === 'Kokpit Ada');
+  });
+}
+
 const AC_DUGMESI = `(() => { const b = [...document.querySelectorAll('table tbody tr button')].find(x => x.textContent.trim() === 'Aç'); b.click(); return true; })()`;
 
 /** Acik terminalde uzun bir surec baslatir: kapatma korumasinin "cocuk var" dali. */
@@ -189,12 +271,39 @@ async function main() {
     process.exit(2);
   }
 
+  await new Promise((r) => limitSunucusu.listen(0, '127.0.0.1', r));
   let { app, cdp, adaCdp } = await baslat();
+  // Dis oturum kaydi icin yasayan bir pid (test sureci kendisi Kokpit'in ebeveyni, onu kullanma).
+  const bekleyenCocuk = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: 'ignore' });
+  const disYaz = (ad, k) => fs.writeFileSync(path.join(DIS_DIZIN, ad + '.json'), JSON.stringify({ pid: bekleyenCocuk.pid, kind: 'interactive', startedAt: Date.now(), statusUpdatedAt: Date.now(), ...k }));
+  const disSil = () => { for (const f of fs.readdirSync(DIS_DIZIN)) fs.unlinkSync(path.join(DIS_DIZIN, f)); };
   try {
     console.log('Pano');
     await cdp.bekle(`document.querySelectorAll('table tbody tr').length > 0`, 20000, 'proje tablosu');
     const satir = await cdp.js(`document.querySelectorAll('table tbody tr').length`);
     kontrol('proje tablosu dolu', satir > 0, satir);
+
+    console.log('Ada v2.6: oturum yokken de gorunur, oturumsuz limitler, Kokpit disindaki oturumlar');
+    await adaCdp.bekle(`!!document.querySelector('.ada-kart')`, 10000, 'ada karti');
+    kontrol('ada: hic oturum yokken kart cizildi ("Hazır")', await adaCdp.js(`document.querySelector('.ada-kart').innerText.includes('Hazır')`));
+    kontrol('ada: pencere OS\'ta gorunur (Kokpit onde, oturum yok)', osGorunur(app.pid, false));
+    await adaCdp.bekle(`document.querySelector('.ada-kart').innerText.includes('hafta %92')`, 10000, 'hapta limitler');
+    kontrol('ada: hapta "5s %15" ve "hafta %92" (oturumsuz yoklama)', await adaCdp.js(`document.querySelector('.ada-kart').innerText.includes('5s %15')`));
+    kontrol('limit ucu kimlik dosyasindaki tokenla soruldu', limitIstekleri[0] === 'Bearer ui-test-token', limitIstekleri);
+    kontrol('ana pencerenin kenarinda da ayni limit (oturum acmadan)', await cdp.js(`!!document.querySelector('[role="meter"][aria-label="Hafta limiti"][aria-valuenow="92"]')`));
+    kontrol('son olcum test dizinine yazildi', fs.existsSync(path.join(TEST_DIZIN, 'limit.json')));
+    disYaz('101', { sessionId: 'dis-1', cwd: 'C:\\x\\DisProje', status: 'waiting' });
+    await adaCdp.bekle(`document.querySelector('.ada-kart').innerText.includes('DisProje seni bekliyor')`, 10000, 'dis oturum hapta');
+    kontrol('ada: Kokpit disindaki bekleyen oturum hapta ("DisProje seni bekliyor · Kokpit dışında")', true);
+    kontrol('goz: dis oturum beklerken "bekliyor"', await adaCdp.js(`document.querySelector('.ada-goz')?.dataset.hal === 'bekliyor'`));
+    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 230, y: 18 });
+    await adaCdp.bekle(`!!document.querySelector('section[aria-label="Kokpit dışındaki claude oturumları"]')`, 5000, 'dis oturum bolumu');
+    kontrol('ada acik: "Kokpit dışında" bolumu + limit sifirlanma saati', await adaCdp.js(`document.body.innerText.includes('Kokpit dışında') && document.body.innerText.includes('sıfırlanma')`));
+    kontrol('ada acik: gorev kutusu var', await adaCdp.js(`!!document.querySelector('section[aria-label="Görev ver"] input')`));
+    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 510 });
+    disSil();
+    await adaCdp.bekle(`!document.querySelector('.ada-kart').innerText.includes('DisProje')`, 10000, 'dis oturum dustu');
+    kontrol('dis oturum kaydi silinince Ada\'dan dustu', true);
 
     console.log('Terminal ac');
     await cdp.js(AC_DUGMESI);
@@ -577,6 +686,47 @@ async function main() {
     if (inboxOnce === null) fs.unlinkSync(inboxDosya);
     else fs.writeFileSync(inboxDosya, inboxSonra.split('\n').filter((l) => !l.includes(isaret)).join('\n'));
 
+    console.log('Ada v2.6: gorev ver -> arka planda yeni oturum, gorunum degismez');
+    await cdp.tus('1', 2, 'Digit1');
+    await cdp.bekle(`document.querySelector('h1')?.textContent === 'Pano'`, 3000, 'pano');
+    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 230, y: 18 });
+    await adaCdp.bekle(`!!document.querySelector('section[aria-label="Görev ver"] button[aria-expanded]')`, 5000, 'gorev kutusu');
+    await adaCdp.js(`(() => { document.querySelector('section[aria-label="Görev ver"] button[aria-expanded]').click(); return true; })()`);
+    await adaCdp.bekle(`document.querySelectorAll('ul[aria-label="Proje seç"] button').length > 1`, 3000, 'proje listesi');
+    const gorevProjesi = await adaCdp.js(`(() => { const b = document.querySelectorAll('ul[aria-label="Proje seç"] button')[1]; b.click(); return b.querySelector('.enstruman').textContent; })()`);
+    kontrol('gorev: proje secildi (' + gorevProjesi + '), liste kapandi', await adaCdp.js(`!document.querySelector('ul[aria-label="Proje seç"]') && document.querySelector('section[aria-label="Görev ver"]').innerText.includes(${JSON.stringify(gorevProjesi)})`));
+    const gorevMetni = 'Testleri koş, "kırmızı" olanları düzelt; $env:X & bitti';
+    await adaCdp.js(`(() => {
+      const i = document.querySelector('section[aria-label="Görev ver"] input');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${JSON.stringify(gorevMetni)});
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      i.form.requestSubmit();
+      return true; })()`);
+    await cdp.bekle(`[...document.querySelectorAll('[role="tab"]')].some(t => t.textContent.includes(${JSON.stringify(gorevProjesi)}))`, 10000, 'gorev sekmesi');
+    kontrol('gorev: ' + gorevProjesi + ' icin yeni sekme acildi', true);
+    kontrol('gorev: ana pencere Pano\'da kaldi (arka plan)', await cdp.js(`document.querySelector('h1')?.textContent === 'Pano'`));
+    kontrol('gorev: Ada "oturumu açılıyor" dedi', await adaCdp.js(`document.body.innerText.includes('oturumu açılıyor')`));
+    await adaCdp.bekle(`[...document.querySelectorAll('ul[aria-label="Kokpit oturumları"] li')].some(li => li.textContent.includes(${JSON.stringify(gorevProjesi)}))`, 10000, 'ada oturum satiri');
+    kontrol('gorev: yeni oturum Ada listesinde', true);
+    let gorevLogu = '';
+    for (let i = 0; i < 30 && !/gorev alindi: \d+ karakter/.test(gorevLogu); i++) { await uyu(200); gorevLogu = fs.readFileSync(LOG('pty-server.log'), 'utf8'); }
+    kontrol('gorev metni PTY sunucusuna ulasti (' + gorevMetni.length + ' karakter)', gorevLogu.includes('gorev alindi: ' + gorevMetni.length + ' karakter'), gorevLogu.slice(-200));
+    // Kokpit'in kendi oturumu dis listede gorunmez: ayni claude kimligiyle bir kayit yazilir.
+    const gorevKimligi = fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).map((x) => JSON.parse(x)).filter((x) => x.olay === 'acildi').pop()?.claude;
+    disYaz('201', { sessionId: gorevKimligi, cwd: 'C:\\x\\KendiOturumu', status: 'busy' });
+    disYaz('202', { sessionId: 'yabanci-1', cwd: 'C:\\x\\Yabanci', status: 'busy' });
+    await adaCdp.bekle(`document.body.innerText.includes('Yabanci')`, 10000, 'yabanci dis oturum');
+    kontrol('dis liste: Kokpit\'in kendi oturumu (ayni kimlik) gorunmez, yabanci gorunur', await adaCdp.js(`!document.body.innerText.includes('KendiOturumu')`));
+    disSil();
+    // Listede olmayan proje: main reddeder, sekme acilmaz.
+    const sekmeOnce = await cdp.js(`document.querySelectorAll('[role="tab"]').length`);
+    await adaCdp.js(`(() => { window.kokpit.adaGorev({ ad: 'YokBoyleProje', metin: 'x' }); return true; })()`);
+    await uyu(800);
+    kontrol('gorev: listede olmayan proje reddedildi', (await cdp.js(`document.querySelectorAll('[role="tab"]').length`)) === sekmeOnce && fs.readFileSync(LOG('kokpit.log'), 'utf8').includes('ada gorevi reddedildi (proje)'));
+    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 510 });
+    await cdp.js(`(() => { document.querySelector('[aria-label$="sekmesini kapat"]').click(); return true; })()`);
+    await cdp.bekle(`document.querySelectorAll('[role="tab"]').length === 0`, 8000, 'gorev sekmesi kapandi');
+
     console.log('Surec calisirken uygulamayi kapat (guvenli kapat + geri yukleme)');
     await cdp.js(AC_DUGMESI);
     await cdp.bekle(`!!document.querySelector('[role="tab"] .bg-aksan')`, 20000, 'oturum acik');
@@ -615,6 +765,32 @@ async function main() {
     kontrol('geri yukleme senaryosu', false, e.message);
   }
   await kapat(app, cdp, 'ikinci calisma temiz kapandi');
+
+  console.log('Tepsi (v2.6): X tepsiye indirir, "Kokpit\'ten cik" gercekten cikar');
+  ({ app, cdp, adaCdp } = await baslat({ KOKPIT_TEST_TEPSI: '1' }));
+  try {
+    await cdp.bekle(`document.querySelectorAll('table tbody tr').length > 0`, 20000, 'proje tablosu');
+    let cikti = false;
+    app.once('exit', () => { cikti = true; });
+    kontrol('X: WM_CLOSE ana pencereye gitti', xBas(app.pid) === 1);
+    await uyu(2500);
+    kontrol('X: uygulama cikmadi', !cikti);
+    kontrol('X: ana pencere gizlendi (OS)', !osGorunur(app.pid, true));
+    kontrol('X: Ada yasiyor ve OS\'ta gorunur', osGorunur(app.pid, false) && (await adaCdp.js(`!!document.querySelector('.ada-kart')`)));
+    kontrol('tepsi kuruldu, ilk kapanista bir kez bildirildi', JSON.parse(fs.readFileSync(AYARLAR, 'utf8')).tepsiBildirildi === true);
+    // Ada'ya tikla: oturum yok -> Kokpit one gelir.
+    await adaCdp.js(`(() => { document.querySelector('.ada-kart > button').click(); return true; })()`);
+    await cdp.bekle(`document.visibilityState === 'visible'`, 5000, 'ada tiklamasi pencereyi acti').catch(() => {});
+    kontrol('Ada tiklamasi (oturum yok) Kokpit\'i one getirdi', osGorunur(app.pid, true));
+    const cikis = new Promise((r) => { const t = setTimeout(() => r('zaman-asimi'), 10000); app.on('exit', (k) => { clearTimeout(t); r(k); }); });
+    await cdp.js(`(() => { window.kokpit.uygulamaCik(); return true; })()`);
+    kontrol('"Kokpit\'ten çık" uygulamayi kapatti (acik oturum yok -> soru yok)', (await cikis) !== 'zaman-asimi');
+  } catch (e) {
+    kontrol('tepsi senaryosu', false, e.message);
+    try { app.kill(); } catch { /* */ }
+  }
+  try { bekleyenCocuk.kill(); } catch { /* */ }
+  limitSunucusu.close();
 
   // Gecici veri dizini silinir. Gercek ~/.kokpit'e test boyunca hic dokunulmadi.
   if (process.env.KOKPIT_TEST_KEEP === '1') {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, nativeTheme, screen, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, screen, session, shell } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -16,6 +16,7 @@ const kanca = require('./kanca.cjs');
 const ada = require('./ada.cjs');
 const komutlar = require('./komutlar.cjs');
 const calistir = require('./calistir.cjs');
+const limit = require('./limit.cjs');
 const { gonderIstegi } = require('./gonder-istegi.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
@@ -23,6 +24,10 @@ const { gonderIstegi } = require('./gonder-istegi.cjs');
 app.setAppUserModelId('com.scryne.kokpit');
 
 const DEV = !app.isPackaged && process.env.KOKPIT_DEV !== '0';
+const TEST = process.env.KOKPIT_TEST_KABUK === '1';
+// Windows acilisinda (oturum acma kaydi) `--arka` ile baslar: ana pencere yuklenir ama gosterilmez,
+// yalniz Ada ve tepsi simgesi gorunur. Kokpit'i acmak: tepsi, Ada'ya tikla ya da Ctrl+Alt+Shift+K.
+const ARKA = process.argv.includes('--arka');
 
 // Ayri veri dizini (test/ekran kosuculari, config.cjs KOKPIT_DIZIN): Chromium profili de
 // ayrilir, gercek Kokpit'in profiliyle (izinler, onbellek) ayni anda kilitlenmesin.
@@ -54,6 +59,12 @@ let kapanisZamanlayici = null;
 // once calisir; olculdu).
 let uygulamaKapaniyor = false;
 let ptyBeklendi = false;
+// Tepsi (v2.6): pencerenin X'i Kokpit'i KAPATMAZ, tepsiye indirir; Ada ve oturumlar yasamaya devam
+// eder. Gercek cikis tepsi menusunden ("Kokpit'ten cik"), paletten ya da Windows kapanirken.
+// Test kosuculari tepsi kurmaz: onlar pencere kapaninca cikisi bekliyor.
+let tepsi = null;
+let cikisIstendi = false;
+const tepsiAktif = () => tepsi !== null && ayarlar.oku().tepsi !== false;
 
 /** Onceki calismadan kalan pencere konumu; ekran disinda kaldiysa yok sayilir. */
 function pencereKonumu() {
@@ -123,6 +134,12 @@ function pencereKur() {
     logHata(`preload ${dosya}`, err);
   });
   pencere.once('ready-to-show', () => {
+    if (ARKA) {
+      log('arka planda basladi (--arka): pencere gizli, Ada ve tepsi acik');
+      // Pencere hic gosterilmedi, `blur` gelmeyecek: Ada "Kokpit onde" sanmasin.
+      ada.anaOdak(false);
+      return;
+    }
     if (ayarlar.oku().pencere?.maksimize) pencere.maximize();
     pencere.show();
   });
@@ -138,6 +155,12 @@ function pencereKur() {
     }
     if (kapanisOnaylandi) return;
     olay.preventDefault();
+    // X: tepsiye in. Oturumlar ve Ada calismaya devam eder, soru sorulmaz.
+    if (tepsiAktif() && !cikisIstendi) {
+      pencere.hide();
+      tepsiBildir();
+      return;
+    }
     // Soru zaten renderer'da (diyalog acik ya da guvenli cikis suruyor): ikinci X yok sayilir.
     if (kapanisSoruluyor) return;
     kapanisSoruluyor = true;
@@ -206,6 +229,14 @@ function pencereKur() {
     ada.anaOdak(true);
     pencere.webContents.send('pencere:odak', true);
   });
+  // Windows oturumu kapanirken pencere tepsiye inmemeli: cikis yolu calissin.
+  pencere.on('session-end', () => {
+    cikisIstendi = true;
+  });
+  pencere.on('hide', () => {
+    ada.anaOdak(false);
+    if (pencere) pencere.webContents.send('pencere:odak', false);
+  });
   pencere.on('blur', () => {
     ada.anaOdak(false);
     // Renderer arka plandayken surekli animasyonlarini durdurur (main.tsx). document.hasFocus()
@@ -216,15 +247,23 @@ function pencereKur() {
 
 /** Ada penceresi: ayni arayuz paketi, #ada adresiyle. Test kosucularinda kurulmaz. */
 function adaKur() {
-  if (process.env.KOKPIT_TEST_KABUK === '1' && process.env.KOKPIT_TEST_ADA !== '1') return;
+  if (TEST && process.env.KOKPIT_TEST_ADA !== '1') return;
   ada.kur({
     url: (DEV ? DEV_URL : uretim.BASLANGIC_URL) + '#ada',
     preload: path.join(__dirname, 'preload.cjs'),
     acik: ayarlar.oku().ada !== false,
+    hep: ayarlar.oku().adaHep !== false,
+    // Bos kimlik: oturum yok, Ada'ya tiklandi -> yalniz Kokpit one gelir.
     onGit: (id) => {
       pencereyiOneGetir();
-      if (pencere) pencere.webContents.send('oturuma:git', id);
+      if (pencere && id) pencere.webContents.send('oturuma:git', id);
     },
+    // Gorev: ana pencere yeni oturumu arka planda acar ve metni claude'un ilk mesaji yapar.
+    onGorev: (g) => {
+      log('ada gorevi: ' + g.ad + ' (' + g.metin.length + ' karakter)');
+      if (pencere) pencere.webContents.send('gorev:ac', g);
+    },
+    onLimitTazele: () => void limit.tazele(),
     // "Gordum": bitti rozeti Kokpit'e gecmeden duser (yalniz dikkat; oturuma bir sey gitmez).
     onGordum: (id) => {
       if (pencere) pencere.webContents.send('oturum:gordum', id);
@@ -335,6 +374,7 @@ ipcMain.on('kapanis:alindi', () => {
 ipcMain.on('kapanis:iptal', () => {
   log('kapanis: kullanici vazgecti');
   kapanisSoruluyor = false;
+  cikisIstendi = false;
 });
 ipcMain.on('kapanis:onay', () => {
   kapanisOnaylandi = true;
@@ -399,12 +439,30 @@ ipcMain.on('ada:liste', (_e, liste) => {
     liste
       .filter((x) => x && typeof x.id === 'string' && typeof x.ad === 'string')
       .slice(0, 24)
-      .map((x) => ({ id: x.id, ad: x.ad, baslangic: Number(x.baslangic) || null, dikkat: x.dikkat === true }))
+      .map((x) => ({
+        id: x.id,
+        ad: x.ad,
+        baslangic: Number(x.baslangic) || null,
+        dikkat: x.dikkat === true,
+        // claude kimligi: dis oturum listesinde Kokpit'in kendi oturumlarini ayirmak icin.
+        ...(typeof x.claude === 'string' && /^[0-9a-f-]{36}$/i.test(x.claude) ? { claude: x.claude } : {}),
+      }))
+  );
+});
+// Gorev hedefleri: ana pencerenin sirali proje listesi. Ada yalniz bu adlardan birini secebilir.
+ipcMain.on('ada:projeler', (_e, liste) => {
+  if (!Array.isArray(liste)) return;
+  ada.projeler(
+    liste
+      .filter((x) => x && typeof x.ad === 'string' && typeof x.yol === 'string' && path.isAbsolute(x.yol))
+      .slice(0, 60)
+      .map((x) => ({ ad: x.ad.slice(0, 80), yol: x.yol, grup: typeof x.grup === 'string' ? x.grup.slice(0, 20) : '' }))
   );
 });
 ipcMain.on('ada:ayar', (_e, acik) => {
   ayarlar.yaz({ ada: acik !== false });
   ada.ayar(acik !== false);
+  tepsiMenusu();
 });
 // Calistir tarifi (~/.kokpit/calistir.json + package.json; bkz. calistir.cjs).
 ipcMain.handle('calistir:tarif', (_e, yol) => calistir.tarif(yol));
@@ -457,6 +515,126 @@ ipcMain.handle('ayar:getir', () => {
   const a = ayarlar.oku();
   return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik, ada: a.ada !== false };
 });
+// Paletten "Kokpit'ten cik": tepsiye inmeden gercek cikis (acik oturum sorusu yine calisir).
+ipcMain.on('uygulama:cik', () => cik());
+
+/** Gercek cikis: pencere gorunur olmali, kapatma korumasinin diyalogu ona bagli. */
+function cik() {
+  cikisIstendi = true;
+  if (!pencere) {
+    app.quit();
+    return;
+  }
+  pencereyiOneGetir();
+  pencere.close();
+}
+
+// --- Tepsi ve Windows acilisi (v2.6) ---
+
+/** Oturum acma kaydi yalniz uretimde: dev sunucusuyla acilis anlamsiz. */
+const ACILIS_DESTEKLI = !DEV && !TEST && process.platform === 'win32';
+function acilisSecenekleri() {
+  return {
+    path: path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'wscript.exe'),
+    args: [path.join(__dirname, '..', 'scripts', 'kokpit-sessiz.vbs'), '--arka'],
+  };
+}
+function acilistaMi() {
+  try {
+    return app.getLoginItemSettings(acilisSecenekleri()).openAtLogin;
+  } catch {
+    return false;
+  }
+}
+function acilisAyarla(acik) {
+  if (!ACILIS_DESTEKLI) return;
+  try {
+    app.setLoginItemSettings({ ...acilisSecenekleri(), openAtLogin: acik, name: 'Kokpit' });
+    ayarlar.yaz({ acilistaBaslat: acik });
+    log('windows acilisinda baslat: ' + (acik ? 'acik' : 'kapali'));
+  } catch (e) {
+    logHata('acilis kaydi', e);
+  }
+}
+
+function tepsiBildir() {
+  if (!tepsi || ayarlar.oku().tepsiBildirildi) return;
+  ayarlar.yaz({ tepsiBildirildi: true });
+  try {
+    tepsi.displayBalloon({
+      iconType: 'info',
+      title: 'Kokpit tepside çalışıyor',
+      content: "Oturumlar ve Ada açık kalır. Çıkmak için tepsi simgesinde \"Kokpit'ten çık\".",
+    });
+  } catch {
+    /* balon desteklenmiyor */
+  }
+}
+
+function limitIpucu() {
+  const l = kanca.anlik().limitler;
+  const p = (x) => (x ? '%' + Math.round(x.yuzde) : '—');
+  return 'Kokpit' + (l ? ' · 5 saat ' + p(l.besSaat) + ' · hafta ' + p(l.hafta) : '');
+}
+
+function tepsiMenusu() {
+  if (!tepsi) return;
+  const a = ada.durum();
+  const sablon = [
+    { label: "Kokpit'i aç", click: pencereyiOneGetir },
+    { type: 'separator' },
+    {
+      label: "Ada'yı göster",
+      type: 'checkbox',
+      checked: a.acik,
+      click: (m) => {
+        ayarlar.yaz({ ada: m.checked });
+        ada.ayar(m.checked);
+        if (pencere) pencere.webContents.send('ada:ayar-degisti', m.checked);
+      },
+    },
+    {
+      label: 'Kokpit öndeyken de göster',
+      type: 'checkbox',
+      checked: a.hep,
+      enabled: a.acik,
+      click: (m) => {
+        ayarlar.yaz({ adaHep: m.checked });
+        ada.ayar(a.acik, m.checked);
+      },
+    },
+    { label: 'Limitleri tazele', click: () => void limit.tazele() },
+  ];
+  if (ACILIS_DESTEKLI) {
+    sablon.push({
+      label: 'Windows açılışında başlat',
+      type: 'checkbox',
+      checked: acilistaMi(),
+      click: (m) => acilisAyarla(m.checked),
+    });
+  }
+  sablon.push({ type: 'separator' }, { label: "Kokpit'ten çık", click: cik });
+  tepsi.setContextMenu(Menu.buildFromTemplate(sablon));
+}
+
+function tepsiKur() {
+  if (TEST && process.env.KOKPIT_TEST_TEPSI !== '1') return;
+  try {
+    const ikon = nativeImage.createFromPath(path.join(__dirname, '..', 'public', 'kokpit.ico'));
+    tepsi = new Tray(ikon.isEmpty() ? nativeImage.createEmpty() : ikon);
+  } catch (e) {
+    logHata('tepsi kurulamadi', e);
+    tepsi = null;
+    return;
+  }
+  tepsi.setToolTip(limitIpucu());
+  tepsi.on('click', pencereyiOneGetir);
+  tepsiMenusu();
+  // Ilk calisma: kayit yoksa bir kez acilir (Scryne 2026-10-04: "surekli ada acik olsun").
+  // Sonra tepsi menusundeki secim gecerli; ayar dosyasi kararin kendisini tutar.
+  if (ACILIS_DESTEKLI && ayarlar.oku().acilistaBaslat === undefined) acilisAyarla(true);
+  else if (ACILIS_DESTEKLI && ayarlar.oku().acilistaBaslat === true && !acilistaMi()) acilisAyarla(true);
+}
 ipcMain.handle('ayar:kaydet', (_e, yama) => {
   const a = ayarlar.yaz(ayarlar.rendererYamasi(yama));
   return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik, ada: a.ada !== false };
@@ -499,6 +677,7 @@ app.whenReady().then(() => {
       yayin: (a) => {
         if (pencere) pencere.webContents.send('etkinlik:anlik', a);
         ada.anlik(a);
+        if (tepsi) tepsi.setToolTip(limitIpucu());
       },
       sinyal: (id, sinyal, durum) => {
         // Durum sinyalle birlikte gider: yayin 80 ms kisiliyor, bildirim metni bayat olmasin.
@@ -507,8 +686,12 @@ app.whenReady().then(() => {
       },
     })
     .catch((e) => logHata('kanca baslatilamadi', e));
+  // Oturumsuz limitler (v2.6): sonuc kanca koprusunun limitleriyle birlesir, ayni yoldan yayinlanir.
+  limit.baslat((l, d) => kanca.disLimit(l, d));
+  powerMonitor.on('resume', () => limit.uyandi());
   pencereKur();
   adaKur();
+  tepsiKur();
   // Genel kisayol: Kokpit arka plandayken de Inbox notu. Ctrl+Alt+Shift+N secildi:
   // Turkce klavyede Ctrl+Alt = AltGr, AltGr+harf karakter yazar; uc degistirici cakismaz.
   // Baska bir uygulama aldiysa kayit basarisiz olur, Kokpit yine calisir.
@@ -550,6 +733,7 @@ app.on('before-quit', (olay) => {
   // kapanir, window-all-closed yeniden app.quit() der ve bu sefer buradan gecilir.
   if (pencere && !kapanisOnaylandi) {
     olay.preventDefault();
+    cikisIstendi = true;
     pencere.close();
     return;
   }
@@ -566,7 +750,12 @@ app.on('before-quit', (olay) => {
   }
   ptyKopru.durdur();
   kanca.durdur();
+  limit.durdur();
   ada.kapat();
+  if (tepsi) {
+    tepsi.destroy();
+    tepsi = null;
+  }
 });
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { log('tum pencereler kapandi, cikiliyor'); app.quit(); });

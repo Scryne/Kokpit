@@ -43,6 +43,7 @@ import { DurumIsareti, EtkinlikSeridi, LimitGostergesi, etkinlikCumlesi } from '
 import {
   BeyinKaydiRozeti,
   GRUP_BASLIK,
+  projeGrubu,
   projeGruplari,
   sureMetni,
   tokenMetni,
@@ -325,8 +326,16 @@ export default function App() {
    * `claude --resume <kimlik>` (tam o konusma), yoksa `--continue` (eski defter kaydi).
    * Yeni oturumun kimligi burada dogar (`--session-id`): defter, beyin durumu ve sonraki
    * surdurme tahmin yerine bu kimlige bakar.
+   *
+   * v2.6 `arkaPlan` (Ada'dan gorev): gorunum ve aktif sekme degismez — Scryne o an baska bir
+   * seye bakiyor olabilir, oturumu Ada'dan izler. Hic sekme yoksa yeni sekme aktif olur.
    */
-  const sekmeAc = useCallback((p: Pick<Proje, 'ad' | 'yol'>, devam = false, claudeId?: string | null) => {
+  const sekmeAc = useCallback((
+    p: Pick<Proje, 'ad' | 'yol'>,
+    devam = false,
+    claudeId?: string | null,
+    secenek?: { gorev?: string; arkaPlan?: boolean }
+  ) => {
     const id = yeniId(p);
     const grupId = 'g-' + id;
     const claude = devam ? claudeId ?? undefined : crypto.randomUUID();
@@ -343,8 +352,14 @@ export default function App() {
         oran: 1,
         devam,
         claude,
+        ...(secenek?.gorev ? { gorev: secenek.gorev } : {}),
       },
     ]);
+    if (secenek?.arkaPlan) {
+      setAktifGrupId((g) => g ?? grupId);
+      setAktifOturumId((x) => x ?? id);
+      return;
+    }
     setAktifGrupId(grupId);
     setAktifOturumId(id);
     // Kenar terminale gecerken otomatik daralir; alani terminale birakir (Ctrl+B geri acar).
@@ -616,7 +631,7 @@ export default function App() {
     window.kokpit.adaListe(
       oturumlar
         .filter((o) => !o.servis && (o.durumu === 'acik' || o.durumu === 'baglaniyor'))
-        .map((o) => ({ id: o.id, ad: o.ad, baslangic: o.baslangic, dikkat: o.dikkat === true }))
+        .map((o) => ({ id: o.id, ad: o.ad, baslangic: o.baslangic, dikkat: o.dikkat === true, claude: o.claude }))
     );
   }, [oturumlar]);
   // Adadan tiklama: main pencereyi one getirdi, burada o oturuma gecilir.
@@ -923,6 +938,32 @@ export default function App() {
     [durum]
   );
 
+  // Ada'dan gorev (v2.6): hedefler bu liste (sira ayni), en sonda vault (Aria). Main yalniz bu
+  // adlardan birine gorev kabul eder; yol Ada'dan gelmez.
+  const gorevHedefleri = useMemo(
+    () => [
+      ...siraliProjeler.map((p) => ({ ad: p.ad, yol: p.yol, grup: projeGrubu(p) as string })),
+      ...(durum ? [{ ad: 'ScryneOS', yol: durum.vault, grup: 'vault' }] : []),
+    ],
+    [siraliProjeler, durum]
+  );
+  useEffect(() => window.kokpit.adaProjeler(gorevHedefleri), [gorevHedefleri]);
+  useEffect(
+    () =>
+      window.kokpit.gorevAcDinle((g) => {
+        const p = gorevHedefleri.find((x) => x.ad === g.ad && x.yol === g.yol);
+        if (!p) {
+          console.warn('[gorev] hedef listede yok: ' + g.ad);
+          return;
+        }
+        console.info('[gorev] ' + p.ad + ': arka planda yeni oturum');
+        sekmeAc({ ad: p.ad, yol: p.yol }, false, null, { gorev: g.metin, arkaPlan: true });
+      }),
+    [gorevHedefleri, sekmeAc]
+  );
+  // Tepsi menusunden "Ada'yi goster" degisti: paletteki etiket ayni kalsin.
+  useEffect(() => window.kokpit.adaAyarDegistiDinle(setAdaAcik), []);
+
   const aktifOturum = oturumlar.find((o) => o.id === aktifOturumId) ?? null;
 
   // Gorunen dikkat: zil rozeti (bakinca duser) VEYA kanca koprusunde "seni bekliyor" durumu
@@ -983,13 +1024,15 @@ export default function App() {
         id: 'e-ada',
         grup: 'Eylem',
         baslik: adaAcik ? "Ada'yı kapat" : "Ada'yı aç",
-        ipucu: 'arka plandaki şerit',
+        ipucu: 'üstteki şerit',
         calistir: () => {
           const yeni = !adaAcik;
           setAdaAcik(yeni);
           window.kokpit.adaAyar(yeni);
         },
-      }
+      },
+      // v2.6: pencerenin X'i tepsiye indirir; gercek cikis burada ve tepsi menusunde.
+      { id: 'e-cik', grup: 'Eylem', baslik: "Kokpit'ten çık", ipucu: 'tepsiye inmeden', calistir: () => window.kokpit.uygulamaCik() }
     );
     for (const p of siraliProjeler) {
       k.push({ id: 'k-' + p.ad, grup: 'Klasör', baslik: p.ad, ipucu: 'Gezgin', calistir: () => void window.kokpit.klasorAc(p.yol) });
@@ -1888,6 +1931,7 @@ export default function App() {
                             gorunur={g.id === aktifGrupId}
                             devam={o.devam}
                             claudeId={o.claude}
+                            gorev={o.gorev}
                             servis={o.servis?.komut}
                             onAdres={onAdres}
                             yaziBoyutu={yaziBoyutu}

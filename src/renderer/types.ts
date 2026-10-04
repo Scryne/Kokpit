@@ -170,6 +170,8 @@ export interface Oturum {
   claude?: string;
   /** Guvenli cikis suruyor: claude'a cikis tuslari gitti, SessionEnd bekleniyor. */
   kapaniyor?: boolean;
+  /** Ada'dan gorev (v2.6): claude bu metinle acilir (ilk mesaj). */
+  gorev?: string;
   /**
    * Servis bolmesi (Calistir): claude degil, projenin kendi komutu (npm run dev...). Deftere,
    * ada'ya ve kapatma onayina girmez; kapaninca surec agaci oldurulur.
@@ -314,6 +316,28 @@ export interface Limitler {
   besSaat: Limit | null;
   hafta: Limit | null;
   olculdu: number;
+  /** v2.6: 'oturum' = statusline (her tur), 'usage' = oturumsuz yoklama (5 dk). */
+  kaynak?: 'oturum' | 'usage';
+}
+
+/** Oturumsuz limit yoklamasinin son sonucu (electron/limit.cjs). */
+export type LimitDurumu = 'tamam' | 'token-yok' | 'token-eski' | 'hata' | 'bekliyor';
+
+/** Kokpit disinda acilmis claude oturumu (~/.claude/sessions, electron/dis-oturumlar.cjs). */
+export interface DisOturum {
+  pid: number;
+  ad: string;
+  yol: string;
+  durum: 'calisiyor' | 'bekliyor' | 'hazir';
+  degisti: number | null;
+  baslangic: number | null;
+}
+
+/** Ada'dan gorev hedefi: ana pencerenin proje listesi. */
+export interface AdaProjesi {
+  ad: string;
+  yol: string;
+  grup: string;
 }
 
 /** Statusline'dan gelen baglam: transcript yoklamasindan kesin ve aninda. */
@@ -329,6 +353,7 @@ export interface EtkinlikAnlik {
   oturumlar: Record<string, OturumEtkinligi>;
   baglamlar: Record<string, DurumSatiriBaglami>;
   limitler: Limitler | null;
+  limitDurumu?: LimitDurumu;
 }
 
 export type EtkinlikSinyali = { id: string; sinyal: 'bitti' | 'bekliyor'; durum?: OturumEtkinligi };
@@ -339,6 +364,8 @@ export interface AdaOturumu {
   ad: string;
   baslangic: number | null;
   dikkat: boolean;
+  /** claude oturum kimligi: dis oturum listesinde Kokpit'in kendilerini ayirmak icin. */
+  claude?: string;
 }
 
 declare global {
@@ -399,6 +426,15 @@ declare global {
       oturumGordumDinle: (cb: (id: string) => void) => () => void;
       adaKlavyeDinle: (cb: (k: { anaOdakta: boolean }) => void) => () => void;
       pencereOdakDinle: (cb: (odakta: boolean) => void) => () => void;
+      adaProjeler: (liste: AdaProjesi[]) => void;
+      adaProjelerDinle: (cb: (l: AdaProjesi[]) => void) => () => void;
+      adaDisDinle: (cb: (l: DisOturum[]) => void) => () => void;
+      adaAyarDinle: (cb: (a: { hep: boolean }) => void) => () => void;
+      adaGorev: (gorev: { ad: string; metin: string }) => void;
+      adaLimitTazele: () => void;
+      gorevAcDinle: (cb: (g: { ad: string; yol: string; metin: string }) => void) => () => void;
+      adaAyarDegistiDinle: (cb: (acik: boolean) => void) => () => void;
+      uygulamaCik: () => void;
     };
   }
 }

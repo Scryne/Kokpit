@@ -14,7 +14,11 @@ const VARSAYILAN = Object.freeze({
   kenarAcik: true,
   yaziBoyutu: 13,
   arsivAcik: false, // proje listelerinde arsiv grubu (olduğu gibi / donduruldu / birakildi)
-  ada: true, // Kokpit arka plandayken ust ortadaki ada
+  ada: true, // ust ortadaki ada
+  adaHep: true, // v2.6: ada Kokpit ondeyken ve oturum yokken de gorunur
+  tepsi: true, // v2.6: pencerenin X'i tepsiye indirir, cikis tepsi menusunden
+  tepsiBildirildi: false, // "tepside calisiyor" balonu bir kez
+  // acilistaBaslat: bilerek varsayilansiz. Yoksa ilk calisma kaydi acar (main.cjs tepsiKur).
   seffaf: true, // akrilik pencere; false -> opak (Windows 11 22H2 alti zaten opak)
 });
 

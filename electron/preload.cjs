@@ -98,4 +98,34 @@ contextBridge.exposeInMainWorld('kokpit', {
     ipcRenderer.on('ada:klavye', d);
     return () => ipcRenderer.removeListener('ada:klavye', d);
   },
+  // v2.6 masaustu ajani: gorev hedefleri, dis oturumlar, gorev, limit tazeleme, tepsi.
+  adaProjeler: (liste) => ipcRenderer.send('ada:projeler', liste),
+  adaProjelerDinle: (cb) => {
+    const d = (_e, l) => cb(l);
+    ipcRenderer.on('ada:projeler', d);
+    return () => ipcRenderer.removeListener('ada:projeler', d);
+  },
+  adaDisDinle: (cb) => {
+    const d = (_e, l) => cb(l);
+    ipcRenderer.on('ada:dis', d);
+    return () => ipcRenderer.removeListener('ada:dis', d);
+  },
+  adaAyarDinle: (cb) => {
+    const d = (_e, a) => cb(a);
+    ipcRenderer.on('ada:ayar', d);
+    return () => ipcRenderer.removeListener('ada:ayar', d);
+  },
+  adaGorev: (gorev) => ipcRenderer.send('ada:gorev', gorev),
+  adaLimitTazele: () => ipcRenderer.send('ada:limit-tazele'),
+  gorevAcDinle: (cb) => {
+    const d = (_e, g) => cb(g);
+    ipcRenderer.on('gorev:ac', d);
+    return () => ipcRenderer.removeListener('gorev:ac', d);
+  },
+  adaAyarDegistiDinle: (cb) => {
+    const d = (_e, acik) => cb(acik === true);
+    ipcRenderer.on('ada:ayar-degisti', d);
+    return () => ipcRenderer.removeListener('ada:ayar-degisti', d);
+  },
+  uygulamaCik: () => ipcRenderer.send('uygulama:cik'),
 });

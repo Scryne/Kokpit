@@ -225,6 +225,15 @@ html.ada body {
     transform: none;
   }
 }
+/* Limit tazele: tek tur, sonsuz degil (hareket butcesi, DESIGN.md "Ada v2.5"). */
+.ada-donus {
+  animation: ada-donus 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes ada-donus {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ---- Ada'nin gozu (v2.5, AdaGoz.tsx) ----
    Malzeme birincil dugmenin gumus gradyani; gozler grafit. Renk yine yalniz amber = seni bekliyor.
