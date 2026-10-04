@@ -214,6 +214,25 @@ Yeni renk yok, yeni cam yok. Hepsi mevcut token'larla; amber yine yalnız "seni 
   metninde altı çizili metin düğmesi: ikincil eylem, düğme ağırlığı almaz.
 - **Çalıştır kutusu** — not kutusuyla aynı desen (yerel `<dialog>`, opak taban); komut alanı mono.
 
+## Ada v2.4 (2026-10-04)
+
+Yeni renk yok. Amber yine yalnız "seni bekliyor".
+
+- **Çok sorulu soru** — sorular alt alta; başlık `etiket` (büyük harf, soluk) + soru metni `metin`.
+  Seçenekler v2.3'teki kenarlıklı satır düğmeler; **seçili** olan `border-kenar-guclu` + `bg-yuzey-guclu`
+  ve rakamın yerinde lucide `Check` (renk değil biçim; `aria-pressed`). "Kendi cevabın…" metin düğmesi,
+  tıklanınca yerinde yazı kutusu; yazılmış cevap seçili satır gibi görünür. Altta mono sayaç (`1/2`,
+  ölçülmüş değer) ve tek birincil düğme "Cevapları gönder" (gümüş metal, uygulamadaki diğer birincil
+  düğmelerle aynı). Tek soruda düğme yok: seçenek tek tıkla gider (claude'un kendi davranışı).
+- **Son söz** — bitti satırının altında düz metin, `metin-ikincil`, markdown çizilmez (başlık işareti ve `**`
+  atılır). Bakılmamışsa 4 satır, bakıldıysa 1 satır; kısa görünümde paragraf boşlukları tek satıra iner.
+  "Tamamı" altı çizili metin düğmesi; açıkken en fazla 14rem, kendi içinde kayar.
+- **Gördüm** — çip satırının sağ ucunda soluk metin düğmesi: ikincil eylem, çip ağırlığı almaz.
+- **Bekleme süresi** — satırın sağındaki mono süre, sıra sende olan oturumda "ne zamandır bekliyor"
+  (diğerlerinde oturum süresi); hapta özetin yanında soluk mono.
+- **Klavye ipucu** — odak Ada'dayken kartın altında, kaydırma alanının dışında tek satır:
+  `1–4 seçer · Tab gezinir · Esc bırakır`; tuşlar mono. Odak halkası uygulamanın `aksan` halkası.
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;

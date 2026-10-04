@@ -35,6 +35,9 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 17 | Ada'dan cevap | ✅ Tamamlandı | Ada'da soru seçenekleri (rakam tuşu, gerçek claude ile ölçüldü), serbest cevap, hızlı komut çipleri, yanıt kutusu; bayat cevap damga ile reddediliyor; Kokpit'i çağır kısayolu |
 | 18 | Çalıştır (servis bölmesi) | ✅ Tamamlandı | Projenin uygulaması claude'un yanında ayrı bölmede; adres ANSI'li çıktıdan yakalanıyor; kapatınca süreç ağacı ölüyor ve port boşalıyor (konsoldan kopuk torun dahil) |
 | 19 | Oturum kimliği + Sürdür | ✅ Tamamlandı | Kokpit `--session-id` veriyor; geri yükleme ve Sürdür `--resume <kimlik>` ile tam o konuşmayı açıyor (gerçek claude ile ölçüldü) |
+| 20 | Ada: çok sorulu cevap | ✅ Tamamlandı | 2–4 soruluk AskUserQuestion Ada'dan cevaplanıyor (tuş dizisi gerçek claude ile ölçüldü); dizi kabuğa doğru sırayla gidiyor; her tuştan önce soru yeniden denetleniyor |
+| 21 | Ada: son söz, Gördüm, bekleme süresi | ✅ Tamamlandı | Bitti satırında claude'un son mesajı (Stop `last_assistant_message`); "Gördüm" Kokpit'teki rozeti düşürüyor; sıra sende olan oturumda bekleme süresi |
+| 22 | Ada: klavye | ✅ Tamamlandı | Ctrl+Alt+Shift+A gerçek tuşla Ada'ya odak veriyor (ölçüldü ~110 ms); 1–4 / Tab / Enter / Esc; bırakınca Kokpit ana penceresi öne gelmiyor |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -492,3 +495,46 @@ skill de yazıldı (`devam`, `calistir`, bkz. vault `Calisma-Sistemleri.md`).
   komut reddi), `test:ui` 65 (43'ten; hızlı komut kabukta yan etkisiyle, ada yolu rakamı kabuğa,
   bayat damga reddi, servis bölmesi/yeniden başlat/durdur, kimlik zinciri), `e2e:kanca` 11 (gerçek
   claude `--session-id`). `npm run ekran:ada` (scripts/ekran-ada.cjs) ada + terminal + Pano görüntüsü.
+
+### v2.4 (2026-10-04): Ada — tam cevap
+
+**Neden:** Scryne "Ada'yı daha çok geliştir, tamamen sana bırakıyorum" dedi. Kanıtla başlandı: son 30 günün
+transcript'lerinde claude 60 soru sormuş, **22'si (%37) çok sorulu** (20'si tamamen tekli seçim), 2'si çoklu
+seçim — v2.3 Ada'sı çok soruluyu terminale yolluyordu. Ada "bitti" deyince claude'un ne dediğini göstermiyordu;
+cevap vermek için yine Kokpit'e geçmek gerekiyordu. Tek monitör (1536×864): çoklu ekran kapsam dışı.
+
+- **Spike (gerçek claude 2.1.289, PTY + headless xterm, Haiku):** Stop hook'unda `last_assistant_message`
+  var (ayrıca `background_tasks`, `session_crons`). Çok sorulu form: rakam seçer ve **sonraki soruya geçer**;
+  N+1 + metin + Enter serbest cevabı yazıp geçer; son sorudan sonra "Review your answers" ekranı, orada
+  **1 = Submit answers**. Dizi PreToolUse + 800 ms'den sonra 250 ms aralıkla doğru gitti (`Köpek` + serbest
+  metin); formdan önce giden tuşlar girdi kutusuna düşüyor (spike'ta kendi hatamla görüldü).
+- **Faz 20, çok sorulu cevap** (✅): `soruAyrintisi` artık `sorular[]` (en fazla 4); çoklu seçim ya da
+  seçeneksiz soru varsa terminale. İstek biçimi `tur: 'cevap', cevaplar: (sıra | metin)[]`, bayat damga
+  reddi aynen; tuşlar 350 ms aralıkla ve **her tuştan önce** soru hâlâ aynı mı bakılır. Aynı oturuma üst üste
+  iki dizi binemez. Biçim denetimi `electron/gonder-istegi.cjs`'e taşındı (test edilebilir).
+- **Faz 21, son söz / Gördüm / bekleme** (✅): `sonSoz` bellekte (yeni turda silinir, alt ajanın Stop'u
+  yazmaz, 4000 sınırı, `__init__` gibi adlar bozulmaz). Bildirim gövdesinde başı. "Gördüm" yalnız dikkat
+  rozetini düşürür ("seni bekliyor" düşmez). Soru düğmelerinin hazır olma zamanı saniyelik saate bağlıydı
+  (800 ms yerine 1,8 sn'ye kadar kapalı kalabiliyordu; test kararsızlığı olarak göründü) → kendi zamanlayıcısı.
+- **Faz 22, klavye** (✅): Ctrl+Alt+Shift+A. **Ölçüm** (gerçek tuş olayı `keybd_event` + Win32 ön plan
+  okuması, izole Kokpit örneği): kısayoldan ~110 ms sonra ön planda "Kokpit Ada", ilk eylem odakta.
+  Kısayolsuz `focus()` Windows ön plan kilidine takılıyor (Ada odakta sanıyor, tuşlar önceki pencereye
+  gidiyor) — klavye yolu bu yüzden yalnız genel kısayoldan açılır. Bırakma: `blur()` → **Kokpit'in ana
+  penceresi öne geliyordu**; ana pencere geçici `setFocusable(false)` + `blur()`/`hide()` → hiçbir pencere etkin
+  değil; `minimize()` (saydam) + `showInactive()` → Windows'un son kullanıcı girdisiyle etkinleşen penceresi.
+  Sonuncusu seçildi. Sayfa başlığı pencere başlığını eziyordu ("Kokpit"); Ada artık "Kokpit Ada".
+- **Bakım, kapanış hatası (v2.2'den beri):** ana pencere kapanınca Ada penceresi yaşadığı için
+  `window-all-closed` hiç gelmiyordu; süreç (PTY sunucusu, servisler, genel kısayollar) arka planda kalıyor,
+  sonraki `kokpit` tek örnek kilidine takılıp boş pencereyi öne getirmeye çalışıyordu. Gerçek logda Ada'lı
+  hiçbir çalışmada "tüm pencereler kapandı" satırı yok. Test koşucuları Ada'yı kurmadığı için görülmedi;
+  `test:ui` artık Ada'yı kurup ayrı CDP hedefi olarak sürüyor ve iki kapanış kontrolü bunu yakaladı.
+- **Testler:** `test:kanca` 89 (71'den; çok soru, son söz, istek biçimi), `test:ui` 81 (65'ten; Ada penceresi
+  ayrı CDP hedefi: iki soruluk form → kabuğa "23" + Review "1", son söz, Gördüm → rozet, rakam tuşu, odak
+  bırakma), `test:pty` 18. İki kez üst üste yeşil. **Mutasyon 7/7 yakalandı** (yeni tur son sözü silmiyor,
+  çoklu seçim cevaplanabilir, boş metin kabul, Review "1"i yok, serbest metin rakamı N, ana pencere kapanınca
+  çıkmıyor, Gördüm etkisiz). Gerçek `~/.kokpit` (ayarlar, defter, komutlar) tüm koşular boyunca değişmedi
+  (`parmakizi.py`). `ekran:ada` → `kokpit-v24-ada{,-klavye,-bitti}.png`.
+- **Kontrol edilemeyen:** Kokpit'in kendisinden gerçek claude'a çok sorulu cevap (tuşlar ve aralık gerçek
+  claude ile spike'ta ölçüldü, Kokpit yolu test kabuğunda); Esc sonrası odağın Scryne'ın kısayola bastığı
+  pencereye dönmesi (ölçümde Windows "son gerçek girdiyle etkinleşen" pencereyi seçti; sentetik girdiyle
+  o pencere test penceresi olamadı) — canlı kullanımda görülecek.

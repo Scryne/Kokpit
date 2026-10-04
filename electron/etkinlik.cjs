@@ -22,6 +22,7 @@ function yeniDurum(simdi) {
     arac: null, // { ad, hedef, alt, arti, eksi, basladi, bitti }
     soru: null, // bekliyor iken kullaniciya sorulan sey (kisa)
     soruAyrinti: null, // AskUserQuestion ise secenekler (ada'dan cevap icin), bkz. soruAyrintisi
+    sonSoz: null, // bitti iken turun son mesaji (Stop last_assistant_message), bkz. sonSoz
     turBasladi: null,
     sonTurSuresiMs: null,
     degisti: simdi,
@@ -81,31 +82,57 @@ function hedefOzeti(ad, girdi) {
   }
 }
 
+/** Ayni anda en fazla bu kadar soru (AskUserQuestion'un kendi siniri 4). */
+const SORU_SINIRI = 4;
+
 /**
- * AskUserQuestion'un ilk sorusu ve secenekleri: Kokpit/ada bunu dugme olarak gosterir.
- * TUI klavyesi (2026-10-04 spike'inda gercek claude 2.1.289 ile olculdu, docs soylemiyor):
- * secenekler 1..N numarali, rakam tusu secip GONDERIR (Enter gerekmez); N+1 "Type something"
- * satiri — rakami serbest metin kutusunu acar, metin + Enter gonderir; N+2 "Chat about this".
- * Birden cok soru ya da coklu secim sekmeli/toggle'li bir akis: oradan cevap verilmez,
+ * AskUserQuestion'un sorulari ve secenekleri: Kokpit/ada bunlari dugme olarak gosterir.
+ * TUI klavyesi gercek claude 2.1.289 ile olculdu (docs soylemiyor):
+ *   - Tek soru (10-04): secenekler 1..N, rakam secip GONDERIR (Enter yok); N+1 "Type something"
+ *     rakami serbest metin kutusunu acar, metin + Enter gonderir; N+2 "Chat about this".
+ *   - Cok soru (10-04, v2.4): ayni tuslar, ama secim/metin sonraki soruya GECER; son sorudan
+ *     sonra "Review your answers" ekrani gelir, orada 1 = "Submit answers" (2 = Cancel).
+ *     Tuslar arasi 250 ms yetti (dizi formun ilk cizimi bittikten sonra baslarsa).
+ * Coklu secim toggle'li bir akis (30 gunde 60 sorunun 2'si): oradan cevap verilmez,
  * `cevaplanabilir` false olur ve arayuz terminale yonlendirir.
  */
 function soruAyrintisi(girdi) {
-  const sorular = Array.isArray(girdi?.questions) ? girdi.questions : [];
-  const ilk = sorular[0];
-  if (!ilk || typeof ilk !== 'object') return null;
-  const secenekler = (Array.isArray(ilk.options) ? ilk.options : [])
-    .slice(0, 4)
-    .map((o) => ({ etiket: kisalt(o?.label, 60), aciklama: kisalt(o?.description, 140) }))
-    .filter((o) => o.etiket);
-  const coklu = ilk.multiSelect === true;
+  const ham = Array.isArray(girdi?.questions) ? girdi.questions.filter((q) => q && typeof q === 'object') : [];
+  if (ham.length === 0) return null;
+  const sorular = ham.slice(0, SORU_SINIRI).map((q) => ({
+    soru: kisalt(q.question, 240),
+    baslik: kisalt(q.header, 24),
+    secenekler: (Array.isArray(q.options) ? q.options : [])
+      .slice(0, 4)
+      .map((o) => ({ etiket: kisalt(o?.label, 60), aciklama: kisalt(o?.description, 140) }))
+      .filter((o) => o.etiket),
+  }));
+  const coklu = ham.some((q) => q.multiSelect === true);
   return {
-    soru: kisalt(ilk.question, 240),
-    baslik: kisalt(ilk.header, 24),
-    secenekler,
+    sorular,
     coklu,
-    soruSayisi: sorular.length,
-    cevaplanabilir: sorular.length === 1 && !coklu && secenekler.length > 0,
+    soruSayisi: ham.length,
+    cevaplanabilir: !coklu && ham.length <= SORU_SINIRI && sorular.every((q) => q.secenekler.length > 0),
   };
+}
+
+/**
+ * Stop'un `last_assistant_message`'i (claude 2.1.289'da var, olculdu): turun son sozu. Ada
+ * "bitti" dediginde ne dedigini gosterir; Kokpit'e gecmeden cevap verilebilsin. Bellekte kalir,
+ * deftere yazilmaz (README kural 7). Markdown'in yalniz gurultusu atilir; metin degismez.
+ */
+const SON_SOZ_SINIRI = 4000;
+function sonSoz(metin) {
+  if (typeof metin !== 'string') return null;
+  const s = metin
+    .replace(/\r\n?/g, '\n')
+    .replace(/^#{1,6}\s+/gm, '')
+    // `__init__` gibi adlar bozulmasin diye yalniz ** (alt cizgi vurgusu atilmaz).
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (!s) return null;
+  return s.length > SON_SOZ_SINIRI ? s.slice(0, SON_SOZ_SINIRI - 1) + '…' : s;
 }
 
 /** Gosterilen arac adi: mcp araclari "MCP", gerisi oldugu gibi. */
@@ -170,6 +197,7 @@ function isle(onceki, govde, simdi = Date.now()) {
       d.arac = null;
       d.soru = null;
       d.soruAyrinti = null;
+      d.sonSoz = null;
       d.ozet.turlar++;
       break;
 
@@ -248,6 +276,7 @@ function isle(onceki, govde, simdi = Date.now()) {
       d.turBasladi = null;
       d.soru = null;
       d.soruAyrinti = null;
+      d.sonSoz = sonSoz(govde.last_assistant_message);
       sinyal = 'bitti';
       break;
 
@@ -301,4 +330,4 @@ function durumSatiri(govde) {
   };
 }
 
-module.exports = { yeniDurum, isle, kaliciOzet, durumSatiri, hedefOzeti, farkSayilari, soruAyrintisi };
+module.exports = { yeniDurum, isle, kaliciOzet, durumSatiri, hedefOzeti, farkSayilari, soruAyrintisi, sonSoz };
