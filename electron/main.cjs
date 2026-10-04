@@ -202,8 +202,16 @@ function pencereKur() {
     app.quit();
   });
   // Ada yalniz Kokpit arka plandayken gorunur.
-  pencere.on('focus', () => ada.anaOdak(true));
-  pencere.on('blur', () => ada.anaOdak(false));
+  pencere.on('focus', () => {
+    ada.anaOdak(true);
+    pencere.webContents.send('pencere:odak', true);
+  });
+  pencere.on('blur', () => {
+    ada.anaOdak(false);
+    // Renderer arka plandayken surekli animasyonlarini durdurur (main.tsx). document.hasFocus()
+    // buna yetmiyor: Ada'nin gorunurlugunu belirleyen kaynakla ayni olay kullanilir.
+    if (pencere) pencere.webContents.send('pencere:odak', false);
+  });
 }
 
 /** Ada penceresi: ayni arayuz paketi, #ada adresiyle. Test kosucularinda kurulmaz. */

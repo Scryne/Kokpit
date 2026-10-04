@@ -88,6 +88,11 @@ contextBridge.exposeInMainWorld('kokpit', {
     ipcRenderer.on('oturum:gordum', d);
     return () => ipcRenderer.removeListener('oturum:gordum', d);
   },
+  pencereOdakDinle: (cb) => {
+    const d = (_e, odakta) => cb(odakta === true);
+    ipcRenderer.on('pencere:odak', d);
+    return () => ipcRenderer.removeListener('pencere:odak', d);
+  },
   adaKlavyeDinle: (cb) => {
     const d = (_e, k) => cb(k);
     ipcRenderer.on('ada:klavye', d);

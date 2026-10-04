@@ -174,13 +174,20 @@ body {
   height: 3px;
   border-radius: 9999px;
   background: var(--color-metin-ikincil);
-  animation: nabiz 1.2s ease-in-out infinite;
+  /* Kademeli (~7 guncelleme/sn): akici 60 fps nabiz, akrilik/saydam pencerenin her karede yeniden
+     birlesmesine yol aciyordu (olculdu 2026-10-04: arka plandaki Kokpit'te ~%25 cekirdek). */
+  animation: nabiz 1.2s steps(8, jump-none) infinite;
 }
 .calisma-isareti i:nth-child(2) {
   animation-delay: 0.15s;
 }
 .calisma-isareti i:nth-child(3) {
   animation-delay: 0.3s;
+}
+/* Pencere arka plandayken nabiz durur (main.tsx `arka-plan`); nokta yanik kalir, bicim ayni. */
+html.arka-plan .calisma-isareti i,
+html.arka-plan .animate-pulse {
+  animation-play-state: paused;
 }
 @keyframes nabiz {
   0%,
@@ -217,6 +224,251 @@ html.ada body {
     opacity: 1;
     transform: none;
   }
+}
+
+/* ---- Ada'nin gozu (v2.5, AdaGoz.tsx) ----
+   Malzeme birincil dugmenin gumus gradyani; gozler grafit. Renk yine yalniz amber = seni bekliyor.
+   Surekli hareketler yalniz HTML ogelerinde transform/opacity (compositor); SVG yok. */
+.ada-goz {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 22px;
+  flex: none;
+}
+.ada-goz-govde {
+  position: absolute;
+  left: 1px;
+  top: 2px;
+  width: 22px;
+  height: 18px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #f8f9fb 0%, #dce1e8 55%, #b3bbc6 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    inset 0 -1px 0 rgb(0 0 0 / 0.12),
+    0 2px 6px -2px rgb(0 0 0 / 0.6);
+  transition: opacity 400ms ease;
+}
+.ada-goz-takip,
+.ada-goz-poz {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4.5px;
+  transition: transform 260ms cubic-bezier(0.3, 1.2, 0.5, 1);
+}
+.ada-goz-poz {
+  padding-bottom: 1px;
+}
+.ada-goz-g {
+  display: block;
+  width: 3px;
+  height: 5px;
+  border-radius: 1.5px;
+  background: #101216;
+  transition: transform 160ms ease, height 200ms ease;
+}
+/* Kirpma: 140 ms'lik tek gecis (zamanlayici AdaGoz'da). */
+.ada-goz[data-kirp] .ada-goz-poz .ada-goz-g {
+  transform: scaleY(0.12);
+  transition-duration: 70ms;
+}
+/* Calisiyor: govde nefes alir, bakis aracin turune gore. Surekli CSS animasyonu YOK: calisan bir
+   sonsuz animasyon (adimli olsa bile) compositor'u 60 fps'te tutuyor, saydam pencere her karede
+   yeniden birlesiyordu (olculdu 2026-10-04: +%5 cekirdek). Hareket AdaGoz'daki 480 ms'lik
+   zamanlayicidan gelen anlik konum degisimleri (data-nefes, data-oku); aradaki surede kare yok. */
+.ada-goz[data-nefes] .ada-goz-govde {
+  transform: translateY(-1px);
+}
+.ada-goz[data-poz='dusun'] .ada-goz-poz {
+  transform: translate(-1.3px, -1.4px);
+}
+.ada-goz[data-poz='yaz'] .ada-goz-poz {
+  transform: translate(1.5px, 1.3px);
+}
+.ada-goz[data-poz='yaz'] .ada-goz-g {
+  transform: scaleY(0.72);
+}
+.ada-goz[data-poz='komut'] .ada-goz-poz {
+  transform: translateX(1.2px);
+}
+.ada-goz[data-poz='komut'] .ada-goz-g {
+  transform: scaleY(0.4);
+}
+.ada-goz[data-poz='web'] .ada-goz-poz {
+  transform: translate(1.5px, -1.5px);
+}
+.ada-goz[data-poz='ajan'] .ada-goz-poz {
+  transform: translate(2px, 0.4px);
+}
+/* Okurken gozler satir okur: gercek goz gibi sicrayarak (sakkad), uc durak saga, sonra yeni satira. */
+.ada-goz[data-poz='oku'] .ada-goz-poz {
+  transform: translate(-1.7px, 0.8px);
+  /* Gecis yok: gercek sakkad ~30 ms'lik bir sicramadir; 70 ms'lik gecis bile her durakta kare
+     uretip +%3 cekirdek ekliyordu (olculdu). */
+  transition: none;
+}
+.ada-goz[data-poz='oku'][data-oku='1'] .ada-goz-poz {
+  transform: translate(-0.4px, 0.8px);
+}
+.ada-goz[data-poz='oku'][data-oku='2'] .ada-goz-poz {
+  transform: translate(0.8px, 0.8px);
+}
+.ada-goz[data-poz='oku'][data-oku='3'] .ada-goz-poz {
+  transform: translate(1.8px, 0.8px);
+}
+.ada-goz[data-poz='oku'][data-oku='4'] .ada-goz-poz {
+  transform: translate(-1.7px, 1.6px);
+}
+/* Seni bekliyor: gozler buyur ve sana bakar; amber halka iki kez atar, sonra yanik kalir. */
+.ada-goz-halo {
+  position: absolute;
+  left: -1px;
+  top: 0;
+  width: 26px;
+  height: 22px;
+  border-radius: 9px;
+  border: 1.2px solid var(--color-dikkat);
+  opacity: 0;
+}
+.ada-goz[data-hal='bekliyor'] .ada-goz-halo {
+  opacity: 0.95;
+  animation: ada-goz-halo 0.9s ease-out 2;
+}
+@keyframes ada-goz-halo {
+  0%,
+  100% {
+    opacity: 0.95;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+.ada-goz[data-hal='bekliyor'] .ada-goz-poz {
+  transform: translateY(-0.6px) scale(1.18);
+}
+/* Bitti: once kisa sevinc (gulen gozler + tek zipla), sonra sakin yari kapali gozler. */
+.ada-goz[data-hal='bitti'] .ada-goz-g {
+  transform: scaleY(0.55);
+}
+.ada-goz[data-hal='mutlu'] .ada-goz-g {
+  width: 3.6px;
+  height: 2.4px;
+  background: transparent;
+  border: 1.3px solid #101216;
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+}
+.ada-goz[data-hal='mutlu'] {
+  animation: ada-goz-zipla 520ms cubic-bezier(0.3, 1.6, 0.5, 1) 1;
+}
+@keyframes ada-goz-zipla {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-4px);
+  }
+}
+/* Ada'dan cevap gonderildi: bir kez bas sallar ("tamam"). */
+.ada-goz[data-onay] {
+  animation: ada-goz-onay 600ms ease-in-out 1;
+}
+@keyframes ada-goz-onay {
+  0%,
+  50%,
+  100% {
+    transform: translateY(0);
+  }
+  25%,
+  75% {
+    transform: translateY(1.4px);
+  }
+}
+/* Uzun sessizlik: gozler kapanir, govde kisilir, uc kez "z" ucar ve soluk kalir. */
+.ada-goz[data-hal='uyku'] .ada-goz-g {
+  width: 4px;
+  height: 1.4px;
+  transform: translateY(1px);
+}
+.ada-goz[data-hal='uyku'] .ada-goz-govde {
+  opacity: 0.7;
+}
+.ada-goz-z {
+  position: absolute;
+  right: -2px;
+  top: -1px;
+  font: 600 8px/1 var(--font-enstruman);
+  color: var(--color-metin-soluk);
+  opacity: 0;
+}
+.ada-goz[data-hal='uyku'] .ada-goz-z {
+  opacity: 0.55;
+  animation: ada-goz-z 2.6s ease-out 3;
+}
+@keyframes ada-goz-z {
+  0% {
+    opacity: 0;
+    transform: translate(-2px, 3px);
+  }
+  30% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(2px, -3px);
+  }
+}
+/* Alt ajanlar: govdenin saginda, calisan ajan basina bir nokta (en fazla 3). */
+.ada-goz-altlar {
+  position: absolute;
+  right: 0;
+  top: 3px;
+  bottom: 3px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.ada-goz-altlar i {
+  display: block;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-metin-ikincil);
+  animation: ada-goz-nokta 220ms cubic-bezier(0.3, 1.6, 0.5, 1) 1;
+}
+@keyframes ada-goz-nokta {
+  from {
+    transform: scale(0);
+  }
+}
+/* Hap metni degisince (arac, durum) bir kez yumusak gelir; ani sicrama yerine. */
+.ada-metin {
+  animation: ada-metin 180ms ease-out 1;
+}
+@keyframes ada-metin {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+/* Limit kenari: hapin cevresinde 5 saatlik limit dolar (LimitKenari, Ada.tsx). */
+.ada-kenar {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.ada-kenar path {
+  fill: none;
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  transition: stroke-dasharray 600ms ease;
 }
 
 /* backdrop-filter ASLA anime edilmez (OsintLab kurali, burada da gecerli).

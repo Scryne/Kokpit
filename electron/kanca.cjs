@@ -24,7 +24,7 @@ const etkinlik = require('./etkinlik.cjs');
 const DIZIN = path.join(KOKPIT_DIZIN, 'kanca');
 const GOVDE_SINIRI = 8 * 1024 * 1024; // Write'in content'i buyuk olabilir
 const YAYIN_ARALIGI_MS = 80;
-const OLAYLAR = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'SessionEnd'];
+const OLAYLAR = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'SubagentStart', 'SubagentStop', 'SessionEnd'];
 
 let sunucu = null;
 let bilgi = null; // { port, token, ayarDosyasi, asilDurumSatiri }

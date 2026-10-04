@@ -1,7 +1,8 @@
 // Ada: Kokpit arka plandayken ekranin ust ortasinda duran kucuk cam serit.
-// Coucou'nun (Louis-CFM/coucou) "notch" fikrinin Kokpit'teki karsiligi; karakter ve onay
-// dugmeleri yok (Scryne bypass modunda, izin sorusu gelmez). Gosterdigi: hangi oturum ne
-// yapiyor, hangisi seni bekliyor, limit ne durumda. Tiklayinca Kokpit o sekmeyle one gelir.
+// Coucou'nun (Louis-CFM/coucou) "notch" fikrinin Kokpit'teki karsiligi; onay dugmeleri yok
+// (Scryne bypass modunda, izin sorusu gelmez). v2.5'ten beri bir karakteri var: Ada'nin gozu
+// (renderer AdaGoz.tsx; Scryne 2026-10-04'te dort yon arasindan secti). Gosterdigi: hangi oturum
+// ne yapiyor, hangisi seni bekliyor, limit ne durumda. Tiklayinca Kokpit o sekmeyle one gelir.
 //
 // Pencere: cercevesiz, SAYDAM (sekil icin), hep ustte, odak calmaz, gorev cubugunda yok.
 // Saydam pencere akrilik alamaz; ada kendi koyu tonunu tasir (kontrast garanti, DESIGN.md).

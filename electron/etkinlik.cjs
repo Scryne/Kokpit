@@ -14,6 +14,7 @@
 const path = require('path');
 
 const SON_OLAY_SINIRI = 30;
+const ALT_AJAN_ZAMAN_ASIMI = 15 * 60 * 1000;
 
 function yeniDurum(simdi) {
   return {
@@ -25,7 +26,12 @@ function yeniDurum(simdi) {
     sonSoz: null, // bitti iken turun son mesaji (Stop last_assistant_message), bkz. sonSoz
     turBasladi: null,
     sonTurSuresiMs: null,
-    degisti: simdi,
+    degisti: simdi, // son islenen olay (herhangi biri)
+    durumZamani: simdi, // `durum` en son ne zaman degisti ("ne zamandir bekliyor")
+    // Acik sorunun dogdugu an: ada'dan cevabin damgasi. `degisti`ye baglanamaz — soru acikken arka
+    // plan alt ajaninin araclari ve 60 sn sonraki idle_prompt da olay uretir (olculdu 2026-10-04).
+    soruZamani: null,
+    altlar: {}, // calisan alt ajanlar: { [agent_id]: { tur, t } } (SubagentStart..SubagentStop)
     ozet: { araclar: 0, dosyalar: [], arti: 0, eksi: 0, turlar: 0 },
     olaylar: [], // son N arac: { t, ad, hedef, arti, eksi, alt }
   };
@@ -185,10 +191,25 @@ function isle(onceki, govde, simdi = Date.now()) {
   let sinyal = null;
   if (govde?.session_id) d.claudeOturumu = govde.session_id;
   const alt = Boolean(govde?.agent_id);
+  const oncekiDurum = d.durum;
+  if (!d.altlar) d.altlar = {};
+  // Alt ajanlar: SubagentStart..SubagentStop arasi (gercek claude 2.1.289: ikisi de agent_id +
+  // agent_type tasir; ana tur Stop dedikten SONRA arka planda calismaya devam edebilir). Araclari
+  // da agent_id tasir: kayit tazelenir. Stop'u kacirilan ajan 15 dk sessizlikte dusurulur.
+  if (alt && (olay === 'PreToolUse' || olay === 'PostToolUse' || olay === 'SubagentStart')) {
+    d.altlar[String(govde.agent_id)] = { tur: kisalt(govde.agent_type, 40), t: simdi };
+  }
+  for (const [k, a] of Object.entries(d.altlar)) if (simdi - a.t > ALT_AJAN_ZAMAN_ASIMI) delete d.altlar[k];
 
   switch (olay) {
     case 'SessionStart':
       d.durum = 'bosta';
+      break;
+
+    case 'SubagentStart':
+      break; // kayit yukarida
+    case 'SubagentStop':
+      if (alt) delete d.altlar[String(govde.agent_id)];
       break;
 
     case 'UserPromptSubmit':
@@ -285,6 +306,7 @@ function isle(onceki, govde, simdi = Date.now()) {
       d.turBasladi = null;
       d.soru = null;
       d.soruAyrinti = null;
+      d.altlar = {};
       break;
 
     default:
@@ -292,6 +314,10 @@ function isle(onceki, govde, simdi = Date.now()) {
   }
 
   d.degisti = simdi;
+  if (d.durum !== oncekiDurum) d.durumZamani = simdi;
+  // Soru damgasi yalniz yeni bir bekleyis dogunca degisir; bekleyis bitince silinir.
+  if (sinyal === 'bekliyor') d.soruZamani = simdi;
+  else if (d.durum !== 'bekliyor') d.soruZamani = null;
   return { durum: d, sinyal, degisti: true };
 }
 

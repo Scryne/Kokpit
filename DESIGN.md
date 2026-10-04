@@ -188,7 +188,8 @@ yuzden sureler burada, kodda Tailwind sinifi olarak (`duration-[180ms]`) yasar.
 - **Limit ölçerleri** — kenarın altında, 1 px yüksek çubuk; dolgu `metin-ikincil`, ≥ %80
   `dikkat`, ≥ %95 `hata`. Değer mono, sıfırlanma "sıfırlanma 22:14" (ek yok: saate göre
   Türkçe ek üretmek hata kaynağı).
-- **Ada** — saydam pencere, kart `rgb(14 15 18 / 0.93)` + halka (saydam pencere masaüstünü
+- **Ada** (v2.5'te hapın solundaki gösterge ikonu + durum noktası yerini Ada'nın gözüne bıraktı,
+  bkz. "Ada v2.5") — saydam pencere, kart `rgb(14 15 18 / 0.93)` + halka (saydam pencere masaüstünü
   bulanıklaştıramaz; ton opak denecek kadar koyu, arkada ne olursa olsun okunur).
   Kapalıyken hap (`rounded-full`), açıkken `rounded-2xl` 440 px kart; açılış 160 ms
   `scaleY` + opaklık, `backdrop-filter` yok. Renk kuralı aynı: amber yalnız seni bekleyen.
@@ -232,6 +233,34 @@ Yeni renk yok. Amber yine yalnız "seni bekliyor".
   (diğerlerinde oturum süresi); hapta özetin yanında soluk mono.
 - **Klavye ipucu** — odak Ada'dayken kartın altında, kaydırma alanının dışında tek satır:
   `1–4 seçer · Tab gezinir · Esc bırakır`; tuşlar mono. Odak halkası uygulamanın `aksan` halkası.
+
+## Ada v2.5: Ada'nın gözü (2026-10-04)
+
+Scryne "pet tarzı" istedi; dört yön (gösterge ibresi, piksel ızgara, gümüş göz, piksel kedi) canlı
+önizlemede sunuldu, **gümüş göz** seçildi. Esin: Coucou'nun Mochi'si, Notch Pilot. Claude'un maskotu
+Clawd kullanılmaz (Anthropic markası).
+
+- **Malzeme:** birincil düğmenin gümüş gradyanı (22×18, köşe 7 px), gözler grafit `#101216`. Yeni
+  renk yok; amber yine yalnız "seni bekliyor" (gözün çevresinde halka, iki kez atar, sonra yanık kalır).
+- **Davranış ölçülmüş durumdan gelir, uydurma duygudan değil.** Çalışırken bakış araca göre: Read/Grep
+  satır okur (sıçramalı), Edit aşağı odaklanır, Bash kısılır, Web yukarı bakar, Agent yanındaki noktalara
+  bakar, araçlar arası yukarı bakıp düşünür. Soru: gözler büyür, sana bakar. Bitti: 8 sn gülen gözler +
+  tek zıplama, sonra yarı kapalı sakin gözler. 30 dk olay yoksa uyur (kapalı gözler, üç kez "z").
+  Ada'dan cevap gönderilince bir kez baş sallar. İmleç kartın üstündeyken gözler onu izler (en fazla 1,6 px).
+- **Alt ajan noktaları:** gövdenin sağında çalışan alt ajan başına bir nokta (en fazla 3),
+  `SubagentStart`..`SubagentStop` (ölçüldü: ikisi de `agent_id` taşır, ajan ana tur bittikten sonra da sürebilir).
+- **Limit kenarı:** hapın çevresi 5 saatlik limitle dolar, üst ortadan saat yönünde; %80 amber, %95
+  kırmızı (kenardaki ölçerlerle aynı eşik). Kart açıkken çizilmez (orada çubuklar var).
+- **Metin geçişi:** hap metni araç ya da durum değişince bir kez 180 ms soluklaşarak gelir; sayılar
+  anahtar dışı (sayan süre her saniye titretiyordu).
+- **Hareket bütçesi — ölçüldü, kural:** saydam ve akrilik pencerede **sonsuz CSS animasyonu yok.**
+  Çalışan bir sonsuz animasyon, kademeli (`steps()`) bile olsa compositor'u 60 fps'te tutuyor ve pencere
+  her karede yeniden birleşiyor. İlk sürümde çalışırken toplam %36 tek çekirdek ölçüldü. Hareket seyrek
+  zamanlayıcıyla anlık konum değişimi (480 ms; okuma sıçramasında geçiş de yok). Ana pencerenin
+  "çalışıyor" nabzı kademeli ve pencere arka plandayken duruyor (main süreçteki `blur`, `document.hasFocus`
+  değil). Sonuç: göz canlıyken %2,3–2,9, durgunken %2,1–2,5 tek çekirdek (üç dönüşümlü tur; fark gürültü
+  düzeyinde). Ölçüm yeniden: Ada görünürken süreç başına CPU + `GPU Engine` sayaçları.
+- Hareket azaltmada zamanlayıcılar kurulmaz; tek seferlik animasyonlar son karede durur.
 
 ## Components
 
