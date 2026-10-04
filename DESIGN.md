@@ -262,6 +262,29 @@ Clawd kullanılmaz (Anthropic markası).
   düzeyinde). Ölçüm yeniden: Ada görünürken süreç başına CPU + `GPU Engine` sayaçları.
 - Hareket azaltmada zamanlayıcılar kurulmaz; tek seferlik animasyonlar son karede durur.
 
+## Ada v2.6: masaüstü ajanı (2026-10-04)
+
+Scryne: "Ada sürekli açık olsun, limitler terminal açmadan da görünsün, masaüstü ajanım olsun."
+Yeni renk yok, yeni cam yok; amber yine yalnız "seni bekliyor" (ve ≥ %80 limit, ölçerlerle aynı eşik).
+
+- **Hep görünür.** Kokpit öndeyken, oturum yokken, ana pencere tepsideyken de. Oturumsuz hap: göz +
+  "Hazır" (`metin-ikincil`: söylenecek iş yok) + limitler. Kokpit öndeyken pencerenin başlık çubuğunun
+  ortasına oturur; boş alan fareyi geçirdiği için başlık çubuğu tıklanır kalır. Tepsi menüsünde iki
+  anahtar: "Ada'yı göster", "Kokpit öndeyken de göster".
+- **Hapta iki limit:** `5s %15  hafta %92`, mono, soluk; ≥ %80 olan `dikkat-metin`. Kenar halkası yine
+  5 saatlik (v2.5 kuralı; iki halka iki anlam taşıyıp okunmazdı). Sıfırlanma anı geçtiyse değer 0'dır
+  (pencere yenilendi), sonraki ölçüm gerçeğini getirir.
+- **Açık kartta sıra:** Kokpit oturumları → "Kokpit dışında" (terminal/VS Code oturumları, salt okunur:
+  durum işareti + ad mono + durum + bu durumda geçen süre; tıklanmaz, tam yol `title`'da) → "Görev ver"
+  → limitler. Limitlerin altında ölçüm satırı: "az önce ölçüldü" / "ölçüldü 14:05" + neden eski olduğu
+  ("claude açılınca tazelenir") + tek turluk tazele ikonu (600 ms dönüş, sonsuz değil).
+- **Görev ver:** başlık `etiket`, sağda proje çipi (`rounded-full`, mono ad + chevron). Liste yerinde
+  açılır, yerel `<select>` değil (odak almayan saydam pencerede açılır menü güvenilmez). Yazı kutusu
+  Ada'nın diğer yanıt kutularıyla aynı (`bg-terminal/60`). Gönderince kutunun yerinde 6 sn "X oturumu
+  açılıyor" ve oturum yukarıda satır olarak belirir. Arşiv projeleri listede yok; en sonda ScryneOS (Aria).
+- **Tepsi:** Kokpit ikonu; ipucunda `Kokpit · 5 saat %15 · hafta %92`. X tepsiye indirir; ilk seferde bir
+  kez balon. Çıkış: tepsi menüsü ya da palet "Kokpit'ten çık".
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;

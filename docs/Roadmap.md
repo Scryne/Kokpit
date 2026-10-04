@@ -40,6 +40,10 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 22 | Ada: klavye | ✅ Tamamlandı | Ctrl+Alt+Shift+A gerçek tuşla Ada'ya odak veriyor (ölçüldü ~110 ms); 1–4 / Tab / Enter / Esc; bırakınca Kokpit ana penceresi öne gelmiyor |
 | 23 | Ada'nın gözü | ✅ Tamamlandı | Hapta gümüş göz; hal ve bakış kanca durumundan (araç, soru, bitti, uyku), alt ajan noktaları, limit kenarı; her hal `ekran:goz` ile görüldü, `test:ui`'da DOM'dan doğrulandı |
 | 24 | Hareket bütçesi | ✅ Tamamlandı | Ada görünürken süreç başına CPU/GPU ölçüldü; göz canlı/durgun farkı gürültü düzeyinde (üç dönüşümlü tur); arka plandaki ana pencerede animasyon yok |
+| 25 | Oturumsuz limitler | ✅ Tamamlandı | 5 saat + haftalık limit hiç claude oturumu yokken Ada'da ve kenarda; kaynak Claude Code'un `/usage` ucu (gerçek yanıtla ölçüldü); token yalnız main'de, diske/loga yazılmıyor; token eskiyince son ölçüm "eski" olarak kalıyor |
+| 26 | Ada hep açık + tepsi | ✅ Tamamlandı | Ada oturum yokken ve Kokpit öndeyken görünür; X tepsiye indirir, oturumlar yaşar; gerçek çıkış tepsi/paletten; Windows açılışında `--arka` ile gizli başlar |
+| 27 | Kokpit dışındaki oturumlar | ✅ Tamamlandı | Terminal/VS Code'da açılan claude oturumları `~/.claude/sessions`'tan Ada'da (durum + süre); Kokpit'in kendi oturumları kimlikten ayrılıyor |
+| 28 | Ada'dan görev | ✅ Tamamlandı | Ada'da proje + metin → arka planda yeni oturum, metin claude'un ilk mesajı; metin kabuğa ortam değişkeniyle gidiyor (tırnak/`$`/`;` gerçek pwsh'ta birebir) |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -577,3 +581,45 @@ hook → durum → küçük üstte pencerede animasyon; asıl risk performans (E
   süreçteki pencere `blur`'undan geliyor (Ada'nın görünürlüğüyle aynı kaynak).
 - **Testler:** `test:kanca` 101 (89'dan; alt ajanlar, damga kararlılığı, köprü olayları), `test:ui` 84 (81'den;
   gözün hali, bakışı ve alt ajan noktası DOM'dan), `test:pty` 18.
+
+### v2.6 (2026-10-04): Ada, masaüstü ajanı
+
+**Neden:** Scryne: "5 saatlik ve haftalık limit sürekli gözüksün, terminal başlatmadan da; Ada sürekli açık olsun,
+Kokpit'ten oturum açmadan da gözüksün; benim masaüstü ajanım olsun, bilgisayarımı vibe coding sistemine çevirme
+isteğimi daha iyi benimsesin. Ekstra şeyler de ekleyebilirsin."
+
+- **Spike (gerçek uç, 2026-10-04):** `GET api.anthropic.com/api/oauth/usage` + `anthropic-beta: oauth-2025-04-20`,
+  token `~/.claude/.credentials.json` → 200, `five_hour`/`seven_day` (`utilization`, `resets_at`); Claude Code'un
+  `/usage` ekranının kaynağı. Erişim tokeni ~8 saat yaşıyor. Claude Code her etkileşimli oturumu
+  `~/.claude/sessions/<pid>.json`'a yazıyor (cwd, sessionId, status, statusUpdatedAt, kind); `status` şeması ikili
+  dosyada `busy | shell | idle | waiting`. pwsh 7.6, `PSNativeCommandArgumentPassing = Windows`; claude yerel exe.
+- **Faz 25, oturumsuz limitler** (✅): `electron/limit.cjs`, 5 dk yoklama (hata/429'da 30 dk'ya kadar ikiye katlanır,
+  uykudan dönünce bir kez), elle tazele (30 sn sınırlı). Token her yoklamada okunur, yalnız main'de; **yenilenmez**
+  (refresh token döndürmek Claude Code'un kopyasını geçersiz kılabilir) → süresi dolunca istek yok, son ölçüm
+  "claude açılınca tazelenir". Kanca köprüsünün limitleriyle birleşir: yeni olan kazanır, eksik alan eskiden kalır.
+- **Faz 26, hep açık + tepsi** (✅): `adaHep` (varsayılan açık): Ada oturum yokken ve Kokpit öndeyken de görünür.
+  Tepsi: X tepsiye indirir (ilk seferde balon), çıkış tepsi/palet; Windows oturum kapanırken (`session-end`) normal
+  çıkış. `HKCU\...\Run` → `wscript kokpit-sessiz.vbs --arka` (vbs ve `uretim.cjs` argümanı geçirir); ilk çalışmada
+  açılır, tepsiden kapatılır. `--arka`'da pencere hiç gösterilmez; Ada'ya "arka planda" bilgisi elle verilir.
+- **Faz 27, Kokpit dışındaki oturumlar** (✅): `electron/dis-oturumlar.cjs`; Ada görünürken 4 sn'de bir, değişince
+  yayın. Kokpit'in kendi oturumları `--session-id` kimliğinden, `claude -p` (hook özetleyicileri) `kind`'dan, ölü
+  pid'ler `process.kill(pid, 0)`'dan ayıklanır. Dış oturum beklemeye geçince Ada 5 sn açılır, göz amber.
+- **Faz 28, Ada'dan görev** (✅): proje çipi + metin → main (hedef yalnız ana pencerenin verdiği listeden, adla) →
+  ana pencere `sekmeAc(..., { gorev, arkaPlan: true })` (görünüm/aktif sekme değişmez) → pty-server
+  `electron/gorev.cjs`: metin `KOKPIT_GOREV` ortam değişkeniyle, `$g = $env:KOKPIT_GOREV; Remove-Item
+  Env:KOKPIT_GOREV; claude ... $g`. Komut satırına hiç yazılmaz; `-` ile başlarsa önüne boşluk.
+- **Bulgular:** (1) renderer'dan `window.close()` BrowserWindow'un `close` olayını atlıyor — X'i test etmek için Win32
+  `WM_CLOSE`; (2) hiç gösterilmemiş pencerede `visibilityState` "visible" — görünürlük testi `IsWindowVisible` ile
+  (mutasyonla yakalandı); (3) `test:pty` gerçek `~/.kokpit/pty-server.log`'a yazıyordu (parmakizi) → geçici dizin.
+- **Testler:** yeni `test:ada` 35 (limit ayrıştırma + sahte uçla yoklama: 401/500/süresi dolmuş/yok token, diske
+  tokensiz yazım; birleştirme; dış oturum süzgeci; görev metni gerçek pwsh → yerel exe dört zor örnekle birebir,
+  ortam değişkeni sızmıyor), `test:ui` 110 (84'ten; oturumsuz Ada + limit + dış oturum + görev + tepsi), kanca 101,
+  pty 18. **Mutasyon 14/14:** `test:ada` 10/10 (biri ilk koşuda kaçtı: 500 boş gövdeyle zaten "hata" çıkıyordu →
+  500 artık geçerli görünen gövde taşıyor), UI 4/4 (Ada görünürlüğü, oturumsuz kart, arka plan görev, tepsi).
+  Gerçek `~/.kokpit`, `~/.claude/.credentials.json`, `~/.claude/sessions` koşular boyunca değişmedi (parmakizi).
+  `npm run ekran:ajan` → `kokpit-v26-{hap,hap-dis,kart,kart-proje}.png`.
+- **Canlı:** `wscript kokpit-sessiz.vbs --arka` (açılış kaydının aynısı) → pencere gizli, Ada üstte; gerçek uç 5s %41 ·
+  hafta %96; bu konuşmanın terminal oturumu "ScryneOS çalışıyor · Kokpit dışında" olarak göründü; Run kaydı yazıldı.
+- **Kontrol edilemeyen:** gerçek claude'a Ada'dan görev (haftalık limit %96'da, tur harcanmadı; argüman geçişi
+  gerçek pwsh + yerel exe ile ölçüldü); bilgisayar yeniden başlayınca kaydın gerçekten çalışması (kayıt + aynı
+  komut elle ölçüldü); tepsi balonunun görünmesi (ayar yazıldı, balon gözle görülmedi).

@@ -31,7 +31,8 @@ let bilgi = null; // { port, token, ayarDosyasi, asilDurumSatiri }
 let hazirSozu = null;
 const oturumlar = new Map(); // kokpit oturum id -> etkinlik durumu
 const baglamlar = new Map(); // kokpit oturum id -> statusline baglami
-let limitler = null; // { besSaat, hafta, olculdu }
+let limitler = null; // { besSaat, hafta, olculdu, kaynak }
+let limitDurumu = 'bekliyor'; // limit.cjs yoklamasinin son sonucu (tamam / token-eski / ...)
 let dinleyiciler = { yayin: () => {}, sinyal: () => {} };
 let yayinZamanlayici = null;
 
@@ -46,6 +47,7 @@ function anlik() {
     oturumlar: Object.fromEntries(oturumlar),
     baglamlar: Object.fromEntries(baglamlar),
     limitler,
+    limitDurumu,
   };
 }
 
@@ -108,7 +110,7 @@ async function istek(req, res) {
 
   if (req.url === '/durum-satiri') {
     const ds = etkinlik.durumSatiri(govde);
-    if (ds.limitler.besSaat || ds.limitler.hafta) limitler = { ...ds.limitler, olculdu: Date.now() };
+    if (ds.limitler.besSaat || ds.limitler.hafta) limitBirlestir({ ...ds.limitler, olculdu: Date.now(), kaynak: 'oturum' });
     if (ds.baglam) baglamlar.set(oturumId, { ...ds.baglam, olculdu: Date.now() });
     yayinla();
     return;
@@ -125,6 +127,26 @@ async function istek(req, res) {
       log('kanca sinyal hatasi: ' + e.message);
     }
   }
+}
+
+/**
+ * Iki kaynak ayni limiti olcer: calisan oturumun statusline'i (her turda) ve limit.cjs'in
+ * yoklamasi (5 dk, oturumsuz). Yeni olan kazanir; yeni olcumde eksik alan eskisinden kalir.
+ */
+function limitBirlestir(l) {
+  if (!l || !Number.isFinite(l.olculdu)) return;
+  if (limitler && limitler.olculdu > l.olculdu) {
+    limitler = { ...limitler, besSaat: limitler.besSaat || l.besSaat, hafta: limitler.hafta || l.hafta };
+  } else {
+    limitler = { ...l, besSaat: l.besSaat || limitler?.besSaat || null, hafta: l.hafta || limitler?.hafta || null };
+  }
+}
+
+/** Oturumsuz limit yoklamasi (limit.cjs) buradan girer; yayin ayni yoldan. */
+function disLimit(l, durum) {
+  if (l) limitBirlestir(l);
+  if (typeof durum === 'string') limitDurumu = durum;
+  yayinla();
 }
 
 /** Kullanicinin kendi statusline'i (user settings). Yoksa null; durum-satiri.cjs bos basar. */
@@ -250,4 +272,4 @@ function durdur() {
   sunucu = null;
 }
 
-module.exports = { baslat, ptyOrtami, anlik, ozet, unut, durdur, mevcutBilgi: () => bilgi };
+module.exports = { baslat, ptyOrtami, anlik, ozet, unut, durdur, disLimit, mevcutBilgi: () => bilgi };

@@ -14,7 +14,8 @@ derle.on('exit', (kod) => {
     console.error('[kokpit] derleme basarisiz, kod ' + kod);
     process.exit(kod ?? 1);
   }
-  const elektron = spawn(electronBin, [KOK], {
+  // Argumanlar Electron'a gecer (`--arka`: Windows acilisi, pencere gizli baslar).
+  const elektron = spawn(electronBin, [KOK, ...process.argv.slice(2)], {
     cwd: KOK,
     stdio: 'inherit',
     env: { ...process.env, KOKPIT_DEV: '0' },

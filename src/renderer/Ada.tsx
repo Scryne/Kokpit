@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { Check, CornerDownLeft } from 'lucide-react';
+import { Check, ChevronDown, CornerDownLeft, RefreshCw } from 'lucide-react';
 import type {
   AdaOturumu,
+  AdaProjesi,
+  DisOturum,
   EtkinlikAnlik,
+  Limit,
+  LimitDurumu,
+  Limitler,
   GonderIstegi,
   HizliKomut,
   OturumEtkinligi,
   SoruAyrintisi,
   SoruCevabi,
 } from './types';
-import { DurumIsareti, etkinlikCumlesi } from './Etkinlik';
+import { DurumIsareti, etkinlikCumlesi, sifirlanmaMetni } from './Etkinlik';
 import { sureMetni } from './parcalar';
 import { AdaGoz, gozPozu, type GozHali } from './AdaGoz';
 
@@ -20,6 +25,9 @@ import { AdaGoz, gozPozu, type GozHali } from './AdaGoz';
 //
 // v2.3: ada cevap da verir. v2.4: cok sorulu sorular, claude'un son sozu, klavye, "Gördüm".
 // v2.5: hapta Ada'nin gozu (AdaGoz.tsx), kenarinda 5 saatlik limit, alt ajan noktalari, uyku.
+// v2.6, masaustu ajani: Ada hep gorunur, oturum yokken de. Hapta iki limit (5 saat + hafta, oturumsuz
+// yoklamadan), Kokpit disinda acilan claude oturumlari ("Kokpit dışında") ve "Görev ver": proje +
+// metin -> Kokpit arka planda yeni oturum acar, metin claude'un ilk mesaji olur.
 // Sira sende olan oturumun (bitti / seni bekliyor) altinda: claude soru sorduysa sorular ve
 // secenekleri, bittiyse son sozu + hizli komutlar + yanit kutusu. Gonderim main uzerinden ana
 // penceredeki PTY'ye gider; Kokpit one gelmez.
@@ -42,6 +50,17 @@ const UYKU_MS = 30 * 60 * 1000;
 const ALT_AJAN_MS = 15 * 60 * 1000;
 
 const SIRA: Record<OturumEtkinligi['durum'], number> = { bekliyor: 0, calisiyor: 1, bitti: 2, bosta: 3, kapandi: 4 };
+/** Gorev gonderildi bildirimi bu kadar kalir; oturum satiri zaten listede belirir. */
+const GOREV_BILDIRIM_MS = 6000;
+
+/**
+ * Sifirlanma ani gectiyse pencere yenilendi: kullanim sifirdan baslar. Sonraki olcum (oturumun
+ * statusline'i ya da 5 dakikalik yoklama) gercek degeri getirir.
+ */
+function etkinYuzde(l: Limit | null | undefined, simdi: number) {
+  if (!l) return null;
+  return l.sifirlanma && l.sifirlanma <= simdi ? 0 : l.yuzde;
+}
 
 function siraSende(e: OturumEtkinligi | null) {
   return e?.durum === 'bekliyor' || e?.durum === 'bitti';
@@ -84,16 +103,32 @@ export default function Ada() {
   const [takip, setTakip] = useState<{ x: number; y: number } | null>(null);
   const takipKare = useRef(0);
   const gozRef = useRef<HTMLSpanElement>(null);
+  // v2.6: gorev hedefleri ve Kokpit disindaki oturumlar (main yayinlar).
+  const [projeler, setProjeler] = useState<AdaProjesi[]>([]);
+  const [dis, setDis] = useState<DisOturum[]>([]);
+  const disRef = useRef(dis);
+  // Uyku saati oturum yokken Ada'nin acildigi andan sayar.
+  const [acilis] = useState(() => Date.now());
+
+  const bak = useCallback(() => {
+    setBakis(true);
+    if (bakisZamani.current) clearTimeout(bakisZamani.current);
+    bakisZamani.current = setTimeout(() => setBakis(false), BAKIS_MS);
+  }, []);
 
   useEffect(() => {
     void window.kokpit.etkinlikAnlik().then(setAnlik);
     void window.kokpit.komutlarGetir().then(setKomutlar);
     const k1 = window.kokpit.etkinlikDinle(setAnlik);
     const k2 = window.kokpit.adaListeDinle(setListe);
-    const k3 = window.kokpit.sinyalDinle(() => {
-      setBakis(true);
-      if (bakisZamani.current) clearTimeout(bakisZamani.current);
-      bakisZamani.current = setTimeout(() => setBakis(false), BAKIS_MS);
+    const k3 = window.kokpit.sinyalDinle(bak);
+    const k5 = window.kokpit.adaProjelerDinle(setProjeler);
+    // Dis oturum seni beklemeye gecince Kokpit oturumundaki gibi 5 sn acilir.
+    const k6 = window.kokpit.adaDisDinle((l) => {
+      const once = new Map(disRef.current.map((d) => [d.pid, d.durum]));
+      if (l.some((d) => d.durum === 'bekliyor' && once.get(d.pid) !== 'bekliyor' && once.has(d.pid))) bak();
+      disRef.current = l;
+      setDis(l);
     });
     const k4 = window.kokpit.adaKlavyeDinle(({ anaOdakta }) => {
       if (anaOdakta) {
@@ -116,9 +151,11 @@ export default function Ada() {
       k2();
       k3();
       k4();
+      k5();
+      k6();
       clearInterval(t);
     };
-  }, []);
+  }, [bak]);
 
   useEffect(() => {
     if (klavyeIstegi === 0) return;
@@ -144,37 +181,55 @@ export default function Ada() {
     (document.activeElement as HTMLElement | null)?.blur();
   }, []);
 
+  const gorevGonder = useCallback((g: { ad: string; metin: string }) => {
+    window.kokpit.adaGorev(g);
+    setOnay((n) => n + 1);
+  }, []);
+
   const satirlar = liste
     .map((o) => ({ o, e: anlik?.oturumlar[o.id] ?? null }))
     .sort((a, b) => SIRA[a.e?.durum ?? 'bosta'] - SIRA[b.e?.durum ?? 'bosta']);
-  if (satirlar.length === 0) return null;
 
   const bekleyen = satirlar.filter((x) => x.e?.durum === 'bekliyor');
   const calisan = satirlar.filter((x) => x.e?.durum === 'calisiyor');
   const biten = satirlar.filter((x) => x.e?.durum === 'bitti' && x.o.dikkat);
+  const disBekleyen = dis.filter((d) => d.durum === 'bekliyor');
+  const disCalisan = dis.filter((d) => d.durum === 'calisiyor');
   const ilk = bekleyen[0] ?? calisan[0] ?? biten[0] ?? null;
-  // Uyku: hicbir oturum calismiyor/beklemiyor ve en son olay UYKU_MS'den eski.
-  const sonOlay = Math.max(...satirlar.map(({ o, e }) => e?.degisti ?? o.baslangic ?? simdi));
-  const uyku = !bekleyen.length && !calisan.length && simdi - sonOlay > UYKU_MS;
+  // Uyku: hicbir oturum (Kokpit'in ya da disaridaki) calismiyor/beklemiyor ve en son olay UYKU_MS'den eski.
+  const sonOlay = Math.max(
+    acilis,
+    ...satirlar.map(({ o, e }) => e?.degisti ?? o.baslangic ?? simdi),
+    ...dis.map((d) => d.degisti ?? d.baslangic ?? acilis)
+  );
+  const uyku =
+    !bekleyen.length && !calisan.length && !disBekleyen.length && !disCalisan.length && simdi - sonOlay > UYKU_MS;
   const sessizlik = uyku ? sureMetni(Math.floor((simdi - sonOlay) / 1000)) : null;
+  const toplam = satirlar.length + dis.length;
   const ozet = bekleyen.length
     ? bekleyen[0].o.ad + ' seni bekliyor' + (bekleyen.length > 1 ? ' +' + (bekleyen.length - 1) : '')
     : calisan.length
       ? calisan[0].o.ad + ' · ' + etkinlikCumlesi(calisan[0].e!, simdi)
       : biten.length
         ? biten[0].o.ad + ' bitti' + (biten.length > 1 ? ' +' + (biten.length - 1) : '')
-        : uyku
-          ? satirlar.length + ' oturum · ' + sessizlik + ' sessiz'
-          : satirlar.length + ' oturum · hazır';
+        : disBekleyen.length
+          ? disBekleyen[0].ad + ' seni bekliyor · Kokpit dışında'
+          : disCalisan.length
+            ? disCalisan[0].ad + ' çalışıyor · Kokpit dışında'
+            : uyku
+              ? (toplam ? toplam + ' oturum · ' : '') + sessizlik + ' sessiz'
+              : toplam
+                ? toplam + ' oturum · hazır'
+                : 'Hazır';
   // Hapta bekleme suresi: "seni bekliyor" ne zamandir? (calisan oturumun suresi cumlesinde)
   const ozetSure = bekleyen.length ? bekleme(bekleyen[0].e!, simdi) : !calisan.length && biten.length ? bekleme(biten[0].e!, simdi) : null;
   // Gozun hali: soru > yeni biten (kisa sevinc) > calisan > bitti > uyku > bosta.
   const taze = satirlar.find(({ e }) => e?.durum === 'bitti' && simdi - (e.durumZamani ?? e.degisti) < SEVINC_MS);
-  const gozHali: GozHali = bekleyen.length
+  const gozHali: GozHali = bekleyen.length || disBekleyen.length
     ? 'bekliyor'
     : taze
       ? 'mutlu'
-      : calisan.length
+      : calisan.length || disCalisan.length
         ? 'calisiyor'
         : biten.length && !uyku
           ? 'bitti'
@@ -186,6 +241,8 @@ export default function Ada() {
     0
   );
   const l = anlik?.limitler;
+  const bes = etkinYuzde(l?.besSaat, simdi);
+  const haf = etkinYuzde(l?.hafta, simdi);
   const genis = uzerinde || bakis || odakta;
   const soruVar = bekleyen.some((x) => x.e?.soruAyrinti?.cevaplanabilir);
 
@@ -238,7 +295,8 @@ export default function Ada() {
       >
         <button
           type="button"
-          onClick={() => ilk && window.kokpit.adaGit(ilk.o.id)}
+          // Sirasi gelen oturum yoksa Kokpit'in kendisi one gelir (bos kimlik).
+          onClick={() => window.kokpit.adaGit(ilk ? ilk.o.id : '')}
           className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2 text-left text-xs"
         >
           <span ref={gozRef} className="-my-1 -ml-1 flex">
@@ -247,23 +305,36 @@ export default function Ada() {
           {/* Metin degisince (arac, durum) yumusak gecis. Sayilar anahtar disi: sayan sure her saniye metni yeniden dogurup titretiyordu. */}
           <span
             key={ozet.replace(/\d+/g, '#')}
-            className={'ada-metin min-w-0 truncate ' + (bekleyen.length ? 'text-dikkat-metin' : uyku ? 'text-metin-ikincil' : 'text-metin')}
+            className={
+              'ada-metin min-w-0 truncate ' +
+              (bekleyen.length || disBekleyen.length ? 'text-dikkat-metin' : uyku || !toplam ? 'text-metin-ikincil' : 'text-metin')
+            }
           >
             {ozet}
           </span>
           {altSayisi > 0 && <span className="sr-only">, {altSayisi} alt ajan çalışıyor</span>}
           {ozetSure && <span className="enstruman shrink-0 text-metin-soluk">{ozetSure}</span>}
-          {l?.besSaat && (
-            <span className="enstruman ml-auto shrink-0 pl-2 text-metin-soluk" title="5 saatlik limit">
-              5s %{Math.round(l.besSaat.yuzde)}
+          {(bes !== null || haf !== null) && (
+            <span className="enstruman ml-auto flex shrink-0 gap-2 pl-2 text-metin-soluk">
+              {bes !== null && (
+                <span title="5 saatlik limit" className={bes >= 80 ? 'text-dikkat-metin' : undefined}>
+                  5s %{Math.round(bes)}
+                </span>
+              )}
+              {haf !== null && (
+                <span title="Haftalık limit" className={haf >= 80 ? 'text-dikkat-metin' : undefined}>
+                  hafta %{Math.round(haf)}
+                </span>
+              )}
             </span>
           )}
         </button>
 
-        {!genis && l?.besSaat && <LimitKenari kart={kart} yuzde={l.besSaat.yuzde} />}
+        {!genis && bes !== null && <LimitKenari kart={kart} yuzde={bes} />}
         {genis && (
           <div className="max-h-[440px] overflow-y-auto border-t border-kenar px-1.5 pb-1.5 pt-1">
-            <ul aria-label="Kokpit oturumları">
+            {toplam === 0 && <p className="px-2 py-1.5 text-xs text-metin-soluk">Açık claude oturumu yok.</p>}
+            <ul aria-label="Kokpit oturumları" hidden={satirlar.length === 0}>
               {satirlar.map(({ o, e }) => (
                 <AdaSatiri
                   key={o.id}
@@ -281,12 +352,9 @@ export default function Ada() {
                 />
               ))}
             </ul>
-            {l && (l.besSaat || l.hafta) && (
-              <div className="mt-1 flex gap-4 border-t border-kenar px-2 pt-1.5 text-xs">
-                {l.besSaat && <AdaLimit ad="5 saat" yuzde={l.besSaat.yuzde} />}
-                {l.hafta && <AdaLimit ad="Hafta" yuzde={l.hafta.yuzde} />}
-              </div>
-            )}
+            {dis.length > 0 && <DisOturumlar dis={dis} simdi={simdi} ayrac={satirlar.length > 0} />}
+            {projeler.length > 0 && <GorevKutusu projeler={projeler} onGonder={gorevGonder} />}
+            <AdaLimitler l={l ?? null} durum={anlik?.limitDurumu} simdi={simdi} />
           </div>
         )}
         {/* Klavye ipucu kaydirma alaninin disinda: uzun listede de gorunsun. */}
@@ -686,25 +754,216 @@ function YanitKutusu({
   );
 }
 
-function AdaLimit({ ad, yuzde }: { ad: string; yuzde: number }) {
-  const y = Math.max(0, Math.min(100, Math.round(yuzde)));
+const DIS_DURUM: Record<DisOturum['durum'], string> = { calisiyor: 'Çalışıyor', bekliyor: 'Seni bekliyor', hazir: 'Hazır' };
+
+/**
+ * Kokpit disinda acilmis claude oturumlari (terminal, VS Code). Salt okunur: Kokpit onlara yazamaz
+ * (PTY'leri baskasinin), yalniz ne yaptiklarini gosterir. Tam yol satirin title'inda.
+ */
+function DisOturumlar({ dis, simdi, ayrac }: { dis: DisOturum[]; simdi: number; ayrac: boolean }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
-      <span className="shrink-0 text-metin-soluk">{ad}</span>
-      <span
-        role="meter"
-        aria-label={ad + ' limiti'}
-        aria-valuenow={y}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-kenar-guclu"
-      >
-        <span
-          className={'block h-full rounded-full ' + (y >= 95 ? 'bg-hata' : y >= 80 ? 'bg-dikkat' : 'bg-metin-ikincil')}
-          style={{ width: y + '%' }}
+    <section aria-label="Kokpit dışındaki claude oturumları" className={ayrac ? 'mt-1 border-t border-kenar pt-1' : ''}>
+      <p className="etiket px-2 pb-0.5 pt-1">Kokpit dışında</p>
+      <ul>
+        {dis.map((d) => (
+          <li
+            key={d.pid}
+            title={d.yol}
+            className="grid grid-cols-[0.75rem_6.5rem_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-xs"
+          >
+            <DurumIsareti durum={d.durum === 'hazir' ? 'bosta' : d.durum} />
+            <span className="enstruman truncate text-metin-ikincil">{d.ad}</span>
+            <span className={'truncate ' + (d.durum === 'bekliyor' ? 'text-dikkat-metin' : 'text-metin-soluk')}>
+              {DIS_DURUM[d.durum]}
+            </span>
+            <span className="enstruman text-metin-soluk" title="Bu durumda geçen süre">
+              {d.degisti ? sureMetni(Math.max(0, Math.floor((simdi - d.degisti) / 1000))) : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+const GRUP_ADI: Record<string, string> = { aktif: 'aktif', kullanimda: 'kullanımda', vault: 'Aria' };
+const SECILI_PROJE = 'ada-gorev-proje';
+
+/**
+ * Gorev ver: proje + metin. Kokpit o projede arka planda yeni bir claude oturumu acar, metin ilk
+ * mesaj olur; oturum yukarida satir olarak belirir ve Ada'dan izlenir. Proje secici yerel bir
+ * <select> degil: odak almayan saydam pencerede acilir liste guvenilmez, satir icinde liste acilir.
+ * Arsiv projeleri listede yok (eski projelere donulmuyor).
+ */
+function GorevKutusu({
+  projeler,
+  onGonder,
+}: {
+  projeler: AdaProjesi[];
+  onGonder: (g: { ad: string; metin: string }) => void;
+}) {
+  const hedefler = projeler.filter((p) => p.grup !== 'arsiv');
+  const [secili, setSecili] = useState(() => {
+    try {
+      return localStorage.getItem(SECILI_PROJE) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const [listeAcik, setListeAcik] = useState(false);
+  const [bildirim, setBildirim] = useState<string | null>(null);
+  useEffect(() => {
+    if (!bildirim) return;
+    const t = setTimeout(() => setBildirim(null), GOREV_BILDIRIM_MS);
+    return () => clearTimeout(t);
+  }, [bildirim]);
+  const p = hedefler.find((x) => x.ad === secili) ?? hedefler[0];
+  if (!p) return null;
+  const sec = (ad: string) => {
+    setSecili(ad);
+    setListeAcik(false);
+    try {
+      localStorage.setItem(SECILI_PROJE, ad);
+    } catch {
+      /* depolama kapali: secim bu oturumda kalir */
+    }
+  };
+  return (
+    <section aria-label="Görev ver" className="mt-1 border-t border-kenar px-2 pb-1 pt-2">
+      <div className="mb-1.5 flex items-center gap-2 text-xs">
+        <span className="etiket">Görev ver</span>
+        <button
+          type="button"
+          aria-expanded={listeAcik}
+          aria-label={'Proje: ' + p.ad + '. Değiştir'}
+          onClick={() => setListeAcik((x) => !x)}
+          className="ml-auto flex cursor-pointer items-center gap-1 rounded-full border border-kenar px-2 py-0.5 text-metin-ikincil transition-colors duration-[120ms] hover:border-kenar-guclu hover:text-metin"
+        >
+          <span className="enstruman">{p.ad}</span>
+          <ChevronDown className={'size-3 transition-transform duration-[120ms] ' + (listeAcik ? 'rotate-180' : '')} aria-hidden="true" />
+        </button>
+      </div>
+      {listeAcik && (
+        <ul aria-label="Proje seç" className="mb-1.5 max-h-36 overflow-y-auto rounded-lg border border-kenar p-0.5">
+          {hedefler.map((x) => (
+            <li key={x.ad}>
+              <button
+                type="button"
+                aria-pressed={x.ad === p.ad}
+                onClick={() => sec(x.ad)}
+                className={
+                  'flex w-full cursor-pointer items-baseline justify-between gap-2 rounded px-2 py-1 text-left text-xs transition-colors duration-[120ms] hover:bg-yuzey-guclu ' +
+                  (x.ad === p.ad ? 'bg-yuzey-guclu' : '')
+                }
+              >
+                <span className="enstruman truncate text-metin">{x.ad}</span>
+                <span className="shrink-0 text-metin-soluk">{GRUP_ADI[x.grup] ?? x.grup}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {bildirim ? (
+        <p role="status" className="py-1 text-xs text-metin-soluk">
+          {bildirim}
+        </p>
+      ) : (
+        <YanitKutusu
+          placeholder={p.ad + ' için ne yapılsın?'}
+          etiket={p.ad + ' projesinde yeni oturuma görev'}
+          onGonder={(m) => {
+            onGonder({ ad: p.ad, metin: m });
+            setBildirim(p.ad + ' oturumu açılıyor, görev ilk mesaj olarak gidiyor.');
+            (document.activeElement as HTMLElement | null)?.blur();
+          }}
         />
-      </span>
-      <span className={'enstruman shrink-0 ' + (y >= 80 ? 'text-dikkat-metin' : 'text-metin')}>%{y}</span>
+      )}
+    </section>
+  );
+}
+
+/** Ölçüm satiri: ne zaman, hangi kaynaktan; yoklama son kez basarisizsa neden. */
+function olcumMetni(l: Limitler, durum: LimitDurumu | undefined, simdi: number) {
+  const gecen = simdi - l.olculdu;
+  const ne =
+    gecen < 60_000
+      ? 'az önce ölçüldü'
+      : 'ölçüldü ' + new Date(l.olculdu).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  const ek =
+    durum === 'token-eski'
+      ? ' · claude açılınca tazelenir'
+      : durum === 'hata'
+        ? ' · son yoklama başarısız'
+        : durum === 'token-yok'
+          ? ' · claude girişi bulunamadı'
+          : '';
+  return ne + ek;
+}
+
+function AdaLimitler({ l, durum, simdi }: { l: Limitler | null; durum: LimitDurumu | undefined; simdi: number }) {
+  const [donuyor, setDonuyor] = useState(false);
+  const tazele = () => {
+    window.kokpit.adaLimitTazele();
+    setDonuyor(true);
+    setTimeout(() => setDonuyor(false), 1200);
+  };
+  const tazeleDugmesi = (
+    <button
+      type="button"
+      onClick={tazele}
+      aria-label="Limitleri tazele"
+      title="Limitleri tazele"
+      className="ml-auto shrink-0 cursor-pointer rounded p-0.5 text-metin-soluk transition-colors duration-[120ms] hover:text-metin"
+    >
+      <RefreshCw className={'size-3 ' + (donuyor ? 'ada-donus' : '')} aria-hidden="true" />
+    </button>
+  );
+  if (!l || (!l.besSaat && !l.hafta)) {
+    return (
+      <p className="mt-1 flex items-center gap-1 border-t border-kenar px-2 pt-1.5 text-xs text-metin-soluk">
+        {durum === 'token-yok' ? 'Limit okunamadı: claude girişi bulunamadı.' : durum === 'token-eski' ? 'Limit, claude açılınca okunur.' : 'Limit ölçülüyor…'}
+        {tazeleDugmesi}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-1 border-t border-kenar px-2 pt-1.5 text-xs">
+      <div className="flex gap-4">
+        {l.besSaat && <AdaLimit ad="5 saat" l={l.besSaat} simdi={simdi} />}
+        {l.hafta && <AdaLimit ad="Hafta" l={l.hafta} simdi={simdi} />}
+      </div>
+      <p className="mt-1 flex items-center gap-1 text-[0.6875rem] text-metin-soluk">
+        <span>{olcumMetni(l, durum, simdi)}</span>
+        {tazeleDugmesi}
+      </p>
+    </div>
+  );
+}
+
+function AdaLimit({ ad, l, simdi }: { ad: string; l: Limit; simdi: number }) {
+  const y = Math.max(0, Math.min(100, Math.round(etkinYuzde(l, simdi) ?? 0)));
+  const sifir = sifirlanmaMetni(l.sifirlanma, simdi);
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-metin-soluk">{ad}</span>
+        <span
+          role="meter"
+          aria-label={ad + ' limiti'}
+          aria-valuenow={y}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuetext={'%' + y + (sifir ? ', ' + sifir : '')}
+          className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-kenar-guclu"
+        >
+          <span
+            className={'block h-full rounded-full ' + (y >= 95 ? 'bg-hata' : y >= 80 ? 'bg-dikkat' : 'bg-metin-ikincil')}
+            style={{ width: y + '%' }}
+          />
+        </span>
+        <span className={'enstruman shrink-0 ' + (y >= 80 ? 'text-dikkat-metin' : 'text-metin')}>%{y}</span>
+      </div>
+      {sifir && <p className="mt-0.5 text-[0.6875rem] text-metin-soluk">{sifir}</p>}
     </div>
   );
 }

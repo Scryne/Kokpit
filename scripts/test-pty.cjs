@@ -22,7 +22,8 @@ const kontrol = (ad, gecti) => { sonuclar.push([ad, gecti]); };
 
 const cocuk = spawn('node', [SUNUCU], {
   stdio: ['pipe', 'pipe', 'pipe'],
-  env: { ...process.env, KOKPIT_PTY_TOKEN: TOKEN },
+  // Gecici veri dizini: sunucunun logu gercek ~/.kokpit/pty-server.log'a dusmesin (parmakizi, 2026-10-04).
+  env: { ...process.env, KOKPIT_PTY_TOKEN: TOKEN, KOKPIT_DIZIN: require('fs').mkdtempSync(path.join(require('os').tmpdir(), 'kokpit-pty-')) },
 });
 cocuk.stderr.setEncoding('utf8');
 cocuk.stderr.on('data', (d) => console.log('[sunucu stderr]', d.trim()));

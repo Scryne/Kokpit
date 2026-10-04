@@ -261,7 +261,7 @@ export function EtkinlikSeridi({
   );
 }
 
-function sifirlanmaMetni(ms: number | null, simdi: number) {
+export function sifirlanmaMetni(ms: number | null, simdi: number) {
   if (!ms) return null;
   const kalan = ms - simdi;
   if (kalan <= 0) return 'sıfırlandı';
