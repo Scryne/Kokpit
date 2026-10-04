@@ -660,7 +660,7 @@ export default function App() {
         const s = etkinlikRef.current.oturumlar[istek.id]?.soruAyrinti;
         const hala = () => {
           const e = etkinlikRef.current.oturumlar[istek.id];
-          return !!e && e.durum === 'bekliyor' && !!e.soruAyrinti?.cevaplanabilir && e.degisti === istek.damga;
+          return !!e && e.durum === 'bekliyor' && !!e.soruAyrinti?.cevaplanabilir && e.soruZamani === istek.damga;
         };
         if (!s || !hala() || istek.cevaplar.length !== s.sorular.length) {
           console.warn('[gonder] soru değişti, cevap gönderilmedi: ' + o.ad);

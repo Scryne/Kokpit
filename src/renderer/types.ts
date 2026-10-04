@@ -291,6 +291,12 @@ export interface OturumEtkinligi {
   soruAyrinti?: SoruAyrintisi | null;
   /** Bitti iken turun son mesaji (Stop hook'unun last_assistant_message'i). */
   sonSoz?: string | null;
+  /** `durum`un en son degistigi an ("ne zamandir bekliyor"). */
+  durumZamani?: number;
+  /** Acik sorunun dogdugu an; ada'dan cevabin damgasi. */
+  soruZamani?: number | null;
+  /** Calisan alt ajanlar (SubagentStart..SubagentStop). */
+  altlar?: Record<string, { tur: string; t: number }>;
   turBasladi: number | null;
   sonTurSuresiMs: number | null;
   degisti: number;
@@ -392,6 +398,7 @@ declare global {
       adaGordum: (id: string) => void;
       oturumGordumDinle: (cb: (id: string) => void) => () => void;
       adaKlavyeDinle: (cb: (k: { anaOdakta: boolean }) => void) => () => void;
+      pencereOdakDinle: (cb: (odakta: boolean) => void) => () => void;
     };
   }
 }

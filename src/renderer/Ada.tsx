@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { Check, CornerDownLeft } from 'lucide-react';
 import type {
   AdaOturumu,
@@ -11,6 +11,7 @@ import type {
 } from './types';
 import { DurumIsareti, etkinlikCumlesi } from './Etkinlik';
 import { sureMetni } from './parcalar';
+import { AdaGoz, gozPozu, type GozHali } from './AdaGoz';
 
 // Ada: Kokpit arka plandayken ekranin ust ortasindaki serit (electron/ada.cjs).
 // Kapali: tek satirlik hap — en onemli tek sey. Acik: oturum basina satir + limitler.
@@ -18,6 +19,7 @@ import { sureMetni } from './parcalar';
 // oturum "bitti/seni bekliyor" dediginde 5 sn (Coucou'nun "notch'tan bakma" ani; ses yok).
 //
 // v2.3: ada cevap da verir. v2.4: cok sorulu sorular, claude'un son sozu, klavye, "Gördüm".
+// v2.5: hapta Ada'nin gozu (AdaGoz.tsx), kenarinda 5 saatlik limit, alt ajan noktalari, uyku.
 // Sira sende olan oturumun (bitti / seni bekliyor) altinda: claude soru sorduysa sorular ve
 // secenekleri, bittiyse son sozu + hizli komutlar + yanit kutusu. Gonderim main uzerinden ana
 // penceredeki PTY'ye gider; Kokpit one gelmez.
@@ -32,17 +34,14 @@ const CIP_SAYISI = 3;
 /** Kanca bir an sonra gelir; bu surede durum degismediyse (oturum kapali, yazilamadi) eylemler geri gelir. */
 const GONDERILDI_MS = 15_000;
 
-const SIRA: Record<OturumEtkinligi['durum'], number> = { bekliyor: 0, calisiyor: 1, bitti: 2, bosta: 3, kapandi: 4 };
+/** Bitti anindaki sevinc (gulen gozler + tek zipla) bu kadar surer, sonra sakin "bitti". */
+const SEVINC_MS = 8000;
+/** Hicbir oturumda bu kadar olay yoksa Ada uyur; ilk olayda uyanir. */
+const UYKU_MS = 30 * 60 * 1000;
+/** SubagentStop kacarsa alt ajan noktasi bu kadar sessizlikten sonra duser (etkinlik.cjs ile ayni). */
+const ALT_AJAN_MS = 15 * 60 * 1000;
 
-function Gosterge() {
-  // public/kokpit.svg'nin 14 px'lik hali: tek yay + ibre.
-  return (
-    <svg viewBox="0 0 24 24" className="size-3.5 shrink-0" fill="none" aria-hidden="true">
-      <path d="M6.5 17.5a7.5 7.5 0 1 1 11 0" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" className="text-metin-ikincil" />
-      <path d="M12 12l3.2-4.4" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" className="text-metin" />
-    </svg>
-  );
-}
+const SIRA: Record<OturumEtkinligi['durum'], number> = { bekliyor: 0, calisiyor: 1, bitti: 2, bosta: 3, kapandi: 4 };
 
 function siraSende(e: OturumEtkinligi | null) {
   return e?.durum === 'bekliyor' || e?.durum === 'bitti';
@@ -50,7 +49,7 @@ function siraSende(e: OturumEtkinligi | null) {
 
 /** Sira sende olan oturumun ne zamandir bekledigi (durum degisiminden beri). */
 function bekleme(e: OturumEtkinligi, simdi: number) {
-  return sureMetni(Math.max(0, Math.floor((simdi - e.degisti) / 1000)));
+  return sureMetni(Math.max(0, Math.floor((simdi - (e.durumZamani ?? e.degisti)) / 1000)));
 }
 
 /**
@@ -80,6 +79,11 @@ export default function Ada() {
   listeRef.current = liste;
   const anlikRef = useRef(anlik);
   anlikRef.current = anlik;
+  // Goz: her gonderimde bir kez bas sallar; imlec kartin ustundeyken gozler onu izler.
+  const [onay, setOnay] = useState(0);
+  const [takip, setTakip] = useState<{ x: number; y: number } | null>(null);
+  const takipKare = useRef(0);
+  const gozRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     void window.kokpit.etkinlikAnlik().then(setAnlik);
@@ -127,6 +131,7 @@ export default function Ada() {
 
   const fare = useCallback((icinde: boolean) => {
     setUzerinde(icinde);
+    if (!icinde) setTakip(null);
     if (icinde) void window.kokpit.komutlarGetir().then(setKomutlar);
     window.kokpit.adaFare(icinde);
   }, []);
@@ -134,6 +139,7 @@ export default function Ada() {
   const gonder = useCallback((istek: GonderIstegi) => {
     window.kokpit.adaGonder(istek);
     setGonderilen((g) => ({ ...g, [istek.id]: Date.now() }));
+    setOnay((n) => n + 1);
     // Gonderdikten sonra odak birakilir: ada isini yapti, Scryne kaldigi yere doner.
     (document.activeElement as HTMLElement | null)?.blur();
   }, []);
@@ -147,16 +153,38 @@ export default function Ada() {
   const calisan = satirlar.filter((x) => x.e?.durum === 'calisiyor');
   const biten = satirlar.filter((x) => x.e?.durum === 'bitti' && x.o.dikkat);
   const ilk = bekleyen[0] ?? calisan[0] ?? biten[0] ?? null;
-  const ozetDurum: OturumEtkinligi['durum'] = bekleyen.length ? 'bekliyor' : calisan.length ? 'calisiyor' : 'bitti';
+  // Uyku: hicbir oturum calismiyor/beklemiyor ve en son olay UYKU_MS'den eski.
+  const sonOlay = Math.max(...satirlar.map(({ o, e }) => e?.degisti ?? o.baslangic ?? simdi));
+  const uyku = !bekleyen.length && !calisan.length && simdi - sonOlay > UYKU_MS;
+  const sessizlik = uyku ? sureMetni(Math.floor((simdi - sonOlay) / 1000)) : null;
   const ozet = bekleyen.length
     ? bekleyen[0].o.ad + ' seni bekliyor' + (bekleyen.length > 1 ? ' +' + (bekleyen.length - 1) : '')
     : calisan.length
       ? calisan[0].o.ad + ' · ' + etkinlikCumlesi(calisan[0].e!, simdi)
       : biten.length
         ? biten[0].o.ad + ' bitti' + (biten.length > 1 ? ' +' + (biten.length - 1) : '')
-        : satirlar.length + ' oturum · hazır';
+        : uyku
+          ? satirlar.length + ' oturum · ' + sessizlik + ' sessiz'
+          : satirlar.length + ' oturum · hazır';
   // Hapta bekleme suresi: "seni bekliyor" ne zamandir? (calisan oturumun suresi cumlesinde)
   const ozetSure = bekleyen.length ? bekleme(bekleyen[0].e!, simdi) : !calisan.length && biten.length ? bekleme(biten[0].e!, simdi) : null;
+  // Gozun hali: soru > yeni biten (kisa sevinc) > calisan > bitti > uyku > bosta.
+  const taze = satirlar.find(({ e }) => e?.durum === 'bitti' && simdi - (e.durumZamani ?? e.degisti) < SEVINC_MS);
+  const gozHali: GozHali = bekleyen.length
+    ? 'bekliyor'
+    : taze
+      ? 'mutlu'
+      : calisan.length
+        ? 'calisiyor'
+        : biten.length && !uyku
+          ? 'bitti'
+          : uyku
+            ? 'uyku'
+            : 'bosta';
+  const altSayisi = satirlar.reduce(
+    (n, { e }) => n + Object.values(e?.altlar ?? {}).filter((a) => simdi - a.t < ALT_AJAN_MS).length,
+    0
+  );
   const l = anlik?.limitler;
   const genis = uzerinde || bakis || odakta;
   const soruVar = bekleyen.some((x) => x.e?.soruAyrinti?.cevaplanabilir);
@@ -167,6 +195,21 @@ export default function Ada() {
         ref={kart}
         onMouseEnter={() => fare(true)}
         onMouseLeave={() => fare(false)}
+        onPointerMove={(ev) => {
+          // Gozler imleci izler (en fazla ~1,6 px); kare basina bir guncelleme.
+          if (takipKare.current) return;
+          const x = ev.clientX;
+          const y = ev.clientY;
+          takipKare.current = requestAnimationFrame(() => {
+            takipKare.current = 0;
+            const r = gozRef.current?.getBoundingClientRect();
+            if (!r) return;
+            const dx = x - (r.left + r.width / 2);
+            const dy = y - (r.top + r.height / 2);
+            const sinirla = (v: number, m: number) => Math.max(-m, Math.min(m, v));
+            setTakip({ x: Math.round(sinirla(dx / 40, 1.6) * 10) / 10, y: Math.round(sinirla(dy / 40, 1.1) * 10) / 10 });
+          });
+        }}
         onFocus={() => {
           // Odak almayan pencerede de oge DOM odagi alabilir; o "klavye ada'da" demek degil.
           if (document.hasFocus()) setOdakta(true);
@@ -198,9 +241,17 @@ export default function Ada() {
           onClick={() => ilk && window.kokpit.adaGit(ilk.o.id)}
           className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2 text-left text-xs"
         >
-          <Gosterge />
-          <DurumIsareti durum={ilk ? ozetDurum : 'bosta'} />
-          <span className={'min-w-0 truncate ' + (bekleyen.length ? 'text-dikkat-metin' : 'text-metin')}>{ozet}</span>
+          <span ref={gozRef} className="-my-1 -ml-1 flex">
+            <AdaGoz hal={gozHali} poz={gozPozu(calisan[0]?.e ?? null, simdi)} altSayisi={altSayisi} onay={onay} takip={takip} />
+          </span>
+          {/* Metin degisince (arac, durum) yumusak gecis. Sayilar anahtar disi: sayan sure her saniye metni yeniden dogurup titretiyordu. */}
+          <span
+            key={ozet.replace(/\d+/g, '#')}
+            className={'ada-metin min-w-0 truncate ' + (bekleyen.length ? 'text-dikkat-metin' : uyku ? 'text-metin-ikincil' : 'text-metin')}
+          >
+            {ozet}
+          </span>
+          {altSayisi > 0 && <span className="sr-only">, {altSayisi} alt ajan çalışıyor</span>}
           {ozetSure && <span className="enstruman shrink-0 text-metin-soluk">{ozetSure}</span>}
           {l?.besSaat && (
             <span className="enstruman ml-auto shrink-0 pl-2 text-metin-soluk" title="5 saatlik limit">
@@ -209,6 +260,7 @@ export default function Ada() {
           )}
         </button>
 
+        {!genis && l?.besSaat && <LimitKenari kart={kart} yuzde={l.besSaat.yuzde} />}
         {genis && (
           <div className="max-h-[440px] overflow-y-auto border-t border-kenar px-1.5 pb-1.5 pt-1">
             <ul aria-label="Kokpit oturumları">
@@ -301,7 +353,7 @@ function AdaSatiri({
             </p>
           ) : e.durum === 'bekliyor' ? (
             s ? (
-              <SoruFormu key={e.degisti} ad={o.ad} id={o.id} s={s} damga={e.degisti} onGonder={onGonder} />
+              <SoruFormu key={e.soruZamani ?? e.degisti} ad={o.ad} id={o.id} s={s} damga={e.soruZamani ?? e.degisti} onGonder={onGonder} />
             ) : (
               // Izin istemi / elicitation gibi secenegi bilinmeyen beklemeler: yazmak riskli, terminale.
               <p className="text-xs text-metin-soluk">Cevabı terminalde ver: satıra tıkla.</p>
@@ -654,5 +706,36 @@ function AdaLimit({ ad, yuzde }: { ad: string; yuzde: number }) {
       </span>
       <span className={'enstruman shrink-0 ' + (y >= 80 ? 'text-dikkat-metin' : 'text-metin')}>%{y}</span>
     </div>
+  );
+}
+
+/**
+ * Hapin kenari 5 saatlik limitle dolar: ust ortadan baslar, saat yonunde ilerler. Hapin icinde
+ * zaten "5s %42" yaziyor; kenar onu bakmadan okunur yapar. %80'de amber, %95'te kirmizi (kenardaki
+ * limit olcerleriyle ayni esikler). Kart acikken (koseli kart) cizilmez: orada limit cubuklari var.
+ */
+function LimitKenari({ kart, yuzde }: { kart: RefObject<HTMLDivElement | null>; yuzde: number }) {
+  const [boyut, setBoyut] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const el = kart.current;
+    if (!el) return;
+    const olc = () => setBoyut({ w: el.offsetWidth, h: el.offsetHeight });
+    olc();
+    const g = new ResizeObserver(olc);
+    g.observe(el);
+    return () => g.disconnect();
+  }, [kart]);
+  if (!boyut || boyut.w < 40) return null;
+  const y = Math.max(0, Math.min(100, yuzde));
+  const i = 0.75;
+  const { w, h } = boyut;
+  const r = h / 2 - i;
+  // Stadyum: ust orta -> sag ust -> sag yay -> alt -> sol yay -> ust orta.
+  const d = `M ${w / 2} ${i} H ${w - h / 2} A ${r} ${r} 0 0 1 ${w - h / 2} ${h - i} H ${h / 2} A ${r} ${r} 0 0 1 ${h / 2} ${i} Z`;
+  const renk = y >= 95 ? 'var(--color-hata)' : y >= 80 ? 'var(--color-dikkat)' : 'rgb(195 200 209 / 0.55)';
+  return (
+    <svg className="ada-kenar" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+      <path d={d} pathLength={100} stroke={renk} strokeDasharray={`${y} 100`} />
+    </svg>
   );
 }

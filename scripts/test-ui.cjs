@@ -279,7 +279,7 @@ async function main() {
     await cdp.tus('Enter');
     await cdp.bekle(`document.body.innerText.includes('Seni bekliyor') && document.body.innerText.includes('Hangi renk?')`, 15000, 'serit seni bekliyor');
     kontrol('serit: Seni bekliyor + soru metni', true);
-    const soru = await cdp.js(`window.kokpit.etkinlikAnlik().then(a => { const [id, e] = Object.entries(a.oturumlar).find(([, e]) => e.durum === 'bekliyor') ?? []; return id ? { id, damga: e.degisti, ayrinti: e.soruAyrinti } : null; })`);
+    const soru = await cdp.js(`window.kokpit.etkinlikAnlik().then(a => { const [id, e] = Object.entries(a.oturumlar).find(([, e]) => e.durum === 'bekliyor') ?? []; return id ? { id, damga: e.soruZamani, ayrinti: e.soruAyrinti } : null; })`);
     kontrol('kanca durumunda secenekler ve cevaplanabilir', !!soru && soru.ayrinti?.cevaplanabilir === true && soru.ayrinti.sorular[0].secenekler.length === 3, JSON.stringify(soru));
     // Bayat damga: soru degistiyse rakam gonderilmez.
     await cdp.js(`(() => { window.kokpit.adaGonder({ id: ${JSON.stringify(soru?.id)}, tur: 'cevap', cevaplar: [1], damga: ${(soru?.damga ?? 0) - 5} }); return true; })()`);
@@ -364,6 +364,22 @@ async function main() {
     await adaCdp.bekle(`![...document.querySelectorAll('.ada-kart button')].some(b => b.textContent.trim() === 'Gördüm')`, 3000, 'Gördüm kalkti');
     kontrol('ada: Gördüm sonrasi dugme kalkti, son soz durdu', await adaCdp.js(`document.body.innerText.includes('Faz 5 bitti')`));
     await cdp.js(`(() => { document.hasFocus = () => true; return true; })()`);
+
+    // Goz (v2.5): hal, bakis ve alt ajan noktalari kanca durumundan.
+    const gozHali = `(() => { const g = document.querySelector('.ada-goz'); return g ? g.dataset.hal + '/' + (g.dataset.poz ?? '') + '/' + document.querySelectorAll('.ada-goz-altlar i').length : null; })()`;
+    await kabugaYaz(
+      "k '{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"t\"}';" +
+        "k '{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"t\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"C:/x/a.md\"}}';" +
+        "k '{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"t\",\"agent_id\":\"a1\",\"agent_type\":\"kasif\"}'; cls"
+    );
+    kontrol('goz: Read -> okuyor, 1 alt ajan noktasi', await adaCdp.bekle(`${gozHali} === 'calisiyor/oku/1'`, 8000, 'goz oku').catch(async () => false), await adaCdp.js(gozHali));
+    await kabugaYaz(
+      "k '{\"hook_event_name\":\"SubagentStop\",\"session_id\":\"t\",\"agent_id\":\"a1\",\"agent_type\":\"kasif\"}';" +
+        "k '{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"t\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"npm test\"}}'; cls"
+    );
+    kontrol('goz: SubagentStop noktayi dusurdu, Bash -> komut', await adaCdp.bekle(`${gozHali} === 'calisiyor/komut/0'`, 8000, 'goz komut').catch(async () => false), await adaCdp.js(gozHali));
+    await kabugaYaz("k '{\"hook_event_name\":\"Stop\",\"session_id\":\"t\",\"last_assistant_message\":\"ok\"}'; cls");
+    kontrol('goz: Stop -> kisa sevinc (mutlu)', await adaCdp.bekle(`${gozHali} === 'mutlu//0'`, 8000, 'goz mutlu').catch(async () => false), await adaCdp.js(gozHali));
 
     // Tek soru + rakam tusu (klavye yolu): odak ilk secenekte, "3" basilir -> kabuga "3".
     const rakamDosya = path.join(os.tmpdir(), 'kokpit-rakam-' + Date.now().toString(36) + '.txt');

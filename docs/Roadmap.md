@@ -38,6 +38,8 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 20 | Ada: çok sorulu cevap | ✅ Tamamlandı | 2–4 soruluk AskUserQuestion Ada'dan cevaplanıyor (tuş dizisi gerçek claude ile ölçüldü); dizi kabuğa doğru sırayla gidiyor; her tuştan önce soru yeniden denetleniyor |
 | 21 | Ada: son söz, Gördüm, bekleme süresi | ✅ Tamamlandı | Bitti satırında claude'un son mesajı (Stop `last_assistant_message`); "Gördüm" Kokpit'teki rozeti düşürüyor; sıra sende olan oturumda bekleme süresi |
 | 22 | Ada: klavye | ✅ Tamamlandı | Ctrl+Alt+Shift+A gerçek tuşla Ada'ya odak veriyor (ölçüldü ~110 ms); 1–4 / Tab / Enter / Esc; bırakınca Kokpit ana penceresi öne gelmiyor |
+| 23 | Ada'nın gözü | ✅ Tamamlandı | Hapta gümüş göz; hal ve bakış kanca durumundan (araç, soru, bitti, uyku), alt ajan noktaları, limit kenarı; her hal `ekran:goz` ile görüldü, `test:ui`'da DOM'dan doğrulandı |
+| 24 | Hareket bütçesi | ✅ Tamamlandı | Ada görünürken süreç başına CPU/GPU ölçüldü; göz canlı/durgun farkı gürültü düzeyinde (üç dönüşümlü tur); arka plandaki ana pencerede animasyon yok |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -538,3 +540,40 @@ cevap vermek için yine Kokpit'e geçmek gerekiyordu. Tek monitör (1536×864): 
   claude ile spike'ta ölçüldü, Kokpit yolu test kabuğunda); Esc sonrası odağın Scryne'ın kısayola bastığı
   pencereye dönmesi (ölçümde Windows "son gerçek girdiyle etkinleşen" pencereyi seçti; sentetik girdiyle
   o pencere test penceresi olamadı) — canlı kullanımda görülecek.
+
+### v2.5 (2026-10-04): Ada'nın gözü
+
+**Neden:** Scryne "görsel olarak daha çok eklenebilir mi, pet tarzında" dedi. Araştırma (Sonnet, birincil
+kaynaklar): Coucou, Clawd on Desk, Notch Pilot, Notch-Agent, Notchi, Codex pets, RunCat, PILLAR. Ortak kalıp
+hook → durum → küçük üstte pencerede animasyon; asıl risk performans (Electron'da sürekli atan tek nokta
+%14–17 renderer CPU, Kiro #13729). Clawd Anthropic markası, kullanılmaz. Dört yön canlı önizlemede sunuldu
+(claude.ai artifact), Scryne **gümüş göz**ü seçti ve "her şeyi ekle" dedi.
+
+- **Spike (gerçek claude 2.1.289, Haiku):** `SubagentStart`/`SubagentStop` geliyor, `agent_id` + `agent_type`
+  taşıyor; alt ajanın araçları da `agent_id` taşıyor; ana tur `Stop` dedikten **sonra** alt ajan arka planda
+  sürüyor (sonra ana tur bir kez daha `Stop` diyor).
+- **Bulgu ve düzeltme — soru damgası:** ada'dan cevabın damgası `degisti` idi; soru açıkken arka plan alt
+  ajanının her aracı ve 60 sn sonraki `idle_prompt` bu alanı değiştiriyordu → yarım seçilen cevaplar
+  sıfırlanıyor, cevap "soru değişti" diye reddediliyordu. Artık `soruZamani` (yalnız yeni bekleyişte doğar)
+  ve `durumZamani` ("ne zamandır bekliyor"). `altlar` (15 dk sessizlikte düşer), köprüye iki olay eklendi.
+- **Faz 23, göz** (✅): `AdaGoz.tsx`. Hal: boşta, çalışıyor (bakış araca göre: düşün/oku/yaz/komut/web/ajan),
+  bekliyor (amber halka, büyüyen gözler), mutlu (bitince 8 sn, tek zıplama), bitti (sakin), uyku (30 dk).
+  Alt ajan noktaları, cevapta baş sallama, imleç takibi, kırpma. Hapın kenarı 5 saatlik limit (%80 amber).
+  Ekran koşucusu `npm run ekran:goz` her hali çekti; "düşünüyor"da metin boş çıktı: hap metninin anahtarı
+  sayan süreyi içerdiği için metin her saniye yeniden doğuyordu (sayılar anahtar dışı).
+- **Faz 24, hareket bütçesi** (✅): izole örnek, Ada gerçekten görünür (önde başka pencere), süreç başına CPU
+  + `GPU Engine` sayacı, 30–45 sn pencereler. Tek çekirdek yüzdesi:
+
+  | Sürüm | Boşta | Çalışıyor/Read |
+  | --- | --- | --- |
+  | İlk (akıcı sonsuz CSS + 60 fps nabız) | 1,7 | 36,3 |
+  | `steps()` | 1,8 | 11,7 |
+  | + ana pencere arka planda duruyor | 1,5–2,5 | 6,5–9,5 (göz payı ~5) |
+  | Sonsuz animasyon yok, 480 ms zamanlayıcı | 2,1–2,5 (göz durgun) | 2,3–2,9 (göz canlı) |
+
+  Öğrenilen: maliyet adım sayısından değil, **çalışan bir sonsuz animasyonun varlığından** geliyor (compositor
+  60 fps'te kalıyor, saydam/akrilik pencere her karede birleşiyor). `steps()` yetmedi; 70 ms'lik geçiş bile
+  ölçülebilirdi. `document.hasFocus()` CDP'nin sürdüğü sayfada OS odağını yansıtmadı; arka plan bilgisi main
+  süreçteki pencere `blur`'undan geliyor (Ada'nın görünürlüğüyle aynı kaynak).
+- **Testler:** `test:kanca` 101 (89'dan; alt ajanlar, damga kararlılığı, köprü olayları), `test:ui` 84 (81'den;
+  gözün hali, bakışı ve alt ajan noktası DOM'dan), `test:pty` 18.

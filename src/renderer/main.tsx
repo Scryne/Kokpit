@@ -16,6 +16,10 @@ if (adaMi) {
   // Sayfa basligi pencere basligini ezer; ada odak aldiginda (Ctrl+Alt+Shift+A) Windows'ta ana
   // pencereyle ayni "Kokpit" adini tasimasin.
   document.title = 'Kokpit Ada';
+} else {
+  // Ana pencere arka plandayken (Ada gorunurken) sureklilik animasyonlari durur: durumu o an Ada
+  // gosteriyor. Olculdu 2026-10-04: arka plandaki pencerenin nabzi tek basina ~%7 cekirdek.
+  window.kokpit.pencereOdakDinle((odakta) => document.documentElement.classList.toggle('arka-plan', !odakta));
 }
 
 createRoot(document.getElementById('root')!).render(

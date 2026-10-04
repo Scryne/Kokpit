@@ -174,6 +174,37 @@ kontrol('bilinmeyen olay durumu degistirmez', r.degisti === false && r.durum ===
   kontrol('alt ajanin sorusu bekletmez, ayrinti yok', altAjan.durum.durum !== 'bekliyor' && altAjan.durum.soruAyrinti === null);
 }
 
+// --- 1a. Alt ajanlar ve zaman damgalari (v2.5). Sekiller 2026-10-04 spike'inda gercek claude
+// 2.1.289'dan: SubagentStart/SubagentStop { agent_id, agent_type }, alt ajanin araclari agent_id
+// tasir; ana tur Stop dedikten SONRA alt ajan calismaya devam edebilir.
+{
+  let s = etkinlik.isle(etkinlik.yeniDurum(0), P({ hook_event_name: 'UserPromptSubmit', prompt: 'x' }), 100).durum;
+  kontrol('durumZamani: durum degisince', s.durumZamani === 100, s.durumZamani);
+  s = etkinlik.isle(s, P({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: 'C:/a' } }), 200).durum;
+  kontrol('durumZamani: ayni durumda arac olayi degistirmez', s.durumZamani === 100 && s.degisti === 200, s);
+  s = etkinlik.isle(s, P({ hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'kasif' }), 300).durum;
+  s = etkinlik.isle(s, P({ hook_event_name: 'SubagentStart', agent_id: 'a2', agent_type: 'arastirmaci' }), 310).durum;
+  kontrol('SubagentStart: iki alt ajan, tur ile', Object.keys(s.altlar).length === 2 && s.altlar.a1.tur === 'kasif', s.altlar);
+  s = etkinlik.isle(s, P({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Q?', options: [{ label: 'a' }] }] } }), 400).durum;
+  kontrol('soruZamani: soru dogunca', s.soruZamani === 400 && s.durum === 'bekliyor', s.soruZamani);
+  // Soru acikken: arka plan alt ajaninin araci ve 60 sn sonraki idle_prompt damgayi DEGISTIRMEZ
+  // (degistirseydi ada'da yarim secilen cevaplar sifirlanir, cevap "soru degisti" diye reddedilirdi).
+  s = etkinlik.isle(s, P({ hook_event_name: 'PreToolUse', tool_name: 'Grep', agent_id: 'a1', agent_type: 'kasif', tool_input: { pattern: 'x' } }), 500).durum;
+  s = etkinlik.isle(s, P({ hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'waiting' }), 61_000).durum;
+  kontrol('soruZamani: alt ajan araci ve idle_prompt dokunmaz', s.soruZamani === 400 && s.durum === 'bekliyor' && s.degisti === 61_000, { z: s.soruZamani, d: s.durum });
+  kontrol('alt ajan araci kaydini tazeler', s.altlar.a1.t === 500, s.altlar.a1);
+  s = etkinlik.isle(s, P({ hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion', tool_input: {}, tool_response: {} }), 62_000).durum;
+  kontrol('soruZamani: cevaplaninca silinir', s.soruZamani === null && s.durumZamani === 62_000, s.soruZamani);
+  s = etkinlik.isle(s, P({ hook_event_name: 'Stop' }), 63_000).durum;
+  kontrol('ana Stop alt ajanlari silmez (arka planda suruyorlar)', s.durum === 'bitti' && Object.keys(s.altlar).length === 2);
+  s = etkinlik.isle(s, P({ hook_event_name: 'SubagentStop', agent_id: 'a2', agent_type: 'arastirmaci' }), 64_000).durum;
+  kontrol('SubagentStop yalniz o ajani siler', Object.keys(s.altlar).join() === 'a1', s.altlar);
+  const bayat = etkinlik.isle(s, P({ hook_event_name: 'UserPromptSubmit', prompt: 'x' }), 64_000 + 15 * 60 * 1000 + 1).durum;
+  kontrol('Stop u kacirilan ajan 15 dk sessizlikte duser', Object.keys(bayat.altlar).length === 0, bayat.altlar);
+  const kapandi = etkinlik.isle(s, P({ hook_event_name: 'SessionEnd' }), 65_000).durum;
+  kontrol('SessionEnd alt ajanlari temizler', Object.keys(kapandi.altlar).length === 0);
+}
+
 // --- 1b2. Son soz (v2.4). Stop govdesi 2026-10-04 spike'inda gercek claude 2.1.289'dan:
 // { ..., hook_event_name: 'Stop', stop_hook_active, last_assistant_message, background_tasks, session_crons }.
 {
@@ -309,6 +340,7 @@ const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
   const ayar = JSON.parse(fs.readFileSync(b.ayarDosyasi, 'utf8'));
   const h = ayar.hooks.PreToolUse[0].hooks[0];
   kontrol('ayar: http hook, token ve oturum basligi env ile', h.type === 'http' && h.url.endsWith(':' + b.port + '/kanca') && h.headers['X-Kokpit-Oturum'] === '$KOKPIT_OTURUM' && h.allowedEnvVars.includes('KOKPIT_KANCA_TOKEN'), h);
+  kontrol('ayar: alt ajan olaylari da kayitli (SubagentStart/Stop)', !!(ayar.hooks.SubagentStart && ayar.hooks.SubagentStop), Object.keys(ayar.hooks));
   kontrol('ayar: token dosyada YOK', !fs.readFileSync(b.ayarDosyasi, 'utf8').includes(b.token));
   kontrol('ayar: statusline koprusu + kullanicinin padding alani korunur', /durum-satiri\.cjs/.test(ayar.statusLine.command) && ayar.statusLine.padding === 0, ayar.statusLine);
 

@@ -66,6 +66,13 @@ komut ve bir yanıt kutusu. Kokpit öne gelmez. Çok sorulu / çoklu seçimli so
 Cevap gidene kadar soru değiştiyse gönderilmez. **Ctrl+Alt+Shift+K** Kokpit'i her yerden çağırır
 (öndeyse küçültür).
 
+**Ada v2.5, Ada'nın gözü:** hapın solunda gümüş bir gövde, iki göz. Ne yaptığını gösterir: çalışırken araca
+göre bakar (Read satır okur, Edit aşağı odaklanır, Bash kısılır, Web yukarı bakar, araçlar arası düşünür),
+soru sorunca amber halkayla sana bakar, bitince gülüp bir kez zıplar, 30 dk sessizlikte uyur, Ada'dan cevap
+verince baş sallar, imleci izler. Yanındaki noktalar çalışan alt ajanlar (`SubagentStart/Stop`). Hapın
+kenarı 5 saatlik limitle dolar (%80 amber). Kokpit arka plandayken ana penceredeki nabız durur. Maliyet
+ölçüldü: göz canlıyken fark gürültü düzeyinde (DESIGN.md "Ada v2.5"). `npm run ekran:goz` her hali çeker.
+
 **Ada v2.4:**
 - **Çok sorulu sorular** (2–4 soru, tekli seçim) Ada'da cevaplanır: her soruya seçenek ya da "Kendi cevabın…",
   sonra "Cevapları gönder". Tek soru eskisi gibi tek tıkla gider. Son 30 günde claude'un sorularının %37'si
@@ -133,10 +140,11 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 
 ```bash
 npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ağacı dahil (18 kontrol)
-npm run test:kanca   # kanca köprüsü, soru/son söz/istek/komut/tarif/adres/kimlik (89 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada penceresi dahil (81 kontrol, önce build)
+npm run test:kanca   # kanca köprüsü, soru/son söz/istek/komut/tarif/adres/kimlik (101 kontrol)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada penceresi ve gözü dahil (84 kontrol, önce build)
 npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontrol; elle, plan kullanır)
 npm run ekran:ada    # v2.3–v2.4 yüzeylerinin ekran görüntüsü (ada, ada-klavye, ada-bitti, terminal, Pano)
+npm run ekran:goz    # Ada gözünün her hali, hap 4x (boşta, düşün, oku, yaz, komut, web, ajan, soru, kenar, sevinç, bitti, uyku)
 npm run typecheck
 npm run build
 npm run design:lint  # DESIGN.md spec denetimi
