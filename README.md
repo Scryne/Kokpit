@@ -66,6 +66,18 @@ komut ve bir yanıt kutusu. Kokpit öne gelmez. Çok sorulu / çoklu seçimli so
 Cevap gidene kadar soru değiştiyse gönderilmez. **Ctrl+Alt+Shift+K** Kokpit'i her yerden çağırır
 (öndeyse küçültür).
 
+**Ada v2.4:**
+- **Çok sorulu sorular** (2–4 soru, tekli seçim) Ada'da cevaplanır: her soruya seçenek ya da "Kendi cevabın…",
+  sonra "Cevapları gönder". Tek soru eskisi gibi tek tıkla gider. Son 30 günde claude'un sorularının %37'si
+  çok soruluydu ve terminale yönlendiriliyordu. Çoklu seçim (toggle) hâlâ terminalde.
+- **Son söz:** biten oturumun altında claude'un son mesajı (Stop hook'unun `last_assistant_message`'ı;
+  bakılmamışsa 4 satır, "Tamamı" hepsini açar). Windows bildiriminin gövdesinde de başı var. Yalnız bellekte.
+- **Gördüm:** bitti işaretini Kokpit'e geçmeden düşürür; oturuma bir şey gönderilmez.
+- **Bekleme süresi:** sıra sende olan oturumun satırında ve hapta "ne zamandır bekliyor".
+- **Klavye: Ctrl+Alt+Shift+A** Ada'ya odak verir ve ilk eylemi seçer: **1–4** odaktaki sorunun seçeneği,
+  **Tab** gezinir, **Enter** gönderir, **Esc** bırakır. Gönderince ya da Esc'te odak bırakılır; Kokpit'in
+  ana penceresi öne gelmez. Kokpit zaten öndeyse kısayol sırası gelen oturuma gider.
+
 **Çalıştır (v2.3):** Pano satırındaki ▷ projenin uygulamasını claude'un yanında ayrı bir **servis
 bölmesinde** açar (o projede açık sekme varsa içine). Komut önce `~/.kokpit/calistir.json`'dan, yoksa
 `package.json`'dan (`dev` > `start`); bulunamazsa bir kez sorulur ve kaydedilir (`calistir` skill'i de
@@ -85,7 +97,7 @@ o, dizindeki açık oturumları da erken doldururdu.
 
 **Klavye:** Ctrl+Shift+P komut paleti (sayfa, proje aç/git, klasör, eylemler) · Ctrl+B kenar
 çubuğu · Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü · Ctrl+Shift+W bölmeyi kapat · Ctrl+Shift+N
-Inbox'a not · **Ctrl+Alt+Shift+K her yerden Kokpit'i çağır / küçült** · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
+Inbox'a not · **Ctrl+Alt+Shift+K her yerden Kokpit'i çağır / küçült** · **Ctrl+Alt+Shift+A klavyeyle Ada** · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
 Türkçe klavyede AltGr olduğu için üç değiştirici) · sekme şeridinde ← →, bölme ayırıcısında ← →
 (%5). **Terminalde:** Ctrl+Shift+F ara (Enter / Shift+Enter / Esc) · Ctrl+C seçim varken
 kopyalar, yokken `^C` · Ctrl+Shift+C/V · sağ tık yapıştır · Ctrl+= / Ctrl+- / Ctrl+0 yazı
@@ -121,10 +133,10 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 
 ```bash
 npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ağacı dahil (18 kontrol)
-npm run test:kanca   # kanca köprüsü, soru/komut/tarif/adres/kimlik (71 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi (65 kontrol, önce build)
+npm run test:kanca   # kanca köprüsü, soru/son söz/istek/komut/tarif/adres/kimlik (89 kontrol)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada penceresi dahil (81 kontrol, önce build)
 npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontrol; elle, plan kullanır)
-npm run ekran:ada    # v2.3 yüzeylerinin ekran görüntüsü (ada, terminal, Pano)
+npm run ekran:ada    # v2.3–v2.4 yüzeylerinin ekran görüntüsü (ada, ada-klavye, ada-bitti, terminal, Pano)
 npm run typecheck
 npm run build
 npm run design:lint  # DESIGN.md spec denetimi
@@ -139,7 +151,10 @@ yazıyordu (2026-10-04). `test:ui` kaynak `dist`'ten yeniyse koşmayı reddeder 
 arayüzü test edip yeşil yanıyordu).
 
 `test:ui` uygulamayı `--remote-debugging-port` ile açar, CDP üzerinden gerçek tuş/tıklama
-gönderir, DOM'dan okur; iki çalışma yapar (geri yükleme için). Claude AÇMAZ:
+gönderir, DOM'dan okur; iki çalışma yapar (geri yükleme için). v2.4'ten beri **Ada penceresini de kurar**
+(`KOKPIT_TEST_ADA=1`) ve onu ayrı bir CDP hedefi olarak sürer. Kurmadığı sürece bir hata görünmez
+kalmıştı: ana pencere kapanınca Ada yaşadığı için uygulama çıkmıyordu (v2.2–v2.3; sonraki `kokpit`
+tek örnek kilidine takılıp hiçbir şey açmıyordu). Test sırasında ekranın üst ortasında Ada belirebilir. Claude AÇMAZ:
 `KOKPIT_TEST_KABUK=1` ile PTY sunucusu düz pwsh açar — her gerçek claude açılışı transcript +
 hook tetiklerdi. `KOKPIT_TEST_KEEP=1` ayar/defter dosyalarını geri almaz, defteri basar.
 Yerel diyalog CDP'den tıklanamadığı için test `KOKPIT_TEST_SECIM=0` verir: kapatma diyaloğu

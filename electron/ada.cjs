@@ -9,6 +9,9 @@
 // (setIgnoreMouseEvents forward). Renderer imlec adanin uzerine gelince yakalamayi acar.
 // Boyut degistirmek yerine bu yol secildi: saydam pencereyi her acilista yeniden boyutlamak
 // Windows'ta titriyor.
+//
+// v2.4: Ctrl+Alt+Shift+A ada'ya klavye odagi verir (genel kisayol surece on plan hakki verir,
+// olculdu: ~110 ms). Birakinca odak onceki uygulamaya doner; bkz. odakla(false).
 
 const { BrowserWindow, ipcMain, screen } = require('electron');
 const { log } = require('./log.cjs');
@@ -25,6 +28,9 @@ let oturumSayisi = 0;
 let sonAnlik = null;
 let sonListe = [];
 let gitDinleyici = () => {};
+let gordumDinleyici = () => {};
+/** @type {() => import('electron').BrowserWindow | null} */
+let anaPencere = () => null;
 
 function konum() {
   const alan = screen.getPrimaryDisplay().workArea;
@@ -52,12 +58,14 @@ function gonder(kanal, veri) {
 }
 
 /**
- * @param {{ url: string, preload: string, onGit: (id: string) => void, acik: boolean }} s
+ * @param {{ url: string, preload: string, onGit: (id: string) => void, onGordum: (id: string) => void, ana: () => import('electron').BrowserWindow | null, acik: boolean }} s
  */
 function kur(s) {
   if (ada) return;
   acik = s.acik !== false;
   gitDinleyici = s.onGit;
+  gordumDinleyici = s.onGordum;
+  anaPencere = s.ana;
   ada = new BrowserWindow({
     ...konum(),
     show: false,
@@ -95,6 +103,44 @@ function kur(s) {
   log('ada kuruldu');
 }
 
+/**
+ * Gecici odak. Ada `focusable: false` kurulur (oyun/yazi ortasinda odak calmasin); yazi kutusu
+ * ya da klavye kisayolu icin acilir, birakilinca kapanir. Odaktayken fare olaylari da yakalanir
+ * (imlec kartin disina kaysa bile kutu yazilabilir kalsin).
+ */
+function odakla(istek) {
+  if (!ada || ada.isDestroyed()) return;
+  if (istek) {
+    ada.setFocusable(true);
+    ada.setIgnoreMouseEvents(false);
+    ada.focus();
+  } else {
+    const odaktaydi = ada.isFocused();
+    // Odak ONCEKI uygulamaya donmeli (Scryne kisayola orada basti). Olculdu 2026-10-04, gercek
+    // kisayol + Win32 on plan okumasi: blur() -> Kokpit'in ana penceresi one geliyor; ana pencere
+    // etkinlestirilemez yapilip blur()/hide() -> hicbir pencere etkin degil; minimize() + ana kilit
+    // -> Windows'un "son kullanici girdisiyle etkinlesen" penceresi. Ada sonra odaksiz geri gelir;
+    // kucultme animasyonu gorunmesin diye o an saydamdir.
+    const ana = anaPencere();
+    const anaKilit = odaktaydi && ana && !ana.isDestroyed() && ana.isVisible() && !ana.isMinimized();
+    if (anaKilit) ana.setFocusable(false);
+    ada.setFocusable(false);
+    ada.setIgnoreMouseEvents(true, { forward: true });
+    if (odaktaydi) {
+      ada.setOpacity(0);
+      ada.minimize();
+      setTimeout(() => {
+        if (!ada || ada.isDestroyed()) return;
+        ada.showInactive();
+        ada.setBounds(konum());
+        ada.setOpacity(1);
+        gorunurlukGuncelle();
+      }, 60);
+    }
+    if (anaKilit) setTimeout(() => !ana.isDestroyed() && ana.setFocusable(true), 150);
+  }
+}
+
 ipcMain.on('ada:fare', (e, icinde) => {
   if (!ada || e.sender !== ada.webContents) return;
   ada.setIgnoreMouseEvents(!icinde, { forward: true });
@@ -102,6 +148,10 @@ ipcMain.on('ada:fare', (e, icinde) => {
 ipcMain.on('ada:git', (e, id) => {
   if (!ada || e.sender !== ada.webContents || typeof id !== 'string') return;
   gitDinleyici(id);
+});
+ipcMain.on('ada:gordum', (e, id) => {
+  if (!ada || e.sender !== ada.webContents || typeof id !== 'string') return;
+  gordumDinleyici(id);
 });
 
 module.exports = {
@@ -129,22 +179,24 @@ module.exports = {
   sinyal(id, sinyal) {
     gonder('etkinlik:sinyal', { id, sinyal });
   },
-  /**
-   * Yazi kutusu icin gecici odak. Ada `focusable: false` kurulur; kutuya tiklaninca acilir,
-   * gonderince/kutudan cikinca kapanir. Odaktayken fare olaylari da yakalanir (imlec kartin
-   * disina kaysa bile kutu yazilabilir kalsin).
-   */
+  /** Renderer'in istegi: yazi kutusuna tiklandi (true) ya da odak karttan cikti (false). */
   odak(istek) {
-    if (!ada || ada.isDestroyed()) return;
-    if (istek) {
-      ada.setFocusable(true);
-      ada.setIgnoreMouseEvents(false);
-      ada.focus();
-    } else {
-      ada.blur();
-      ada.setFocusable(false);
-      ada.setIgnoreMouseEvents(true, { forward: true });
+    odakla(istek);
+  },
+  /**
+   * Genel kisayol (Ctrl+Alt+Shift+A): klavyeyle ada. Kokpit ondeyse ada gizlidir; renderer
+   * o zaman sirasi gelen oturuma Kokpit'in icinde gider. Arka plandaysa ada odak alir ve
+   * renderer ilk eylemi (secenek ya da yanit kutusu) odaklar; Esc birakir.
+   * @returns {boolean} bir sey yapildi mi (ada kapali / oturum yok -> false)
+   */
+  klavye(anaOdakta) {
+    if (!ada || ada.isDestroyed() || !acik || oturumSayisi === 0) return false;
+    if (!anaOdakta) {
+      gorunurlukGuncelle();
+      odakla(true);
     }
+    gonder('ada:klavye', { anaOdakta: anaOdakta === true });
+    return true;
   },
   kapat() {
     if (ada && !ada.isDestroyed()) ada.destroy();

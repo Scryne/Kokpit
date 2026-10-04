@@ -585,9 +585,11 @@ export default function App() {
         const goster = () => {
           const baslik =
             sebep === 'bekliyor' ? o.ad + ' seni bekliyor' : sebep === 'bitti' ? o.ad + ' bitti' : o.ad;
+          // Bitti: govdede claude'un son sozunun basi (ne dedigini bilmeden cevap verilmez).
+          const soz = sebep === 'bitti' && kopru?.sonSoz ? kopru.sonSoz.replace(/\s+/g, ' ').slice(0, 140) : '';
           const b = new Notification(baslik, {
             body: kopru
-              ? etkinlikCumlesi(kopru, Date.now())
+              ? etkinlikCumlesi(kopru, Date.now()) + (soz ? '\n' + soz : '')
               : 'Oturum dikkat bekliyor — claude bitti ya da soru soruyor.',
             tag: 'kokpit-' + id,
           });
@@ -631,47 +633,81 @@ export default function App() {
    * Oturuma gonderme: hizli komut, ada'dan yanit ya da acik sorunun cevabi. Klavyeden
    * yazilmis gibi PTY'ye gider; claude'un kendi girdisi kaynak olarak kalir.
    *
-   * Tuslar 2026-10-04 spike'inda gercek claude 2.1.289 ile olculdu:
+   * Tuslar gercek claude 2.1.289 ile olculdu (etkinlik.cjs soruAyrintisi):
    *   - mesaj: metin, ~350 ms sonra Enter (ayni pakette Enter yapistirmanin parcasi sayiliyor)
-   *   - soru: secenegin rakami secer VE gonderir; serbest cevap N+1 ("Type something") rakami,
-   *     metin, Enter.
-   * Soru cevabi `damga` ile gelir: o ana kadar soru degistiyse (cevaplandi, yenisi geldi)
-   * istek dusurulur. Rakam tusu baska bir ekranda baska bir sey secer; bayat cevap olmaz.
+   *   - soru basina: secenegin rakami; serbest cevap N+1 ("Type something") rakami, metin, Enter.
+   *     Tek soruda rakam gonderir; cok soruda sonraki soruya gecer ve sonda Review ekraninda
+   *     1 = "Submit answers".
+   * Soru cevabi `damga` ile gelir ve HER tustan once yeniden denetlenir: o arada soru
+   * degistiyse (terminalden cevaplandi, yenisi geldi) dizi durur. Rakam tusu baska bir ekranda
+   * baska bir sey secer; bayat cevap olmaz.
    */
+  const gonderiliyor = useRef(new Set<string>());
   const oturumaGonder = useCallback(async (istek: GonderIstegi): Promise<string | null> => {
     const o = oturumlarRef.current.find((x) => x.id === istek.id);
     const api = oturumApileri.current.get(istek.id);
     if (!o || o.durumu !== 'acik' || !api) return 'Oturum açık değil';
+    // Ayni oturuma iki dizi ust uste binerse tuslar karisir (cift tik, ada + palet).
+    if (gonderiliyor.current.has(istek.id)) return 'Önceki gönderim sürüyor';
+    gonderiliyor.current.add(istek.id);
     const bekle = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    if (istek.tur === 'metin') {
-      if (!api.yaz(istek.metin)) return 'Terminal bağlantısı yok';
-      await bekle(350);
-      api.yaz('\r');
-    } else {
-      const e = etkinlikRef.current.oturumlar[istek.id];
-      const s = e?.soruAyrinti;
-      if (!e || e.durum !== 'bekliyor' || !s?.cevaplanabilir || e.degisti !== istek.damga) {
-        console.warn('[gonder] soru değişti, cevap gönderilmedi: ' + o.ad);
-        return 'Soru değişti; terminalden cevapla';
-      }
-      if (istek.secim === 'diger') {
-        if (!istek.metin) return 'Cevap boş';
-        api.yaz(String(s.secenekler.length + 1));
-        await bekle(400);
-        api.yaz(istek.metin);
-        await bekle(400);
+    try {
+      if (istek.tur === 'metin') {
+        if (!api.yaz(istek.metin)) return 'Terminal bağlantısı yok';
+        await bekle(350);
         api.yaz('\r');
       } else {
-        if (istek.secim >= s.secenekler.length) return 'Böyle bir seçenek yok';
-        api.yaz(String(istek.secim + 1));
+        const s = etkinlikRef.current.oturumlar[istek.id]?.soruAyrinti;
+        const hala = () => {
+          const e = etkinlikRef.current.oturumlar[istek.id];
+          return !!e && e.durum === 'bekliyor' && !!e.soruAyrinti?.cevaplanabilir && e.degisti === istek.damga;
+        };
+        if (!s || !hala() || istek.cevaplar.length !== s.sorular.length) {
+          console.warn('[gonder] soru değişti, cevap gönderilmedi: ' + o.ad);
+          return 'Soru değişti; terminalden cevapla';
+        }
+        for (let i = 0; i < s.sorular.length; i++) {
+          if (typeof istek.cevaplar[i] === 'number' && (istek.cevaplar[i] as number) >= s.sorular[i].secenekler.length) {
+            return 'Böyle bir seçenek yok';
+          }
+        }
+        // Tus dizisi; her adimdan once soru hala ayni mi bakilir.
+        const tuslar: string[] = [];
+        istek.cevaplar.forEach((c, i) => {
+          if (typeof c === 'number') tuslar.push(String(c + 1));
+          else tuslar.push(String(s.sorular[i].secenekler.length + 1), c, '\r');
+        });
+        if (s.sorular.length > 1) tuslar.push('1');
+        for (let i = 0; i < tuslar.length; i++) {
+          if (i > 0) await bekle(350);
+          if (!hala()) {
+            console.warn('[gonder] soru cevap sırasında değişti, kalan tuşlar gönderilmedi: ' + o.ad);
+            return 'Soru değişti; terminalden bak';
+          }
+          if (!api.yaz(tuslar[i])) return 'Terminal bağlantısı yok';
+        }
       }
+    } finally {
+      gonderiliyor.current.delete(istek.id);
     }
-    console.info('[gonder] ' + o.ad + ': ' + istek.tur);
+    console.info('[gonder] ' + o.ad + ': ' + istek.tur + (istek.tur === 'cevap' ? ' (' + istek.cevaplar.length + ' soru)' : ''));
     setOturumlar((l) => (l.some((x) => x.id === istek.id && x.dikkat) ? l.map((x) => (x.id === istek.id ? { ...x, dikkat: false } : x)) : l));
     return null;
   }, []);
   // Ada'dan gelen gonderme istekleri (main dogruladi, burada oturum ve soru denetlenir).
   useEffect(() => window.kokpit.oturumaGonderDinle((istek) => void oturumaGonder(istek)), [oturumaGonder]);
+  // Ada'da "Gördüm": bitti rozeti duser. "Seni bekliyor" dusmez: o, cevaplanana kadar kalir.
+  useEffect(
+    () =>
+      window.kokpit.oturumGordumDinle((id) =>
+        setOturumlar((l) =>
+          l.some((x) => x.id === id && x.dikkat && etkinlikRef.current.oturumlar[id]?.durum !== 'bekliyor')
+            ? l.map((x) => (x.id === id ? { ...x, dikkat: false } : x))
+            : l
+        )
+      ),
+    []
+  );
 
   // Rozet, kullanici o bolmeye BAKINCA duser: aktif grup + terminal gorunumu + pencere odakta.
   useEffect(() => {

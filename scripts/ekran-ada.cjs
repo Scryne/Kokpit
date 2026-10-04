@@ -1,5 +1,5 @@
-// v2.3 yuzeylerinin ekran goruntusu: Ada (soru secenekleri + hizli komutlar + yanit kutusu),
-// terminal gorunumu (etkinlik seridi, hizli komut menusu, servis bolmesi).
+// v2.3/v2.4 yuzeylerinin ekran goruntusu: Ada (cok sorulu soru, son soz, hizli komutlar, yanit
+// kutusu, klavye hali), terminal gorunumu (etkinlik seridi, hizli komut menusu, servis bolmesi).
 // test:ui DOM'a bakar, bu goze. Izole veri dizininde calisir (gercek ~/.kokpit'e dokunmaz),
 // claude acmaz: hook'lar test kabugundan taklit edilir (test:ui ile ayni yol).
 // Kullanim: npm run build && node scripts/ekran-ada.cjs [cikti-dizini]
@@ -87,16 +87,33 @@ const KANCA = "$h=@{Authorization=\"Bearer $env:KOKPIT_KANCA_TOKEN\";'X-Kokpit-O
       await ana.gonder('Input.dispatchKeyEvent', { type: 'keyUp', key: '1', code: 'Digit1', modifiers: 2, windowsVirtualKeyCode: 49 });
       await uyu(300);
     }
-    // Ikinci oturum (aktif): duzenleme + bitti.
+    // Kokpit "bakmiyor" sayilsin: bitti oturumu dikkat rozeti alir (adada "Gördüm" gorunur).
+    await ana.js(`(() => { document.hasFocus = () => false; return true; })()`);
+    // Ikinci oturum (aktif): duzenleme + bitti, son sozuyle (Stop last_assistant_message).
+    const STOP_GOVDESI = path.join(TEST_DIZIN, 'stop.json');
+    fs.writeFileSync(STOP_GOVDESI, JSON.stringify({
+      hook_event_name: 'Stop',
+      session_id: 't',
+      last_assistant_message: [
+        '## Faz 5 tamam',
+        '',
+        '**Form** 11 soruyla çalışıyor; Şekil A.1 çizimleri eklendi, bilmiyorum seçeneği her soruda var.',
+        '',
+        '- test:ui 81/81, iki kez',
+        '- localStorage taslağı sayfa yenilenince geri geliyor',
+        '',
+        'Sırada Faz 6 (sonuç ekranı). Commit atayım mı, yoksa önce mobilde bakmak ister misin?',
+      ].join('\n'),
+    }));
     await ana.gonder('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: '2', code: 'Digit2', modifiers: 2, windowsVirtualKeyCode: 50 });
     await ana.gonder('Input.dispatchKeyEvent', { type: 'keyUp', key: '2', code: 'Digit2', modifiers: 2, windowsVirtualKeyCode: 50 });
     await uyu(500);
-    await kabugaYaz(ana, KANCA + `k '{"hook_event_name":"UserPromptSubmit","session_id":"t"}';k '{"hook_event_name":"PostToolUse","session_id":"t","tool_name":"Edit","tool_input":{"file_path":"C:/x/src/Pano.tsx"},"tool_response":{"structuredPatch":[{"lines":["+a","+b","+c","-d"]}]}}';k '{"hook_event_name":"Stop","session_id":"t"}'; cls`);
+    await kabugaYaz(ana, KANCA + `k '{"hook_event_name":"UserPromptSubmit","session_id":"t"}';k '{"hook_event_name":"PostToolUse","session_id":"t","tool_name":"Edit","tool_input":{"file_path":"C:/x/src/Pano.tsx"},"tool_response":{"structuredPatch":[{"lines":["+a","+b","+c","-d"]}]}}';k (Get-Content -Raw -Encoding utf8 '${STOP_GOVDESI}'); cls`);
     await uyu(1500);
-    // Ilk sekmeye gec: soru.
+    // Ilk sekmeye gec: cok sorulu soru (v2.4).
     await ana.js(`(() => { document.querySelectorAll('[role="tab"]')[0].click(); return true; })()`);
     await uyu(600);
-    await kabugaYaz(ana, KANCA + `k '{"hook_event_name":"UserPromptSubmit","session_id":"t"}';k '{"hook_event_name":"PreToolUse","session_id":"t","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Push etmeden önce yayin-oncesi taramasını çalıştırayım mı?","header":"Yayın","multiSelect":false,"options":[{"label":"Evet, tara","description":"Geçmiş + meta veri, ~1 dk"},{"label":"Hayır, sadece commit","description":""},{"label":"Sonra","description":"Şimdilik dur"}]}]}}'; cls`);
+    await kabugaYaz(ana, KANCA + `k '{"hook_event_name":"UserPromptSubmit","session_id":"t"}';k '{"hook_event_name":"PreToolUse","session_id":"t","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Push etmeden önce yayin-oncesi taramasını çalıştırayım mı?","header":"Yayın","multiSelect":false,"options":[{"label":"Evet, tara","description":"Geçmiş + meta veri, ~1 dk"},{"label":"Hayır, sadece commit","description":""},{"label":"Sonra","description":"Şimdilik dur"}]},{"question":"Commit mesajı hangi dilde olsun?","header":"Dil","multiSelect":false,"options":[{"label":"Türkçe","description":"Repodaki diğer commitler gibi"},{"label":"İngilizce","description":""}]}]}}'; cls`);
     await uyu(1500);
 
     // Terminal gorunumu: servis bolmesi + hizli komut menusu acik.
@@ -113,7 +130,7 @@ const KANCA = "$h=@{Authorization=\"Bearer $env:KOKPIT_KANCA_TOKEN\";'X-Kokpit-O
     await ana.js(`(() => { [...document.querySelectorAll('button[aria-label$="hızlı komut gönder"]')].pop()?.click(); return true; })()`);
     await uyu(500);
     let { result } = await ana.gonder('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(CIKTI, 'kokpit-v23-terminal.png'), Buffer.from(result.data, 'base64'));
+    fs.writeFileSync(path.join(CIKTI, 'kokpit-v24-terminal.png'), Buffer.from(result.data, 'base64'));
     await ana.js(`(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); return true; })()`);
 
     // Pano: Calistir isareti.
@@ -121,7 +138,7 @@ const KANCA = "$h=@{Authorization=\"Bearer $env:KOKPIT_KANCA_TOKEN\";'X-Kokpit-O
     await ana.gonder('Input.dispatchKeyEvent', { type: 'keyUp', key: '1', code: 'Digit1', modifiers: 2, windowsVirtualKeyCode: 49 });
     await uyu(600);
     ({ result } = await ana.gonder('Page.captureScreenshot', { format: 'png' }));
-    fs.writeFileSync(path.join(CIKTI, 'kokpit-v23-pano.png'), Buffer.from(result.data, 'base64'));
+    fs.writeFileSync(path.join(CIKTI, 'kokpit-v24-pano.png'), Buffer.from(result.data, 'base64'));
 
     // Ada: ana pencere kuculur (Kokpit arka planda) -> ada gorunur; imlec ustune gelir -> acilir.
     // Electron'un CDP'si Browser.setWindowBounds'u desteklemiyor; ada penceresi gizliyken de
@@ -131,9 +148,30 @@ const KANCA = "$h=@{Authorization=\"Bearer $env:KOKPIT_KANCA_TOKEN\";'X-Kokpit-O
     await uyu(900);
     const kutu = await ada.js(`(() => { const r = document.querySelector('.ada-kart')?.getBoundingClientRect(); return r ? { x: r.x, y: r.y, w: r.width, h: r.height } : null; })()`);
     ({ result } = await ada.gonder('Page.captureScreenshot', { format: 'png', ...(kutu ? { clip: { x: Math.max(0, kutu.x - 12), y: 0, width: kutu.w + 24, height: kutu.y + kutu.h + 16, scale: 2 } } : {}) }));
-    fs.writeFileSync(path.join(CIKTI, 'kokpit-v23-ada.png'), Buffer.from(result.data, 'base64'));
-    console.log('ada metni: ' + (await ada.js(`document.body.innerText`)).replace(/\s+/g, ' ').slice(0, 400));
-    console.log('yazildi: ' + ['terminal', 'pano', 'ada'].map((x) => path.join(CIKTI, 'kokpit-v23-' + x + '.png')).join(', '));
+    fs.writeFileSync(path.join(CIKTI, 'kokpit-v24-ada.png'), Buffer.from(result.data, 'base64'));
+    console.log('ada metni: ' + (await ada.js(`document.body.innerText`)).replace(/\s+/g, ' ').slice(0, 600));
+
+    // Klavye hali (v2.4): kisayolun yaptigi gibi odak alir, ilk soruda bir cevap secilir.
+    await uyu(400);
+    await ada.js(`(() => { window.kokpit.adaOdak(true); return true; })()`);
+    await uyu(300);
+    await ada.js(`(() => { document.querySelector('.ada-kart [data-eylem]')?.focus(); return true; })()`);
+    await ada.gonder('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: '1', code: 'Digit1', windowsVirtualKeyCode: 49 });
+    await ada.gonder('Input.dispatchKeyEvent', { type: 'char', key: '1', text: '1', windowsVirtualKeyCode: 49 });
+    await ada.gonder('Input.dispatchKeyEvent', { type: 'keyUp', key: '1', code: 'Digit1', windowsVirtualKeyCode: 49 });
+    await uyu(400);
+    const kutu2 = await ada.js(`(() => { const r = document.querySelector('.ada-kart')?.getBoundingClientRect(); return r ? { x: r.x, y: r.y, w: r.width, h: r.height } : null; })()`);
+    ({ result } = await ada.gonder('Page.captureScreenshot', { format: 'png', ...(kutu2 ? { clip: { x: Math.max(0, kutu2.x - 12), y: 0, width: kutu2.w + 24, height: kutu2.y + kutu2.h + 16, scale: 2 } } : {}) }));
+    fs.writeFileSync(path.join(CIKTI, 'kokpit-v24-ada-klavye.png'), Buffer.from(result.data, 'base64'));
+    console.log('odak: ' + (await ada.js(`document.activeElement?.textContent ?? ''`)));
+    // Bitti satiri (son soz + cipler + Gördüm): liste sona kaydirilir.
+    await ada.js(`(() => { const k = document.querySelector('.ada-kart .overflow-y-auto'); k.scrollTop = k.scrollHeight; return true; })()`);
+    await uyu(200);
+    ({ result } = await ada.gonder('Page.captureScreenshot', { format: 'png', ...(kutu2 ? { clip: { x: Math.max(0, kutu2.x - 12), y: 0, width: kutu2.w + 24, height: kutu2.y + kutu2.h + 40, scale: 2 } } : {}) }));
+    fs.writeFileSync(path.join(CIKTI, 'kokpit-v24-ada-bitti.png'), Buffer.from(result.data, 'base64'));
+    await ada.js(`(() => { document.activeElement?.blur(); return true; })()`);
+    await ada.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 510 });
+    console.log('yazildi: ' + ['terminal', 'pano', 'ada', 'ada-klavye'].map((x) => path.join(CIKTI, 'kokpit-v24-' + x + '.png')).join(', '));
   } catch (e) {
     console.error('HATA ' + e.message);
   }

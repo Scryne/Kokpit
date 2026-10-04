@@ -245,16 +245,24 @@ export interface EtkinlikAraci {
   bitti: number | null;
 }
 
-/** AskUserQuestion'un ilk sorusu (electron/etkinlik.cjs soruAyrintisi). */
-export interface SoruAyrintisi {
+/** AskUserQuestion'un sorulari (electron/etkinlik.cjs soruAyrintisi). */
+export interface Soru {
   soru: string;
   baslik: string;
   secenekler: { etiket: string; aciklama: string }[];
+}
+
+export interface SoruAyrintisi {
+  /** En fazla 4 soru, claude'un sirasiyla. */
+  sorular: Soru[];
   coklu: boolean;
   soruSayisi: number;
-  /** Tek soru, tekli secim: Kokpit/ada'dan rakam tusuyla cevaplanabilir. */
+  /** Hepsi tekli secim ve secenekli: Kokpit/ada'dan rakam tuslariyla cevaplanabilir. */
   cevaplanabilir: boolean;
 }
+
+/** Bir sorunun cevabi: secenegin sirasi ya da serbest metin ("Type something"). */
+export type SoruCevabi = number | string;
 
 /** Projenin uygulamasini acan komut (electron/calistir.cjs). */
 export type CalistirTarifi =
@@ -273,7 +281,7 @@ export interface HizliKomut {
  */
 export type GonderIstegi =
   | { id: string; tur: 'metin'; metin: string }
-  | { id: string; tur: 'secim'; secim: number | 'diger'; metin?: string; damga: number };
+  | { id: string; tur: 'cevap'; cevaplar: SoruCevabi[]; damga: number };
 
 export interface OturumEtkinligi {
   durum: EtkinlikDurumu;
@@ -281,6 +289,8 @@ export interface OturumEtkinligi {
   arac: EtkinlikAraci | null;
   soru: string | null;
   soruAyrinti?: SoruAyrintisi | null;
+  /** Bitti iken turun son mesaji (Stop hook'unun last_assistant_message'i). */
+  sonSoz?: string | null;
   turBasladi: number | null;
   sonTurSuresiMs: number | null;
   degisti: number;
@@ -379,6 +389,9 @@ declare global {
       adaGonder: (istek: GonderIstegi) => void;
       adaOdak: (istek: boolean) => void;
       oturumaGonderDinle: (cb: (istek: GonderIstegi) => void) => () => void;
+      adaGordum: (id: string) => void;
+      oturumGordumDinle: (cb: (id: string) => void) => () => void;
+      adaKlavyeDinle: (cb: (k: { anaOdakta: boolean }) => void) => () => void;
     };
   }
 }

@@ -16,6 +16,7 @@ const kanca = require('./kanca.cjs');
 const ada = require('./ada.cjs');
 const komutlar = require('./komutlar.cjs');
 const calistir = require('./calistir.cjs');
+const { gonderIstegi } = require('./gonder-istegi.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
@@ -191,7 +192,15 @@ function pencereKur() {
     pencere.loadURL(uretim.BASLANGIC_URL).catch((e) => logHata('loadURL', e));
   }
 
-  pencere.on('closed', () => { pencere = null; });
+  // Ana pencere kapandiysa uygulama biter. Ada da bir pencere: o yasarken `window-all-closed`
+  // hic gelmiyordu ve surec arka planda kaliyordu (PTY sunucusu, servisler, genel kisayollar);
+  // sonraki `kokpit` tek ornek kilidine takilip bos pencereyi one getirmeye calisiyor, hicbir
+  // sey acilmiyordu. v2.2'den 2026-10-04'e kadar; test kosuculari adayi kurmadigi icin gorulmedi.
+  pencere.on('closed', () => {
+    pencere = null;
+    ada.kapat();
+    app.quit();
+  });
   // Ada yalniz Kokpit arka plandayken gorunur.
   pencere.on('focus', () => ada.anaOdak(true));
   pencere.on('blur', () => ada.anaOdak(false));
@@ -208,6 +217,12 @@ function adaKur() {
       pencereyiOneGetir();
       if (pencere) pencere.webContents.send('oturuma:git', id);
     },
+    // "Gordum": bitti rozeti Kokpit'e gecmeden duser (yalniz dikkat; oturuma bir sey gitmez).
+    onGordum: (id) => {
+      if (pencere) pencere.webContents.send('oturum:gordum', id);
+    },
+    // Ada odagi birakirken ana pencere bir an etkinlestirilemez olur (bkz. ada.cjs odakla).
+    ana: () => pencere,
   });
 }
 
@@ -397,21 +412,9 @@ ipcMain.handle('komutlar:duzenle', async () => {
 });
 /**
  * Oturuma gonderme istegi (ada ya da ana pencere). Yazmanin kendisi ana pencerede: PTY
- * baglantisi orada yasar. Burada yalniz sekil denetlenir; "o soru hala acik mi" karari App'te,
- * kanca durumuyla (damga) verilir.
+ * baglantisi orada yasar. Burada yalniz sekil denetlenir (gonder-istegi.cjs); "o soru hala
+ * acik mi" karari App'te, kanca durumuyla (damga) verilir.
  */
-function gonderIstegi(ham) {
-  if (!ham || typeof ham !== 'object' || typeof ham.id !== 'string' || !/^[\w.-]{1,160}$/.test(ham.id)) return null;
-  const metin = typeof ham.metin === 'string' ? ham.metin.replace(/\s*[\r\n]+\s*/g, ' ').trim().slice(0, 2000) : '';
-  if (ham.tur === 'metin') return metin ? { id: ham.id, tur: 'metin', metin } : null;
-  if (ham.tur === 'secim') {
-    const secim = Number.isInteger(ham.secim) && ham.secim >= 0 && ham.secim <= 3 ? ham.secim : ham.secim === 'diger' ? 'diger' : null;
-    if (secim === null || !Number.isFinite(ham.damga)) return null;
-    if (secim === 'diger' && !metin) return null;
-    return { id: ham.id, tur: 'secim', secim, metin, damga: ham.damga };
-  }
-  return null;
-}
 ipcMain.on('ada:gonder', (e, ham) => {
   const istek = gonderIstegi(ham);
   if (!istek) return;
@@ -518,6 +521,16 @@ app.whenReady().then(() => {
       else pencereyiOneGetir();
     });
     log('genel kisayol ' + cagirKisayolu + (cagir ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
+  }
+  // Klavyeyle ada (v2.4): sirasi gelen oturuma cevap, Kokpit'e gecmeden. Ada kuruluysa kaydedilir
+  // (test kosucularinda yalniz KOKPIT_TEST_ADA ile; o zaman gercek Kokpit'inkiyle cakisabilir,
+  // kayit dusmesi loglanir ve test bunu bilir).
+  if (process.env.KOKPIT_TEST_KABUK !== '1' || process.env.KOKPIT_TEST_ADA === '1') {
+    const adaKisayolu = 'Control+Alt+Shift+A';
+    const adaKayit = globalShortcut.register(adaKisayolu, () => {
+      if (!ada.klavye(!!pencere && pencere.isFocused())) log('ada kisayolu: ada kapali ya da oturum yok');
+    });
+    log('genel kisayol ' + adaKisayolu + (adaKayit ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
   }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
 });

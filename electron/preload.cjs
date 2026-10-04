@@ -81,4 +81,16 @@ contextBridge.exposeInMainWorld('kokpit', {
     ipcRenderer.on('oturuma:gonder', d);
     return () => ipcRenderer.removeListener('oturuma:gonder', d);
   },
+  // v2.4: "gordum" (bitti rozeti ada'dan duser) ve klavyeyle ada (Ctrl+Alt+Shift+A).
+  adaGordum: (id) => ipcRenderer.send('ada:gordum', id),
+  oturumGordumDinle: (cb) => {
+    const d = (_e, id) => cb(id);
+    ipcRenderer.on('oturum:gordum', d);
+    return () => ipcRenderer.removeListener('oturum:gordum', d);
+  },
+  adaKlavyeDinle: (cb) => {
+    const d = (_e, k) => cb(k);
+    ipcRenderer.on('ada:klavye', d);
+    return () => ipcRenderer.removeListener('ada:klavye', d);
+  },
 });

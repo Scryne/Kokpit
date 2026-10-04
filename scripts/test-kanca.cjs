@@ -100,6 +100,7 @@ d = r.durum;
 
 r = etkinlik.isle(d, P({ hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: 'tamam' }), 4000);
 kontrol('Stop -> bitti + sure + sinyal', r.durum.durum === 'bitti' && r.durum.sonTurSuresiMs === 3000 && r.sinyal === 'bitti', r.durum);
+kontrol('Stop -> son soz (last_assistant_message)', r.durum.sonSoz === 'tamam', r.durum.sonSoz);
 d = r.durum;
 
 r = etkinlik.isle(d, P({ hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'izin' }), 4100);
@@ -129,13 +130,14 @@ kontrol('bilinmeyen olay durumu degistirmez', r.degisti === false && r.durum ===
   let r1 = etkinlik.isle(s0, P({ hook_event_name: 'UserPromptSubmit', prompt: 'x' }), 10);
   r1 = etkinlik.isle(r1.durum, P({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: tekli }), 20);
   const sa = r1.durum.soruAyrinti;
+  const q0 = sa && sa.sorular[0];
   kontrol(
     'soru ayrintisi: tekli soru cevaplanabilir, secenek sirasi korunur',
-    sa && sa.cevaplanabilir === true && sa.secenekler.length === 3 && sa.secenekler[1].etiket === 'Mavi' && sa.soru === 'Hangi renk?' && sa.baslik === 'Renk',
+    sa && sa.cevaplanabilir === true && sa.sorular.length === 1 && q0.secenekler.length === 3 && q0.secenekler[1].etiket === 'Mavi' && q0.soru === 'Hangi renk?' && q0.baslik === 'Renk',
     sa
   );
   const izin = etkinlik.isle(r1.durum, P({ hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'izin' }), 25);
-  kontrol('ayni bekleyisin bildirimi secenekleri silmez', izin.durum.soruAyrinti && izin.durum.soruAyrinti.secenekler.length === 3, izin.durum);
+  kontrol('ayni bekleyisin bildirimi secenekleri silmez', izin.durum.soruAyrinti && izin.durum.soruAyrinti.sorular[0].secenekler.length === 3, izin.durum);
   const cevap = etkinlik.isle(r1.durum, P({ hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion', tool_input: tekli, tool_response: {} }), 30);
   kontrol('cevaplaninca soru ayrintisi silinir', cevap.durum.soruAyrinti === null && cevap.durum.durum === 'calisiyor');
   const durdu = etkinlik.isle(r1.durum, P({ hook_event_name: 'Stop' }), 40);
@@ -143,15 +145,67 @@ kontrol('bilinmeyen olay durumu degistirmez', r.degisti === false && r.durum ===
 
   const coklu = etkinlik.soruAyrintisi({ questions: [{ question: 'Hangileri?', multiSelect: true, options: [{ label: 'a' }, { label: 'b' }] }] });
   kontrol('coklu secim cevaplanamaz (toggle akisi)', coklu.cevaplanabilir === false && coklu.coklu === true, coklu);
-  const iki = etkinlik.soruAyrintisi({ questions: [{ question: 'A?', options: [{ label: 'x' }] }, { question: 'B?', options: [{ label: 'y' }] }] });
-  kontrol('iki soru cevaplanamaz (sekmeli akis)', iki.cevaplanabilir === false && iki.soruSayisi === 2, iki);
+  // v2.4: cok soru cevaplanir (spike: rakam sonraki soruya gecer, Review'da 1 = Submit).
+  // Sekil 2026-10-04 spike'indaki uc soruluk gercek cagriyla ayni.
+  const uc = etkinlik.soruAyrintisi({
+    questions: [
+      { question: 'Hangi renk?', header: 'Renk', multiSelect: false, options: [{ label: 'Kirmizi' }, { label: 'Yesil' }, { label: 'Mavi' }] },
+      { question: 'Hangi boyut?', header: 'Boyut', multiSelect: false, options: [{ label: 'Kucuk' }, { label: 'Orta' }, { label: 'Buyuk' }] },
+      { question: 'Hangi sekil?', header: 'Sekil', multiSelect: false, options: [{ label: 'Kare' }, { label: 'Daire' }] },
+    ],
+  });
+  kontrol(
+    'cok soru cevaplanabilir, sira ve secenek sayilari korunur',
+    uc.cevaplanabilir === true && uc.soruSayisi === 3 && uc.sorular.map((q) => q.baslik + q.secenekler.length).join() === 'Renk3,Boyut3,Sekil2',
+    uc
+  );
+  const karisik = etkinlik.soruAyrintisi({ questions: [{ question: 'A?', options: [{ label: 'x' }] }, { question: 'B?', multiSelect: true, options: [{ label: 'y' }] }] });
+  kontrol('sorulardan biri coklu secimse hepsi terminale', karisik.cevaplanabilir === false && karisik.coklu === true, karisik);
+  const ikinciBos = etkinlik.soruAyrintisi({ questions: [{ question: 'A?', options: [{ label: 'x' }] }, { question: 'B?' }] });
+  kontrol('sorulardan birinin secenegi yoksa cevaplanamaz', ikinciBos.cevaplanabilir === false, ikinciBos);
+  const besSoru = etkinlik.soruAyrintisi({ questions: [1, 2, 3, 4, 5].map((n) => ({ question: 'Q' + n, options: [{ label: 'x' }] })) });
+  kontrol('4ten fazla soru cevaplanamaz (claude siniri; tus dizisi kayar)', besSoru.cevaplanabilir === false && besSoru.sorular.length === 4 && besSoru.soruSayisi === 5, besSoru);
   const bos = etkinlik.soruAyrintisi({ questions: [{ question: 'Ne?' }] });
-  kontrol('secenegi olmayan soru cevaplanamaz', bos.cevaplanabilir === false && bos.secenekler.length === 0, bos);
-  kontrol('bozuk girdi -> null', etkinlik.soruAyrintisi(null) === null && etkinlik.soruAyrintisi({ questions: 'x' }) === null);
+  kontrol('secenegi olmayan soru cevaplanamaz', bos.cevaplanabilir === false && bos.sorular[0].secenekler.length === 0, bos);
+  kontrol('bozuk girdi -> null', etkinlik.soruAyrintisi(null) === null && etkinlik.soruAyrintisi({ questions: 'x' }) === null && etkinlik.soruAyrintisi({ questions: [] }) === null);
   const bes = etkinlik.soruAyrintisi({ questions: [{ question: 'Q', options: [1, 2, 3, 4, 5].map((n) => ({ label: 'o' + n })) }] });
-  kontrol('en fazla 4 secenek (rakam N+1 serbest metne denk gelir)', bes.secenekler.length === 4, bes);
+  kontrol('en fazla 4 secenek (rakam N+1 serbest metne denk gelir)', bes.sorular[0].secenekler.length === 4, bes);
   const altAjan = etkinlik.isle(s0, P({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', agent_id: 'a1', tool_input: tekli }), 50);
   kontrol('alt ajanin sorusu bekletmez, ayrinti yok', altAjan.durum.durum !== 'bekliyor' && altAjan.durum.soruAyrinti === null);
+}
+
+// --- 1b2. Son soz (v2.4). Stop govdesi 2026-10-04 spike'inda gercek claude 2.1.289'dan:
+// { ..., hook_event_name: 'Stop', stop_hook_active, last_assistant_message, background_tasks, session_crons }.
+{
+  let s = etkinlik.isle(etkinlik.yeniDurum(0), P({ hook_event_name: 'UserPromptSubmit', prompt: 'x' }), 10).durum;
+  s = etkinlik.isle(
+    s,
+    P({ hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: '## Özet\r\n\r\n\r\n**Faz 5** bitti; `__init__.py` düzeldi.\n- push edildi', background_tasks: [], session_crons: [] }),
+    20
+  ).durum;
+  kontrol('son soz: baslik isareti ve ** atilir, __init__ ve satirlar korunur', s.sonSoz === 'Özet\n\nFaz 5 bitti; `__init__.py` düzeldi.\n- push edildi', s.sonSoz);
+  const yeniTur = etkinlik.isle(s, P({ hook_event_name: 'UserPromptSubmit', prompt: 'devam et' }), 30).durum;
+  kontrol('yeni tur son sozu siler (bayat soz kalmaz)', yeniTur.sonSoz === null);
+  const alt = etkinlik.isle(yeniTur, P({ hook_event_name: 'Stop', agent_id: 'a1', last_assistant_message: 'alt ajan sozu' }), 40).durum;
+  kontrol('alt ajanin Stop u son sozu yazmaz', alt.sonSoz === null && alt.durum === 'calisiyor');
+  const uzun = etkinlik.sonSoz('x'.repeat(9000));
+  kontrol('son soz sinirli (4000) ve kesildigi belli', uzun.length === 4000 && uzun.endsWith('…'), uzun.length);
+  kontrol('son soz yok / bos / bozuk -> null', etkinlik.sonSoz(undefined) === null && etkinlik.sonSoz('  \n ') === null && etkinlik.sonSoz(42) === null);
+}
+
+// --- 1b3. Gonderme istegi bicimi (gonder-istegi.cjs; ada -> main) ---
+{
+  const { gonderIstegi } = require(path.join(KOK, 'electron', 'gonder-istegi.cjs'));
+  const g = gonderIstegi({ id: 'Otomat-1', tur: 'cevap', cevaplar: [1, ' dev\r\nboy ', 0], damga: 5 });
+  kontrol('cevap: rakam ve metin karisik, metin tek satir', g && g.cevaplar[0] === 1 && g.cevaplar[1] === 'dev boy' && g.cevaplar[2] === 0 && g.damga === 5, g);
+  kontrol('cevap: damgasiz reddedilir (kural 8)', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [0] }) === null);
+  kontrol('cevap: 5 soru reddedilir', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [0, 0, 0, 0, 0], damga: 1 }) === null);
+  kontrol('cevap: secenek 4 (5. rakam) reddedilir', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [4], damga: 1 }) === null);
+  kontrol('cevap: bos metin reddedilir (bos Enter yanlis secenegi gonderirdi)', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [0, '  \n '], damga: 1 }) === null);
+  kontrol('cevap: bos dizi / dizi degil reddedilir', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [], damga: 1 }) === null && gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: 1, damga: 1 }) === null);
+  kontrol('eski secim bicimi artik gecmez', gonderIstegi({ id: 'a', tur: 'secim', secim: 1, damga: 1 }) === null);
+  kontrol('metin: satir sonu tek satira', gonderIstegi({ id: 'a', tur: 'metin', metin: 'a\nb' })?.metin === 'a b');
+  kontrol('gecersiz kimlik reddedilir', gonderIstegi({ id: '../x y', tur: 'metin', metin: 'a' }) === null);
 }
 
 // --- 1c. Hizli komutlar semasi (komutlar.cjs) ---
