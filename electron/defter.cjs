@@ -6,7 +6,7 @@
 // yalnizca son 2000 satir okunur.
 //
 // Olaylar:
-//   { t, calisma, olay: 'acildi',  id, ad, yol }
+//   { t, calisma, olay: 'acildi',  id, ad, yol, claude? }   claude: claude oturum kimligi (uuid, v2.3; --session-id)
 //   { t, calisma, olay: 'kapandi', id, kod?, sebep?, ozet? }  ozet: kanca koprusu (2026-10-03)   sebep: 'kullanici' | 'kabuk' | 'uygulama-kapandi'
 //   { t, calisma, olay: 'calisma-bitti' }                uygulama duzgun kapandi (2026-09-29'dan beri)
 //
@@ -16,11 +16,11 @@
 // gece kapatilip sabah acilan Kokpit'te oturum "152 sa" gorunuyordu.)
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const crypto = require('crypto');
 const { log } = require('./log.cjs');
+const { KOKPIT_DIZIN } = require('./config.cjs');
 
-const DOSYA = path.join(os.homedir(), '.kokpit', 'oturumlar.jsonl');
+const DOSYA = path.join(KOKPIT_DIZIN, 'oturumlar.jsonl');
 const SON_SATIR = 2000;
 
 // Her uygulama calismasinin kendi kimligi var: "onceki calismada acik kalanlar" bununla bulunur.
@@ -60,7 +60,7 @@ function oturumlar(olaylar = oku()) {
   }
   for (const o of olaylar) {
     if (o.olay === 'acildi' && o.id) {
-      harita.set(o.id, { id: o.id, ad: o.ad, yol: o.yol, calisma: o.calisma, baslangic: o.t, bitis: null, kod: null, sebep: null, bitisBilinmiyor: false });
+      harita.set(o.id, { id: o.id, ad: o.ad, yol: o.yol, claude: o.claude ?? null, calisma: o.calisma, baslangic: o.t, bitis: null, kod: null, sebep: null, bitisBilinmiyor: false });
     } else if (o.olay === 'kapandi' && harita.has(o.id)) {
       const k = harita.get(o.id);
       if (k.bitis !== null) continue;
@@ -94,7 +94,7 @@ function oncekiAcikOturumlar() {
     const eski = yolaGore.get(k.yol);
     if (!eski || eski.baslangic < k.baslangic) yolaGore.set(k.yol, k);
   }
-  return [...yolaGore.values()].map((k) => ({ ad: k.ad, yol: k.yol, baslangic: k.baslangic }));
+  return [...yolaGore.values()].map((k) => ({ ad: k.ad, yol: k.yol, baslangic: k.baslangic, claude: k.claude }));
 }
 
 /** Yol basina son oturum: Pano'daki "son oturum" sutunu. Suren oturumlar dahil degil. */
@@ -110,6 +110,7 @@ function sonOturumlar() {
         bitis: k.bitis,
         sureSn: Math.max(0, Math.round((k.bitis - k.baslangic) / 1000)),
         ozet: k.ozet ?? null,
+        claude: k.claude,
       };
     }
   }

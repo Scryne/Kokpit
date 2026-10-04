@@ -14,12 +14,18 @@ const inboxNotu = require('./not.cjs');
 const geriDoldurma = require('./doldur.cjs');
 const kanca = require('./kanca.cjs');
 const ada = require('./ada.cjs');
+const komutlar = require('./komutlar.cjs');
+const calistir = require('./calistir.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
 app.setAppUserModelId('com.scryne.kokpit');
 
 const DEV = !app.isPackaged && process.env.KOKPIT_DEV !== '0';
+
+// Ayri veri dizini (test/ekran kosuculari, config.cjs KOKPIT_DIZIN): Chromium profili de
+// ayrilir, gercek Kokpit'in profiliyle (izinler, onbellek) ayni anda kilitlenmesin.
+if (process.env.KOKPIT_DIZIN) app.setPath('userData', path.join(require('./config.cjs').KOKPIT_DIZIN, 'electron'));
 
 // Tek ornek. Ikinci Kokpit ayni oturum defterini paylasir: birincinin acik oturumlarini
 // "onceki calismadan kalan" sanip geri yukleme teklif eder (ayni klasorde ikinci
@@ -46,6 +52,7 @@ let kapanisZamanlayici = null;
 // yukleme teklifi kaybolur (Browser.close / oturum kapatma yolunda before-quit pencereden
 // once calisir; olculdu).
 let uygulamaKapaniyor = false;
+let ptyBeklendi = false;
 
 /** Onceki calismadan kalan pencere konumu; ekran disinda kaldiysa yok sayilir. */
 function pencereKonumu() {
@@ -315,7 +322,9 @@ const DEFTER_SEBEP = new Set(['kullanici', 'kabuk']);
 ipcMain.on('defter:olay', (_e, o) => {
   if (!o || typeof o !== 'object' || typeof o.id !== 'string') return;
   if (o.olay === 'acildi' && typeof o.ad === 'string' && typeof o.yol === 'string') {
-    defter.ekle({ olay: 'acildi', id: o.id, ad: o.ad, yol: o.yol });
+    // claude oturum kimligi (uuid): geri yukleme / surdurme tam o konusmayi acar.
+    const claude = typeof o.claude === 'string' && /^[0-9a-f-]{36}$/i.test(o.claude) ? o.claude : undefined;
+    defter.ekle({ olay: 'acildi', id: o.id, ad: o.ad, yol: o.yol, ...(claude ? { claude } : {}) });
   } else if (o.olay === 'kapandi') {
     if (uygulamaKapaniyor && o.sebep === 'kabuk') return;
     // Kanca koprusunun tuttugu oturum ozeti (tur, arac, dosya, +/-) defterde kalir.
@@ -344,10 +353,13 @@ ipcMain.handle('defter:sonlar', () => {
   const sonlar = defter.sonOturumlar();
   for (const [yol, k] of Object.entries(sonlar)) {
     try {
-      k.beyin = beyin.oturumBeyinDurumu(yol, k.baslangic);
+      k.beyin = beyin.oturumBeyinDurumu(yol, k.baslangic, k.claude);
+      // "Surdur" yalniz konusma diskte varsa: claude ilk mesajdan once kapandiysa yoktur.
+      k.surdurulebilir = beyin.transcriptVar(yol, k.claude);
     } catch (e) {
       log('beyin durumu okunamadi (' + yol + '): ' + e.message);
       k.beyin = 'yok';
+      k.surdurulebilir = false;
     }
   }
   return sonlar;
@@ -371,6 +383,44 @@ ipcMain.on('ada:ayar', (_e, acik) => {
   ayarlar.yaz({ ada: acik !== false });
   ada.ayar(acik !== false);
 });
+// Calistir tarifi (~/.kokpit/calistir.json + package.json; bkz. calistir.cjs).
+ipcMain.handle('calistir:tarif', (_e, yol) => calistir.tarif(yol));
+ipcMain.handle('calistir:kaydet', (_e, yol, komut) => calistir.kaydet(yol, komut));
+// Hizli komutlar (~/.kokpit/komutlar.json, Kokpit'in kendi verisi). Duzenleme dosyayi
+// varsayilan uygulamada acar; yol sabit, renderer'dan yol alinmaz.
+ipcMain.handle('komutlar:getir', () => komutlar.oku());
+ipcMain.handle('komutlar:duzenle', async () => {
+  komutlar.oku(); // yoksa varsayilanlarla olusur
+  const hata = await shell.openPath(komutlar.DOSYA);
+  if (hata) log('komutlar.json acilamadi: ' + hata);
+  return !hata;
+});
+/**
+ * Oturuma gonderme istegi (ada ya da ana pencere). Yazmanin kendisi ana pencerede: PTY
+ * baglantisi orada yasar. Burada yalniz sekil denetlenir; "o soru hala acik mi" karari App'te,
+ * kanca durumuyla (damga) verilir.
+ */
+function gonderIstegi(ham) {
+  if (!ham || typeof ham !== 'object' || typeof ham.id !== 'string' || !/^[\w.-]{1,160}$/.test(ham.id)) return null;
+  const metin = typeof ham.metin === 'string' ? ham.metin.replace(/\s*[\r\n]+\s*/g, ' ').trim().slice(0, 2000) : '';
+  if (ham.tur === 'metin') return metin ? { id: ham.id, tur: 'metin', metin } : null;
+  if (ham.tur === 'secim') {
+    const secim = Number.isInteger(ham.secim) && ham.secim >= 0 && ham.secim <= 3 ? ham.secim : ham.secim === 'diger' ? 'diger' : null;
+    if (secim === null || !Number.isFinite(ham.damga)) return null;
+    if (secim === 'diger' && !metin) return null;
+    return { id: ham.id, tur: 'secim', secim, metin, damga: ham.damga };
+  }
+  return null;
+}
+ipcMain.on('ada:gonder', (e, ham) => {
+  const istek = gonderIstegi(ham);
+  if (!istek) return;
+  log('ada: oturuma gonderiliyor ' + istek.id + ' (' + istek.tur + ')');
+  if (pencere) pencere.webContents.send('oturuma:gonder', istek);
+});
+// Ada'da yazi kutusu: ada normalde odak almaz (oyun/yazi ortasinda odak calmasin); kutuya
+// tiklaninca gecici olarak odaklanabilir olur, gonderince ya da kutudan cikinca geri doner.
+ipcMain.on('ada:odak', (_e, istek) => ada.odak(istek === true));
 // Acik oturumlarin bağlam buyuklugu (transcript'in sonu, salt okuma).
 ipcMain.handle('oturum:baglam', (_e, liste) => {
   const sonuc = {};
@@ -378,7 +428,7 @@ ipcMain.handle('oturum:baglam', (_e, liste) => {
   for (const o of liste.slice(0, 24)) {
     if (!o || typeof o.id !== 'string' || typeof o.yol !== 'string' || !Number.isFinite(o.baslangic)) continue;
     try {
-      sonuc[o.id] = beyin.oturumBaglami(o.yol, o.baslangic);
+      sonuc[o.id] = beyin.oturumBaglami(o.yol, o.baslangic, typeof o.claude === 'string' ? o.claude : undefined);
     } catch (e) {
       log('bağlam okunamadi (' + o.yol + '): ' + e.message);
       sonuc[o.id] = null;
@@ -457,6 +507,18 @@ app.whenReady().then(() => {
     if (pencere) pencere.webContents.send('not:ac');
   });
   log('genel kisayol ' + notKisayolu + (kayitli ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
+  // Kokpit'i cagir / gizle: arka plandayken one getirir, ondeyken simge durumuna kucultur.
+  // Ayni uc degistirici kurali (AltGr cakismasi). Test kosucularinda kaydedilmez: gercek
+  // Kokpit'in kisayolunu calmasin.
+  if (process.env.KOKPIT_TEST_KABUK !== '1') {
+    const cagirKisayolu = 'Control+Alt+Shift+K';
+    const cagir = globalShortcut.register(cagirKisayolu, () => {
+      if (!pencere) return;
+      if (pencere.isFocused() && !pencere.isMinimized()) pencere.minimize();
+      else pencereyiOneGetir();
+    });
+    log('genel kisayol ' + cagirKisayolu + (cagir ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
+  }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
 });
 
@@ -472,6 +534,15 @@ app.on('before-quit', (olay) => {
   }
   if (!uygulamaKapaniyor) defter.calismaBitti();
   uygulamaKapaniyor = true;
+  // PTY sunucusu servis agaclarini oldurup kendisi ciksin; Electron onu beklemeden cikarsa
+  // sunucu da olur ve dev sunuculari yetim kalir (bkz. pty-kopru durdurBekle). Bir kez beklenir,
+  // sonra cikis yeniden istenir ve bu sefer buradan dogrudan gecilir.
+  if (!ptyBeklendi && ptyKopru.calisiyor()) {
+    ptyBeklendi = true;
+    olay.preventDefault();
+    void ptyKopru.durdurBekle(6000).finally(() => app.quit());
+    return;
+  }
   ptyKopru.durdur();
   kanca.durdur();
   ada.kapat();

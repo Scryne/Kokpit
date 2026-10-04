@@ -16,8 +16,16 @@ const WebSocket = require('ws');
 const KOK = path.join(__dirname, '..');
 const PORT = 9333;
 const electronBin = require('electron');
-const AYARLAR = path.join(os.homedir(), '.kokpit', 'ayarlar.json');
-const DEFTER = path.join(os.homedir(), '.kokpit', 'oturumlar.jsonl');
+// Kokpit'in veri dizini testte GECICI (KOKPIT_DIZIN, config.cjs). 2026-10-04'e kadar gercek
+// ~/.kokpit kullaniliyor, sonda yedekten geri yaziliyordu: gercek Kokpit aciksa test ornegi
+// onun acik oturumunu "onceki calismadan kalan" sanip deftere sahte "kapandi" yaziyor, geri
+// yazma da gercek ornegin o arada yazdigini ezebiliyordu. Artik iki ornek hic dosya paylasmaz.
+const TEST_DIZIN = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-ui-'));
+const AYARLAR = path.join(TEST_DIZIN, 'ayarlar.json');
+const DEFTER = path.join(TEST_DIZIN, 'oturumlar.jsonl');
+const KOMUTLAR = path.join(TEST_DIZIN, 'komutlar.json');
+const CALISTIR = path.join(TEST_DIZIN, 'calistir.json');
+const LOG = (ad) => path.join(TEST_DIZIN, ad);
 const { VAULT } = require('../electron/config.cjs');
 const INBOX = path.join(VAULT, '\u{1F4E5} 000-Inbox', 'Dump');
 
@@ -106,7 +114,7 @@ async function baslat() {
     stdio: ['ignore', 'pipe', 'pipe'],
     // KOKPIT_TEST_SECIM=0: kapatma diyalogunda "Guvenli kapat" secilmis sayilir (yerel
     // diyalog CDP'den tiklanamaz).
-    env: { ...process.env, KOKPIT_DEV: '0', KOKPIT_TEST_KABUK: '1', KOKPIT_TEST_SECIM: '0' },
+    env: { ...process.env, KOKPIT_DEV: '0', KOKPIT_TEST_KABUK: '1', KOKPIT_TEST_SECIM: '0', KOKPIT_DIZIN: TEST_DIZIN },
   });
   app.stderr.on('data', () => {});
   app.stdout.on('data', () => {});
@@ -159,8 +167,20 @@ async function main() {
     console.error('dist yok: once npm run build');
     process.exit(2);
   }
-  const ayarOnce = fs.existsSync(AYARLAR) ? fs.readFileSync(AYARLAR, 'utf8') : null;
-  const defterOnce = fs.existsSync(DEFTER) ? fs.readFileSync(DEFTER, 'utf8') : null;
+  // Bayat paket: kaynak, son derlemeden yeniyse test ESKI arayuzu sinar ve yesil yanar.
+  // 2026-10-04'te oldu: derleme bir tip hatasiyla dusmustu, dist eski kaldi, mutasyon testinin
+  // uc bozuk surumu de "gecti". Derleme basarisizsa dist'e dokunulmaz, bu kontrol onu yakalar.
+  const enYeni = (dizin) =>
+    fs.readdirSync(dizin, { withFileTypes: true }).reduce((m, d) => {
+      const y = path.join(dizin, d.name);
+      return Math.max(m, d.isDirectory() ? enYeni(y) : fs.statSync(y).mtimeMs);
+    }, 0);
+  const kaynak = Math.max(enYeni(path.join(KOK, 'src')), fs.statSync(path.join(KOK, 'index.html')).mtimeMs);
+  const paket = fs.statSync(path.join(KOK, 'dist', 'index.html')).mtimeMs;
+  if (kaynak > paket) {
+    console.error('dist bayat: kaynak son derlemeden yeni (' + new Date(kaynak).toLocaleTimeString('tr-TR') + ' > ' + new Date(paket).toLocaleTimeString('tr-TR') + '). Once npm run build; derleme hatasi varsa onu duzelt.');
+    process.exit(2);
+  }
 
   let { app, cdp } = await baslat();
   try {
@@ -223,9 +243,109 @@ async function main() {
     await cdp.tus('Escape');
     await uyu(200);
     kontrol('Escape akisi kapatti', await cdp.js(`!document.querySelector('ol[aria-label^="Son araçlar"]')`));
+
+    console.log('Hizli komut (v2.3): menu -> oturuma yazilir ve gonderilir');
+    // Test veri dizinindeki komut dosyasina gecici bir komut yazilir: pwsh'ta yan
+    // etkisi olan bir satir, "yazildi + Enter'a basildi"nin tek kaniti olarak bir dosya yazar.
+    const gonderDosyasi = path.join(os.tmpdir(), 'kokpit-gonder-' + Date.now().toString(36) + '.txt');
+    fs.writeFileSync(KOMUTLAR, JSON.stringify({ surum: 1, komutlar: [{ ad: 'Test komutu', metin: "Set-Content -Path '" + gonderDosyasi + "' -Value hizli" }] }));
+    await cdp.js(`(() => { window.dispatchEvent(new Event('focus')); return true; })()`); // komutlar odakta yeniden okunur
+    await cdp.bekle(`!!document.querySelector('button[aria-label$="hızlı komut gönder"]')`, 5000, 'hizli komut dugmesi');
+    await cdp.js(`(() => { document.querySelector('button[aria-label$="hızlı komut gönder"]').click(); return true; })()`);
+    await cdp.bekle(`!!document.querySelector('[role="menu"] [role="menuitem"]')`, 3000, 'komut menusu');
+    kontrol('menu acildi, odak ilk komutta', await cdp.bekle(`document.activeElement?.getAttribute('role') === 'menuitem' && document.activeElement.textContent.includes('Test komutu')`, 2000, 'menu odagi').catch(() => false));
+    await cdp.tus('Escape');
+    await uyu(200);
+    kontrol('Escape menuyu kapatti, odak dugmeye dondu', await cdp.js(`!document.querySelector('[role="menu"]') && document.activeElement?.getAttribute('aria-haspopup') === 'menu'`));
+    await cdp.js(`(() => { document.querySelector('button[aria-label$="hızlı komut gönder"]').click(); return true; })()`);
+    await cdp.bekle(`!!document.querySelector('[role="menu"] [role="menuitem"]')`, 3000, 'komut menusu 2');
+    await cdp.js(`(() => { [...document.querySelectorAll('[role="menuitem"]')].find(b => b.textContent.includes('Test komutu')).click(); return true; })()`);
+    const yazildi = await (async () => { for (let i = 0; i < 40; i++) { if (fs.existsSync(gonderDosyasi)) return true; await uyu(250); } return false; })();
+    kontrol('komut kabuga yazildi ve Enter ile calisti (dosya olustu)', yazildi, gonderDosyasi);
+
+    console.log('Soruya cevap (v2.3): ada yolu, damga denetimi');
     await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
-    await cdp.yaz('cls');
+    await cdp.yaz(
+      "k '{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"t\"}';" +
+        "k '{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"t\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"Hangi renk?\",\"header\":\"Renk\",\"multiSelect\":false,\"options\":[{\"label\":\"Kirmizi\"},{\"label\":\"Mavi\"},{\"label\":\"Yesil\"}]}]}}'; cls"
+    );
     await cdp.tus('Enter');
+    await cdp.bekle(`document.body.innerText.includes('Seni bekliyor') && document.body.innerText.includes('Hangi renk?')`, 15000, 'serit seni bekliyor');
+    kontrol('serit: Seni bekliyor + soru metni', true);
+    const soru = await cdp.js(`window.kokpit.etkinlikAnlik().then(a => { const [id, e] = Object.entries(a.oturumlar).find(([, e]) => e.durum === 'bekliyor') ?? []; return id ? { id, damga: e.degisti, ayrinti: e.soruAyrinti } : null; })`);
+    kontrol('kanca durumunda secenekler ve cevaplanabilir', !!soru && soru.ayrinti?.cevaplanabilir === true && soru.ayrinti.secenekler.length === 3, soru);
+    // Bayat damga: soru degistiyse rakam gonderilmez.
+    await cdp.js(`(() => { window.kokpit.adaGonder({ id: ${JSON.stringify(soru?.id)}, tur: 'secim', secim: 1, damga: ${(soru?.damga ?? 0) - 5} }); return true; })()`);
+    kontrol('bayat damgali cevap reddedildi', await cdp.bekle(`true`, 100).then(async () => { for (let i = 0; i < 20; i++) { if (cdp.konsol.some((k) => k.includes('[gonder] soru değişti'))) return true; await uyu(150); } return false; }));
+    // Dogru damga: "2" (Mavi) kabuga gider. Test kabugu pwsh: arkasina " | Out-File" yazilinca
+    // gelen rakam dosyaya duser — rakamin gercekten PTY'ye ulastiginin kaniti.
+    const secimDosyasi = path.join(os.tmpdir(), 'kokpit-secim-' + Date.now().toString(36) + '.txt');
+    await cdp.js(`(() => { window.kokpit.adaGonder({ id: ${JSON.stringify(soru?.id)}, tur: 'secim', secim: 1, damga: ${soru?.damga ?? 0} }); return true; })()`);
+    await uyu(600);
+    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+    await cdp.yaz(" | Out-File -FilePath '" + secimDosyasi + "'");
+    await cdp.tus('Enter');
+    const secim = await (async () => { for (let i = 0; i < 40; i++) { if (fs.existsSync(secimDosyasi)) return fs.readFileSync(secimDosyasi, 'utf8').replace(/\0|﻿/g, '').trim(); await uyu(250); } return null; })();
+    kontrol('ada yolu: 2. secenek rakam olarak kabuga gitti', secim === '2', secim);
+    for (const f of [gonderDosyasi, secimDosyasi]) try { fs.unlinkSync(f); } catch { /* yok */ }
+
+    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+    await cdp.yaz("k '{\"hook_event_name\":\"Stop\",\"session_id\":\"t\"}'; cls");
+    await cdp.tus('Enter');
+
+    console.log('Calistir (v2.3): servis bolmesi claude sekmesinin yaninda, adres, yeniden baslat, durdur');
+    const projeAdi = await cdp.js(`document.querySelector('[role="tab"] .enstruman')?.textContent ?? ''`);
+    const projeYolu = await cdp.js(`window.kokpit.durumGetir().then(d => d.veri.projeler.find(p => p.ad === ${JSON.stringify(projeAdi)})?.yol ?? null)`);
+    const defterSatirOnce = fs.existsSync(DEFTER) ? fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).length : 0;
+    // Sahte "dev sunucusu": adresi yazar ve calismaya devam eder. Komut test veri dizinindeki
+    // calistir.json'a yazilir.
+    const servisKomutu = `node -e "console.log('  Local:   http://localhost:51999/'); setInterval(() => {}, 1000)"`;
+    kontrol('tarif kaydedildi', !!projeYolu && (await cdp.js(`window.kokpit.calistirKaydet(${JSON.stringify(projeYolu)}, ${JSON.stringify(servisKomutu)})`)) === true, projeAdi + ' ' + projeYolu);
+    await cdp.tus('1', 2, 'Digit1');
+    await cdp.bekle(`!!document.querySelector('button[aria-label=${JSON.stringify(projeAdi + ' uygulamasını çalıştır')}]')`, 5000, 'calistir dugmesi');
+    await cdp.js(`(() => { document.querySelector('button[aria-label=${JSON.stringify(projeAdi + ' uygulamasını çalıştır')}]').click(); return true; })()`);
+    await cdp.bekle(`[...document.querySelectorAll('[role="tab"]')].some(t => t.textContent.includes(${JSON.stringify(projeAdi + ' +1')}))`, 8000, 'servis ayni sekmede');
+    kontrol('servis bolmesi acik claude sekmesinin icine acildi ("' + projeAdi + ' +1")', true);
+    await cdp.bekle(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('localhost:51999'))`, 20000, 'servis adresi');
+    kontrol('servis basliginda adres dugmesi (localhost:51999)', true);
+    kontrol('Pano satirinda calisiyor isareti (adres)', await cdp.bekle(`(() => { const b = document.querySelector('button[aria-label=${JSON.stringify(projeAdi + ' çalışıyor, bölmesine git')}]'); return !!b && b.textContent.includes(':51999'); })()`, 5000, 'pano isareti').catch(() => false), await cdp.js(`[...document.querySelectorAll('table button[aria-label]')].map(b => b.getAttribute('aria-label') + '=' + b.textContent).filter(x => x.includes(${JSON.stringify(projeAdi)})).join(' | ')`));
+    const servisSayisi = () => (fs.readFileSync(LOG('pty-server.log'), 'utf8').match(/komut=servis: /g) || []).length;
+    const servisOnce = servisSayisi();
+    await cdp.js(`(() => { document.querySelector('button[aria-label=${JSON.stringify(projeAdi + ' uygulamasını yeniden başlat')}]').click(); return true; })()`);
+    // Kanit log'dan: eski agac olur, YENI bir servis sureci acilir. (Yalniz "adres gorunuyor"a
+    // bakmak yetmez: bolme degismeseydi eski adres de gorunurdu.)
+    let yeniAcildi = false;
+    for (let i = 0; i < 60 && !yeniAcildi; i++) { yeniAcildi = servisSayisi() > servisOnce; if (!yeniAcildi) await uyu(250); }
+    kontrol('yeniden baslat: yeni servis sureci acildi', yeniAcildi, cdp.konsol.slice(-6).join(' | '));
+    await cdp.bekle(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('localhost:51999'))`, 20000, 'yeniden baslatilan servis adresi');
+    kontrol('yeniden baslat: bolme yerinde, adres yeniden geldi', await cdp.js(`[...document.querySelectorAll('[role="tab"]')].some(t => t.textContent.includes(${JSON.stringify(projeAdi + ' +1')}))`));
+    const konsolOnce = cdp.konsol.length;
+    await cdp.js(`(() => { document.querySelector('button[aria-label=${JSON.stringify(projeAdi + ' uygulamasını durdur')}]').click(); return true; })()`);
+    await cdp.bekle(`![...document.querySelectorAll('[role="tab"]')].some(t => t.textContent.includes('+1'))`, 8000, 'servis kapandi');
+    kontrol('durdur: servis sorusuz kapandi (kapatma diyalogu yok)', !cdp.konsol.slice(konsolOnce).some((k) => k.includes('[kapatma]')), cdp.konsol.slice(konsolOnce).join(' | '));
+    const yeniSatirlar = fs.existsSync(DEFTER) ? fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).slice(defterSatirOnce) : [];
+    kontrol('servis oturum defterine girmedi (geri yukleme claude acmasin)', yeniSatirlar.length === 0, yeniSatirlar);
+    // taskkill ~1 sn surer: log satiri bolme kapandiktan sonra gelir, beklenir.
+    let servisLogu = '';
+    for (let i = 0; i < 30; i++) {
+      servisLogu = fs.readFileSync(LOG('pty-server.log'), 'utf8');
+      if ((servisLogu.match(/servis agaci olduruldu pid=\d+ kod=0/g) || []).length >= 2) break;
+      await uyu(250);
+    }
+    kontrol('yeniden baslat + durdur: iki servis agaci da olduruldu (pty-server.log)', (servisLogu.match(/servis agaci olduruldu pid=\d+ kod=0/g) || []).length >= 2, servisLogu.slice(-300));
+    // Komut sorusu: "komutu degistir" kutuyu mevcut komutla acar; Esc kapatir.
+    await cdp.tus('P', 2 | 8, 'KeyP');
+    await cdp.bekle(`!!document.querySelector('dialog[open] [role="combobox"]')`, 3000, 'palet');
+    await cdp.yaz(projeAdi + ' komutu');
+    await uyu(150);
+    await cdp.tus('Enter');
+    await cdp.bekle(`!!document.querySelector('dialog[open] input[aria-label="Çalıştırma komutu"]')`, 3000, 'calistir kutusu');
+    kontrol('komut kutusu mevcut komutla acildi', (await cdp.js(`document.querySelector('dialog[open] input[aria-label="Çalıştırma komutu"]').value`)) === servisKomutu);
+    await cdp.tus('Escape');
+    await uyu(200);
+    kontrol('Esc komut kutusunu kapatti', await cdp.js(`!document.querySelector('dialog[open]')`));
+    kontrol('tarif test dizinine yazildi, gercek ~/.kokpit\'e degil', fs.existsSync(CALISTIR) && fs.readFileSync(CALISTIR, 'utf8').includes('51999'));
+    await cdp.tus('2', 2, 'Digit2');
 
     console.log('Arama');
     await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
@@ -318,7 +438,7 @@ async function main() {
     await cdp.bekle(`document.querySelector('h1')?.textContent === 'Envanter'`, 3000, 'paletten envanter');
     kontrol('Enter komutu calistirdi, palet kapandi', await cdp.js(`!document.querySelector('dialog[open]')`));
     await cdp.tus('1', 2, 'Digit1');
-    const kisayolLogu = fs.readFileSync(path.join(os.homedir(), '.kokpit', 'kokpit.log'), 'utf8').split('\n').filter((s) => s.includes('genel kisayol')).pop() ?? '';
+    const kisayolLogu = fs.readFileSync(LOG('kokpit.log'), 'utf8').split('\n').filter((s) => s.includes('genel kisayol')).pop() ?? '';
     // Gercek Kokpit aciksa kisayol onda: test orneginde "KAYDEDILEMEDI" beklenen durum.
     kontrol('genel kisayol kaydi denendi ve loglandi', /genel kisayol Control\+Alt\+Shift\+N (kayitli|KAYDEDILEMEDI)/.test(kisayolLogu), kisayolLogu);
 
@@ -350,7 +470,7 @@ async function main() {
   }
   // Main'in eski 3 sn bekcisi burada pencereyi, guvenli cikis bitmeden kapatirdi.
   await kapat(app, cdp, 'uygulama guvenli cikisi bekleyip kapandi', 30000);
-  const kapanisLogu = fs.readFileSync(path.join(os.homedir(), '.kokpit', 'pty-server.log'), 'utf8').split('\n').slice(-15).join('\n');
+  const kapanisLogu = fs.readFileSync(LOG('pty-server.log'), 'utf8').split('\n').slice(-15).join('\n');
   kontrol('kapanista guvenli cikis tamamlandi (pty-server.log)', /guvenli cikis tamam/.test(kapanisLogu), kapanisLogu.slice(-300));
 
   console.log('Ikinci acilis: geri yukleme teklifi');
@@ -361,7 +481,17 @@ async function main() {
     kontrol('serit 1 oturumu teklif ediyor', metin.includes('1 oturum açıktı'), metin.slice(0, 80));
     await cdp.js(`(() => { [...document.querySelectorAll('[role="status"] button')].find(b => b.textContent.trim() === 'Geri yükle').click(); return true; })()`);
     await cdp.bekle(`!!document.querySelector('[role="tab"] .bg-aksan')`, 20000, 'geri yuklenen oturum acik');
-    kontrol('Geri yukle sekmeyi acti (test kabugu; gercekte claude --continue)', true);
+    kontrol('Geri yukle sekmeyi acti (test kabugu; gercekte claude --resume <kimlik>)', true);
+    // Kimlik zinciri: kapanista acik kalan oturumun claude kimligi, geri yuklenen oturuma aynen
+    // gecmeli (yoksa --continue o klasordeki BASKA bir konusmayi acabilirdi).
+    const acilislar = fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).map((x) => JSON.parse(x)).filter((x) => x.olay === 'acildi');
+    const sonIki = acilislar.slice(-2);
+    kontrol(
+      'geri yuklenen oturum ayni claude kimligiyle acildi (--resume)',
+      sonIki.length === 2 && /^[0-9a-f-]{36}$/.test(sonIki[0].claude ?? '') && sonIki[0].claude === sonIki[1].claude && sonIki[0].id !== sonIki[1].id,
+      sonIki
+    );
+    kontrol('her yeni oturum kendi kimligini aldi (tekrar yok)', new Set(acilislar.slice(0, -1).map((x) => x.claude)).size === acilislar.length - 1, acilislar.map((x) => x.claude));
     kontrol('serit kayboldu', await cdp.js(`!document.querySelector('[role="status"] button')`));
     await cdp.js(`(() => { document.querySelector('[aria-label$="sekmesini kapat"]').click(); return true; })()`);
     await cdp.bekle(`document.querySelectorAll('[role="tab"]').length === 0`, 5000, 'sekme kapandi');
@@ -370,16 +500,12 @@ async function main() {
   }
   await kapat(app, cdp, 'ikinci calisma temiz kapandi');
 
-  // Ayar ve defter dosyalarini testten onceki haline getir: test oturumlari gercek
-  // "son oturum" verisini kirletmesin.
+  // Gecici veri dizini silinir. Gercek ~/.kokpit'e test boyunca hic dokunulmadi.
   if (process.env.KOKPIT_TEST_KEEP === '1') {
-    // Teshis: dosyalari geri alma, defteri goster.
-    console.log('--- oturumlar.jsonl ---');
-    console.log(fs.existsSync(DEFTER) ? fs.readFileSync(DEFTER, 'utf8') : '(yok)');
+    console.log('--- test dizini (silinmedi): ' + TEST_DIZIN + ' ---');
+    console.log(fs.existsSync(DEFTER) ? fs.readFileSync(DEFTER, 'utf8') : '(defter yok)');
   } else {
-    if (ayarOnce !== null) fs.writeFileSync(AYARLAR, ayarOnce);
-    if (defterOnce !== null) fs.writeFileSync(DEFTER, defterOnce);
-    else if (fs.existsSync(DEFTER)) fs.unlinkSync(DEFTER);
+    try { fs.rmSync(TEST_DIZIN, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }); } catch { /* bir surec hala tutuyorsa temp'te kalir */ }
   }
 
   console.log(basarisiz === 0 ? '\nTUMU GECTI' : `\n${basarisiz} KONTROL BASARISIZ`);

@@ -88,7 +88,7 @@ function baslat(ekOrtam = {}) {
 
 // Yetim birakmama: once stdin'i kapat (sunucu bunu gorup temiz cikar),
 // takilirsa kill. Faz 0'da olculdu: stdin kapanisi yeterli.
-function durdur() {
+function durdur(killMs = 1500) {
   if (!cocuk) return;
   const p = cocuk;
   log('pty sunucusu durduruluyor pid=' + p.pid);
@@ -98,10 +98,30 @@ function durdur() {
       log('pty sunucusu temiz cikmadi, kill');
       try { p.kill(); } catch { /* zaten olmus */ }
     }
-  }, 1500);
+  }, killMs);
   cocuk = null;
   bilgi = null;
   baslatmaSozu = null;
 }
 
-module.exports = { baslat, durdur, mevcutBilgi: () => bilgi };
+/**
+ * Uygulama kapanisi: sunucuya stdin kapanisini bildirir ve KENDI cikmasini bekler (en fazla ms).
+ * Neden beklemek: sunucu cikarken servis bolmelerinin surec agaclarini taskkill ile olduruyor
+ * (~1 sn/agac). Electron hemen cikarsa sunucuyu da beraberinde goturuyor ve dev sunuculari
+ * yetim kaliyordu (2026-10-04 olculdu: log "cikiliyor"da kesildi, "agac olduruldu" yoktu).
+ */
+function durdurBekle(ms = 6000) {
+  if (!cocuk) return Promise.resolve();
+  const p = cocuk;
+  return new Promise((coz) => {
+    if (p.exitCode !== null) {
+      coz();
+      return;
+    }
+    p.once('exit', () => coz());
+    setTimeout(coz, ms + 200);
+    durdur(ms);
+  });
+}
+
+module.exports = { baslat, durdur, durdurBekle, calisiyor: () => cocuk !== null, mevcutBilgi: () => bilgi };

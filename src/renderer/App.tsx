@@ -4,12 +4,15 @@ import {
   AlertTriangle,
   Boxes,
   ChevronRight,
+  ExternalLink,
   History,
   Inbox,
   LayoutDashboard,
   PanelLeft,
+  Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   SplitSquareHorizontal,
   TerminalSquare,
   X,
@@ -17,6 +20,8 @@ import {
 import type {
   Durum,
   EtkinlikAnlik,
+  GonderIstegi,
+  HizliKomut,
   OturumEtkinligi,
   OncekiOturum,
   Oturum,
@@ -32,6 +37,8 @@ import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
 import KomutPaleti, { type Komut } from './KomutPaleti';
+import HizliKomutMenusu from './HizliKomutlar';
+import CalistirKutusu from './CalistirKutusu';
 import { DurumIsareti, EtkinlikSeridi, LimitGostergesi, etkinlikCumlesi } from './Etkinlik';
 import {
   BeyinKaydiRozeti,
@@ -185,6 +192,16 @@ export default function App() {
   // burada not kutusu acilir.
   useEffect(() => window.kokpit.notAcSorulunca(() => setNotAcik(true)), []);
 
+  // Hizli komutlar: acilista ve pencere odaga her geldiginde (dosya elle duzenlenince
+  // yeniden baslatma gerekmesin). Kucuk bir JSON, okuma ucuz.
+  const [hizliKomutlar, setHizliKomutlar] = useState<HizliKomut[]>([]);
+  useEffect(() => {
+    const yukle = () => void window.kokpit.komutlarGetir().then(setHizliKomutlar);
+    yukle();
+    window.addEventListener('focus', yukle);
+    return () => window.removeEventListener('focus', yukle);
+  }, []);
+
   const yaziBoyutuDegistir = useCallback((fark: number | null) => {
     setYaziBoyutu((b) =>
       fark === null
@@ -206,7 +223,7 @@ export default function App() {
   // Bağlam yoklamasi: yalniz acik oturum varken ve pencere gorunurken, 20 sn'de bir.
   // Okuma transcript'in son 512 KB'i (~3 ms); claude'un yazdigi dosyaya dokunmaz.
   const acikOturumAnahtari = oturumlar
-    .filter((o) => o.durumu === 'acik')
+    .filter((o) => o.durumu === 'acik' && !o.servis)
     .map((o) => o.id)
     .join('|');
   useEffect(() => {
@@ -218,8 +235,8 @@ export default function App() {
     const yokla = () => {
       if (document.visibilityState !== 'visible') return;
       const liste = oturumlarRef.current
-        .filter((o) => o.durumu === 'acik')
-        .map((o) => ({ id: o.id, yol: o.yol, baslangic: o.baslangic }));
+        .filter((o) => o.durumu === 'acik' && !o.servis)
+        .map((o) => ({ id: o.id, yol: o.yol, baslangic: o.baslangic, claude: o.claude }));
       void window.kokpit.oturumBaglami(liste).then((b) => {
         if (!iptal) setBaglamlar(b);
       });
@@ -303,11 +320,17 @@ export default function App() {
     [sonlariYenile]
   );
 
-  /** Yeni sekme: kendi grubunda tek bolme. `devam` geri yukleme (claude --continue). */
-  const sekmeAc = useCallback((p: Pick<Proje, 'ad' | 'yol'>, devam = false) => {
+  /**
+   * Yeni sekme: kendi grubunda tek bolme. `devam` geri yukleme / surdurme: kimlik varsa
+   * `claude --resume <kimlik>` (tam o konusma), yoksa `--continue` (eski defter kaydi).
+   * Yeni oturumun kimligi burada dogar (`--session-id`): defter, beyin durumu ve sonraki
+   * surdurme tahmin yerine bu kimlige bakar.
+   */
+  const sekmeAc = useCallback((p: Pick<Proje, 'ad' | 'yol'>, devam = false, claudeId?: string | null) => {
     const id = yeniId(p);
     const grupId = 'g-' + id;
-    window.kokpit.defterOlay({ olay: 'acildi', id, ad: p.ad, yol: p.yol });
+    const claude = devam ? claudeId ?? undefined : crypto.randomUUID();
+    window.kokpit.defterOlay({ olay: 'acildi', id, ad: p.ad, yol: p.yol, ...(claude ? { claude } : {}) });
     setOturumlar((o) => [
       ...o,
       {
@@ -319,6 +342,7 @@ export default function App() {
         grupId,
         oran: 1,
         devam,
+        claude,
       },
     ]);
     setAktifGrupId(grupId);
@@ -336,7 +360,8 @@ export default function App() {
         return;
       }
       const id = yeniId(p);
-      window.kokpit.defterOlay({ olay: 'acildi', id, ad: p.ad, yol: p.yol });
+      const claude = crypto.randomUUID();
+      window.kokpit.defterOlay({ olay: 'acildi', id, ad: p.ad, yol: p.yol, claude });
       setOturumlar((o) => {
         const grup = o.filter((x) => x.grupId === aktifGrupId);
         const yeniOran = 1 / (grup.length + 1);
@@ -351,6 +376,7 @@ export default function App() {
             baslangic: Date.now(),
             grupId: aktifGrupId,
             oran: yeniOran,
+            claude,
           },
         ];
       });
@@ -358,6 +384,90 @@ export default function App() {
     },
     [aktifGrupId, sekmeAc]
   );
+
+  /**
+   * Servis bolmesi (Calistir): projenin uygulamasi claude'un YANINDA. O projede acik bir claude
+   * sekmesi varsa onun icine bolme olarak acilir (sol claude, sag sunucu ciktisi); yoksa yeni
+   * sekme. Ayni projede zaten calisan servis varsa ikincisi acilmaz, ona gidilir (iki dev
+   * sunucusu ayni portu yarisirdi).
+   */
+  const servisAc = useCallback(
+    (p: Pick<Proje, 'ad' | 'yol'>, komut: string) => {
+      const simdiki = oturumlarRef.current;
+      const mevcut = simdiki.find((o) => o.yol === p.yol && o.servis && o.durumu !== 'bitti' && o.durumu !== 'hata');
+      if (mevcut) {
+        grubaGit(mevcut.grupId, mevcut.id);
+        return;
+      }
+      const claude = simdiki.find((o) => o.yol === p.yol && !o.servis && o.durumu === 'acik');
+      const id = yeniId(p);
+      const grupId = claude ? claude.grupId : 'g-' + id;
+      setOturumlar((o) => {
+        const grup = o.filter((x) => x.grupId === grupId);
+        const yeniOran = grup.length > 0 ? 1 / (grup.length + 1) : 1;
+        const olcek = 1 - yeniOran;
+        return [
+          ...o.map((x) => (x.grupId === grupId ? { ...x, oran: x.oran * olcek } : x)),
+          {
+            id,
+            ad: p.ad,
+            yol: p.yol,
+            durumu: 'baglaniyor' as OturumDurumu,
+            baslangic: Date.now(),
+            grupId,
+            oran: yeniOran,
+            servis: { komut },
+          },
+        ];
+      });
+      setAktifGrupId(grupId);
+      // Odak claude'da kalsin (varsa): sunucu ciktisi izlenir, yazilmaz.
+      setAktifOturumId(claude ? claude.id : id);
+      setGorunum('terminal');
+      setKenarAcik(false);
+      console.info('[calistir] ' + p.ad + ': ' + komut);
+    },
+    // grubaGit asagida tanimli ama kararli (bagimliliksiz useCallback); cagri aninda hazir.
+    []
+  );
+
+  // Komutu bilinmeyen projede sorulan kutu (CalistirKutusu).
+  const [calistirSor, setCalistirSor] = useState<{
+    proje: Pick<Proje, 'ad' | 'yol'>;
+    neden: string | null;
+    baslangic: string;
+  } | null>(null);
+
+  /** Calistir: tarif varsa hemen servis, yoksa komut sorulur (bir kez, sonra hatirlanir). */
+  const calistirIste = useCallback(
+    async (p: Pick<Proje, 'ad' | 'yol'>, degistir = false) => {
+      const t = await window.kokpit.calistirTarif(p.yol);
+      // Kokpit kendini calistirmaz: komut sormak anlamsiz, yalniz durumu soyle.
+      if (t.komut === null && t.kendisi) setNotBildirimi(t.neden);
+      else if (t.komut !== null && !degistir) servisAc(p, t.komut);
+      else setCalistirSor({ proje: p, neden: degistir ? null : t.neden ?? null, baslangic: t.komut ?? '' });
+    },
+    [servisAc]
+  );
+
+  /** Yeniden baslat: bolme yerinde kalir, kimligi degisir (eski PTY + agac oldurulur, yenisi acilir). */
+  const servisYenidenBaslat = useCallback((id: string) => {
+    const o = oturumlarRef.current.find((x) => x.id === id);
+    if (!o?.servis) return;
+    const yeni = yeniId(o);
+    setOturumlar((l) =>
+      l.map((x) =>
+        x.id === id && x.servis
+          ? { ...x, id: yeni, durumu: 'baglaniyor', mesaj: undefined, baslangic: Date.now(), servis: { komut: x.servis.komut } }
+          : x
+      )
+    );
+    setAktifOturumId((a) => (a === id ? yeni : a));
+  }, []);
+
+  const onAdres = useCallback((id: string, adres: string) => {
+    setOturumlar((l) => l.map((x) => (x.id === id && x.servis ? { ...x, servis: { ...x.servis, adres } } : x)));
+  }, []);
 
   /**
    * Verilen oturumlari kapatir ve odagi tutarli birakir.
@@ -375,7 +485,8 @@ export default function App() {
       if (kapanan.length === 0) return;
 
       const etkilenenGruplar = new Set(kapanan.map((x) => x.grupId));
-      for (const x of kapanan) defterKapandi(x.id, 'kullanici');
+      // Servis bolmeleri claude oturumu degil: deftere girmezler (geri yukleme claude acardi).
+      for (const x of kapanan) if (!x.servis) defterKapandi(x.id, 'kullanici');
 
       // Etkilenen gruplarda kalan bolmeler bosalan payi paylasir.
       const cikar = (liste: Oturum[]) => {
@@ -415,7 +526,7 @@ export default function App() {
   const oturumDurumu = useCallback(
     (id: string, durumu: OturumDurumu, mesaj?: string) => {
       setOturumlar((o) => o.map((x) => (x.id === id ? { ...x, durumu, mesaj } : x)));
-      if (durumu === 'bitti') {
+      if (durumu === 'bitti' && !oturumlarRef.current.find((x) => x.id === id)?.servis) {
         const kod = mesaj ? Number(/çıkış kodu (-?\d+)/.exec(mesaj)?.[1]) : NaN;
         defterKapandi(id, 'kabuk', Number.isInteger(kod) ? kod : null);
       }
@@ -426,8 +537,23 @@ export default function App() {
   const geriYukle = useCallback(() => {
     const liste = oncekiler;
     setOncekiler([]);
-    for (const o of liste) sekmeAc(o, true);
+    for (const o of liste) sekmeAc(o, true, o.claude);
   }, [oncekiler, sekmeAc]);
+
+  /** Son oturumu surdur: Pano / palet. Kapanmis bir konusmaya `--resume` ile donulur. */
+  const surdur = useCallback(
+    (p: Pick<Proje, 'ad' | 'yol'>, claudeId: string) => {
+      // Ayni konusma zaten acik bir bolmedeyse ikinci kez acilmaz (iki claude ayni dosyaya yazardi).
+      const ayni = oturumlarRef.current.find((o) => o.claude === claudeId && o.durumu === 'acik');
+      if (ayni) {
+        grubaGit(ayni.grupId, ayni.id);
+        return;
+      }
+      sekmeAc(p, true, claudeId);
+    },
+    // grubaGit asagida tanimli ve kararli (bagimliliksiz useCallback); cagri aninda hazir.
+    [sekmeAc]
+  );
 
   const grubaGit = useCallback((grupId: string, oturumId?: string) => {
     setAktifGrupId(grupId);
@@ -447,7 +573,8 @@ export default function App() {
   const onZil = useCallback(
     (id: string, sebep: 'bitti' | 'bekliyor' | 'zil', e?: OturumEtkinligi) => {
       const o = oturumlar.find((x) => x.id === id);
-      if (!o) return;
+      // Servis ciktisindaki zil (BEL) bir sunucu satiridir, "claude seni bekliyor" degil.
+      if (!o || o.servis) return;
       const kopru = e ?? etkinlikRef.current.oturumlar[id];
       if (sebep === 'zil' && kopru) return;
       const bakiyor =
@@ -486,7 +613,7 @@ export default function App() {
   useEffect(() => {
     window.kokpit.adaListe(
       oturumlar
-        .filter((o) => o.durumu === 'acik' || o.durumu === 'baglaniyor')
+        .filter((o) => !o.servis && (o.durumu === 'acik' || o.durumu === 'baglaniyor'))
         .map((o) => ({ id: o.id, ad: o.ad, baslangic: o.baslangic, dikkat: o.dikkat === true }))
     );
   }, [oturumlar]);
@@ -499,6 +626,52 @@ export default function App() {
       }),
     [grubaGit]
   );
+
+  /**
+   * Oturuma gonderme: hizli komut, ada'dan yanit ya da acik sorunun cevabi. Klavyeden
+   * yazilmis gibi PTY'ye gider; claude'un kendi girdisi kaynak olarak kalir.
+   *
+   * Tuslar 2026-10-04 spike'inda gercek claude 2.1.289 ile olculdu:
+   *   - mesaj: metin, ~350 ms sonra Enter (ayni pakette Enter yapistirmanin parcasi sayiliyor)
+   *   - soru: secenegin rakami secer VE gonderir; serbest cevap N+1 ("Type something") rakami,
+   *     metin, Enter.
+   * Soru cevabi `damga` ile gelir: o ana kadar soru degistiyse (cevaplandi, yenisi geldi)
+   * istek dusurulur. Rakam tusu baska bir ekranda baska bir sey secer; bayat cevap olmaz.
+   */
+  const oturumaGonder = useCallback(async (istek: GonderIstegi): Promise<string | null> => {
+    const o = oturumlarRef.current.find((x) => x.id === istek.id);
+    const api = oturumApileri.current.get(istek.id);
+    if (!o || o.durumu !== 'acik' || !api) return 'Oturum açık değil';
+    const bekle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    if (istek.tur === 'metin') {
+      if (!api.yaz(istek.metin)) return 'Terminal bağlantısı yok';
+      await bekle(350);
+      api.yaz('\r');
+    } else {
+      const e = etkinlikRef.current.oturumlar[istek.id];
+      const s = e?.soruAyrinti;
+      if (!e || e.durum !== 'bekliyor' || !s?.cevaplanabilir || e.degisti !== istek.damga) {
+        console.warn('[gonder] soru değişti, cevap gönderilmedi: ' + o.ad);
+        return 'Soru değişti; terminalden cevapla';
+      }
+      if (istek.secim === 'diger') {
+        if (!istek.metin) return 'Cevap boş';
+        api.yaz(String(s.secenekler.length + 1));
+        await bekle(400);
+        api.yaz(istek.metin);
+        await bekle(400);
+        api.yaz('\r');
+      } else {
+        if (istek.secim >= s.secenekler.length) return 'Böyle bir seçenek yok';
+        api.yaz(String(istek.secim + 1));
+      }
+    }
+    console.info('[gonder] ' + o.ad + ': ' + istek.tur);
+    setOturumlar((l) => (l.some((x) => x.id === istek.id && x.dikkat) ? l.map((x) => (x.id === istek.id ? { ...x, dikkat: false } : x)) : l));
+    return null;
+  }, []);
+  // Ada'dan gelen gonderme istekleri (main dogruladi, burada oturum ve soru denetlenir).
+  useEffect(() => window.kokpit.oturumaGonderDinle((istek) => void oturumaGonder(istek)), [oturumaGonder]);
 
   // Rozet, kullanici o bolmeye BAKINCA duser: aktif grup + terminal gorunumu + pencere odakta.
   useEffect(() => {
@@ -527,7 +700,9 @@ export default function App() {
       idler.map(async (id) => {
         const o = oturumlarRef.current.find((x) => x.id === id);
         const api = oturumApileri.current.get(id);
-        if (!o || o.durumu !== 'acik' || !api) return;
+        // Servis bolmesi sorusuz kapanir: kapaninca surec agaci oldurulur (pty-server), SessionEnd
+        // gibi korunacak bir sey yok.
+        if (!o || o.durumu !== 'acik' || !api || o.servis) return;
         const cocuklar = await api.cocuklar();
         // Sorgu cevapsiz kaldiysa "calisiyor olabilir": sormadan kapatmak yerine sor.
         if (cocuklar === null) console.warn('[kapatma] süreç sorgusu yanıtsız: ' + o.ad);
@@ -744,7 +919,7 @@ export default function App() {
       { id: 's-env', grup: 'Sayfa', baslik: 'Envanter', ipucu: 'Ctrl+4', calistir: () => setGorunum('envanter') },
     ];
     for (const p of siraliProjeler) {
-      const acik = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
+      const acik = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik' && !o.servis);
       k.push(
         acik
           ? { id: 'g-' + p.ad, grup: 'Git', baslik: p.ad, ipucu: 'açık oturum', calistir: () => grubaGit(acik.grupId, acik.id) }
@@ -783,8 +958,42 @@ export default function App() {
     for (const p of siraliProjeler) {
       k.push({ id: 'k-' + p.ad, grup: 'Klasör', baslik: p.ad, ipucu: 'Gezgin', calistir: () => void window.kokpit.klasorAc(p.yol) });
     }
+    // Surdur: son konusmasi diskte olan ve su an acik oturumu olmayan projeler.
+    for (const p of siraliProjeler) {
+      const son = sonOturumlar[p.yol];
+      const acik = oturumlar.some((o) => o.yol === p.yol && !o.servis && o.durumu === 'acik');
+      if (son?.surdurulebilir && son.claude && !acik) {
+        const claude = son.claude;
+        k.push({ id: 'su-' + p.ad, grup: 'Sürdür', baslik: p.ad, ipucu: 'son konuşma', calistir: () => surdur(p, claude) });
+      }
+    }
+    // Calistir: arsiv disindaki projeler (arsivdekiler "olduğu gibi"; yine de paletten aranabilir
+    // olmalari icin klasor listesinde kaliyorlar).
+    for (const p of siraliProjeler) {
+      const servis = oturumlar.find((o) => o.yol === p.yol && o.servis && o.durumu === 'acik');
+      k.push(
+        servis
+          ? { id: 'c-' + p.ad, grup: 'Çalıştır', baslik: p.ad, ipucu: servis.servis?.adres ?? 'çalışıyor', calistir: () => grubaGit(servis.grupId, servis.id) }
+          : { id: 'c-' + p.ad, grup: 'Çalıştır', baslik: p.ad, calistir: () => void calistirIste(p) }
+      );
+      k.push({ id: 'cd-' + p.ad, grup: 'Çalıştır', baslik: p.ad + ': komutu değiştir', calistir: () => void calistirIste(p, true) });
+    }
+    // Hizli komutlar aktif oturuma ("devam" yazip Enter). Terminal gorunumu disinda da calisir.
+    const hedef = oturumlar.find((o) => o.id === aktifOturumId && o.durumu === 'acik' && !o.servis);
+    if (hedef) {
+      hizliKomutlar.forEach((hk, i) =>
+        k.push({
+          id: 'h-' + i,
+          grup: 'Gönder',
+          baslik: hk.ad,
+          ipucu: hedef.ad,
+          calistir: () => void oturumaGonder({ id: hedef.id, tur: 'metin', metin: hk.metin }),
+        })
+      );
+    }
+    k.push({ id: 'e-komutlar', grup: 'Eylem', baslik: 'Hızlı komutları düzenle', ipucu: 'komutlar.json', calistir: () => void window.kokpit.komutlarDuzenle() });
     return k;
-  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, grubaGit, sekmeAc, geriYukle, tazele]);
+  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur]);
 
   // Bağlam: statusline'dan (kesin, her turda) varsa o; yoksa transcript yoklamasi (20 sn).
   const baglamOku = (id: string) => {
@@ -1057,7 +1266,7 @@ export default function App() {
                 {gorunur && (
                   <ul aria-label={GRUP_BASLIK[grup] + ' projeler'} id={arsiv ? 'kenar-arsiv' : undefined}>
                     {projeler.map((p) => {
-                      const oturum = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
+                      const oturum = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik' && !o.servis);
                       const dikkat = gorunenOturumlar.some((o) => o.yol === p.yol && o.dikkat);
                       return (
                         <li key={p.ad}>
@@ -1220,6 +1429,18 @@ export default function App() {
 
         <KomutPaleti acik={paletAcik} komutlar={komutlar} onKapat={() => setPaletAcik(false)} />
 
+        <CalistirKutusu
+          proje={calistirSor?.proje ?? null}
+          neden={calistirSor?.neden ?? null}
+          baslangic={calistirSor?.baslangic ?? ''}
+          onKapat={() => setCalistirSor(null)}
+          onKaydedildi={(komut) => {
+            const p = calistirSor?.proje;
+            setCalistirSor(null);
+            if (p) servisAc(p, komut);
+          }}
+        />
+
         <NotKutusu
           acik={notAcik}
           kaynak={gorunum === 'terminal' && aktifOturum ? aktifOturum.ad : null}
@@ -1263,6 +1484,8 @@ export default function App() {
               onArsivDegistir={() => setArsivAcik((a) => !a)}
               onSaglik={() => setGorunum('saglik')}
               onBaslat={sekmeAc}
+              onCalistir={(p) => void calistirIste(p)}
+              onSurdur={surdur}
               onOturumaGit={(id) => {
                 const o = oturumlar.find((x) => x.id === id);
                 if (o) grubaGit(o.grupId, o.id);
@@ -1360,7 +1583,10 @@ export default function App() {
                       title={dikkat ? etiket + ' — dikkat bekliyor' : undefined}
                       className="flex cursor-pointer items-center gap-2"
                     >
-                      {calisiyor && !dikkat && !kapaniyor ? (
+                      {g.uyeler.every((o) => o.servis) ? (
+                        // Yalniz servis tasiyan sekme: claude yok, nokta yerine calistir isareti.
+                        <Play className="size-3 shrink-0 text-metin-ikincil" aria-hidden="true" />
+                      ) : calisiyor && !dikkat && !kapaniyor ? (
                         <DurumIsareti durum="calisiyor" />
                       ) : (
                         <span className={'size-1.5 shrink-0 rounded-full ' + nokta} aria-hidden="true" />
@@ -1468,7 +1694,58 @@ export default function App() {
                         className="flex min-w-0 flex-col"
                         style={{ flexBasis: o.oran * 100 + '%' }}
                       >
-                        {g.uyeler.length > 1 && (
+                        {o.servis ? (
+                          // Servis basligi tek bolmede de gorunur: ne calisiyor, adresi nerede,
+                          // yeniden baslat. Adres mono (olculmus deger), tiklayinca tarayicida.
+                          <div
+                            className={
+                              'flex shrink-0 items-center gap-2 rounded-t-kontrol border-b px-2 py-1 text-xs ' +
+                              (o.id === aktifOturumId ? 'border-kenar-guclu bg-yuzey-guclu' : 'border-kenar bg-yuzey')
+                            }
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setAktifOturumId(o.id)}
+                              title={o.servis.komut}
+                              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+                            >
+                              <Play className="size-3.5 shrink-0 text-metin-ikincil" aria-hidden="true" />
+                              <span className="enstruman shrink-0 text-metin-ikincil">{o.ad}</span>
+                              <span className="enstruman min-w-0 truncate text-metin-soluk">{o.servis.komut}</span>
+                            </button>
+                            {o.servis.adres ? (
+                              <button
+                                type="button"
+                                onClick={() => void window.kokpit.linkAc(o.servis!.adres!)}
+                                title={o.servis.adres + ' tarayıcıda aç'}
+                                className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-kontrol border border-kenar px-2 py-0.5 text-metin transition-colors duration-[180ms] hover:border-kenar-guclu hover:bg-yuzey-guclu"
+                              >
+                                <span className="enstruman">{o.servis.adres.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span>
+                                <ExternalLink className="size-3 text-metin-soluk" aria-hidden="true" />
+                              </button>
+                            ) : (
+                              o.durumu === 'acik' && <span className="shrink-0 text-metin-soluk">adres bekleniyor</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => servisYenidenBaslat(o.id)}
+                              aria-label={o.ad + ' uygulamasını yeniden başlat'}
+                              title="Yeniden başlat"
+                              className="shrink-0 cursor-pointer rounded p-0.5 text-metin-soluk transition-colors duration-[180ms] hover:text-metin"
+                            >
+                              <RotateCcw className="size-3.5" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => oturumKapat(o.id)}
+                              aria-label={o.ad + ' uygulamasını durdur'}
+                              title="Durdur (süreç ağacı kapatılır)"
+                              className="shrink-0 cursor-pointer rounded p-0.5 text-metin-soluk transition-colors duration-[180ms] hover:text-metin"
+                            >
+                              <X className="size-3.5" aria-hidden="true" />
+                            </button>
+                          </div>
+                        ) : g.uyeler.length > 1 && (
                           <div
                             className={
                               'flex shrink-0 items-center justify-between gap-2 rounded-t-kontrol border-b px-2 py-1 ' +
@@ -1549,7 +1826,19 @@ export default function App() {
                           </p>
                         )}
                         {o.durumu === 'acik' && etkinlik.oturumlar[o.id] && (
-                          <EtkinlikSeridi e={etkinlik.oturumlar[o.id]} simdi={simdi} />
+                          <EtkinlikSeridi
+                            e={etkinlik.oturumlar[o.id]}
+                            simdi={simdi}
+                            sag={
+                              hizliKomutlar.length > 0 && (
+                                <HizliKomutMenusu
+                                  komutlar={hizliKomutlar}
+                                  oturumAdi={o.ad}
+                                  onSec={(hk) => void oturumaGonder({ id: o.id, tur: 'metin', metin: hk.metin })}
+                                />
+                              )
+                            }
+                          />
                         )}
                         <div
                           onMouseDown={() => setAktifOturumId(o.id)}
@@ -1557,10 +1846,14 @@ export default function App() {
                           className="min-h-0 flex-1 overflow-hidden rounded-kontrol bg-terminal p-2"
                         >
                           <TerminalOturumu
+                            key={o.id}
                             id={o.id}
                             yol={o.yol}
                             gorunur={g.id === aktifGrupId}
                             devam={o.devam}
+                            claudeId={o.claude}
+                            servis={o.servis?.komut}
+                            onAdres={onAdres}
                             yaziBoyutu={yaziBoyutu}
                             onDurum={oturumDurumu}
                             onZil={onZilXterm}

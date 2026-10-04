@@ -80,7 +80,9 @@ async function bekle(kosul, ms) {
     } else if (m.t === 'cikis') cikis = m;
   });
   await new Promise((r) => ws.on('open', r));
-  ws.send(JSON.stringify({ t: 'ac', cwd: E2E, komut: 'claude', oturum: OTURUM, cols: 120, rows: 40 }));
+  // Kimlik Kokpit'te dogar (v2.3): claude --session-id ile acilir, hook'lar ayni kimligi tasimali.
+  const CLAUDE_ID = crypto.randomUUID();
+  ws.send(JSON.stringify({ t: 'ac', cwd: E2E, komut: 'claude', oturum: OTURUM, claude: CLAUDE_ID, cols: 120, rows: 40 }));
 
   await uyu(14000);
   ws.send(JSON.stringify({ t: 'veri', d: 'Use the Write tool to create kokpit-e2e.txt containing exactly one line: ok. Then reply only: tamam' }));
@@ -94,6 +96,7 @@ async function bekle(kosul, ms) {
   kontrol('Write araci goruldu, satir sayildi', d.ozet && d.ozet.dosyalar.some((x) => x.endsWith('kokpit-e2e.txt')) && d.ozet.arti >= 1, d.ozet);
   kontrol('bitti sinyali geldi', sinyaller.some(([id, s]) => id === OTURUM && s === 'bitti'), sinyaller);
   kontrol('tur suresi olculdu', typeof d.sonTurSuresiMs === 'number' && d.sonTurSuresiMs > 0, d.sonTurSuresiMs);
+  kontrol('claude Kokpit\'in verdigi kimlikle calisti (--session-id)', d.claudeOturumu === CLAUDE_ID && fs.existsSync(path.join(TRANSCRIPT_DIZINI, CLAUDE_ID + '.jsonl')), d.claudeOturumu);
   const statusline = await bekle(() => !!kanca.anlik().limitler && !!kanca.anlik().baglamlar[OTURUM], 20000);
   const a = kanca.anlik();
   kontrol('statusline: limitler ulasti', !!(a.limitler && (a.limitler.besSaat || a.limitler.hafta)), a.limitler);

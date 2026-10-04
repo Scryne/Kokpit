@@ -18,6 +18,11 @@ export interface OturumApi {
   cocuklar: () => Promise<string[] | null>;
   /** claude'a cikis tuslarini gonderir, SessionEnd bitene kadar bekler. Temiz ciktiysa true. */
   guvenliCik: () => Promise<boolean>;
+  /**
+   * Kabuga ham girdi: klavyeden yazilmis gibi. Hizli komut / ada cevabi bunu kullanir.
+   * Baglanti yoksa false.
+   */
+  yaz: (d: string) => boolean;
 }
 
 // Sunucu tarafi 90 sn bekliyor; ustune ag/olcum payi.
@@ -30,6 +35,12 @@ interface Props {
   gorunur: boolean;
   /** Geri yukleme: claude --continue. */
   devam?: boolean;
+  /** claude oturum kimligi (uuid): yeni oturumda --session-id, devamda --resume. */
+  claudeId?: string;
+  /** Servis bolmesi: claude yerine bu komut (Calistir). */
+  servis?: string;
+  /** Servis ciktisinda yerel adres goruldu (pty-server bildirir). */
+  onAdres?: (id: string, adres: string) => void;
   yaziBoyutu: number;
   onDurum: (id: string, durumu: OturumDurumu, mesaj?: string) => void;
   /** Terminal zili: claude bitti ya da soru soruyor. */
@@ -75,10 +86,13 @@ export default function TerminalOturumu({
   yol,
   gorunur,
   devam = false,
+  claudeId,
+  servis,
   yaziBoyutu,
   onDurum,
   onZil,
   onKayit,
+  onAdres,
 }: Props) {
   const kutuRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -91,6 +105,8 @@ export default function TerminalOturumu({
   onZilRef.current = onZil;
   const onKayitRef = useRef(onKayit);
   onKayitRef.current = onKayit;
+  const onAdresRef = useRef(onAdres);
+  onAdresRef.current = onAdres;
   const gorunurRef = useRef(gorunur);
   gorunurRef.current = gorunur;
   // Sunucuya sorulan sorularin bekleyen cevaplari, istek kimligine gore (cocuk, cik).
@@ -272,6 +288,12 @@ export default function TerminalOturumu({
       // Baglanti yoksa kabuk da yok: cikacak bir sey kalmamis, temiz sayilir.
       guvenliCik: () =>
         sor<boolean>('cik', CIKIS_ZAMAN_ASIMI_MS, (m) => m.temiz === true, true, false),
+      yaz: (d) => {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+        ws.send(JSON.stringify({ t: 'veri', d }));
+        return true;
+      },
     });
 
     void (async () => {
@@ -305,15 +327,21 @@ export default function TerminalOturumu({
       ws.onopen = () => {
         acildi = true;
         ws.send(
-          JSON.stringify({
-            t: 'ac',
-            cwd: yol,
-            komut: devam ? 'claude-devam' : 'claude',
-            // Kanca koprusu bu kimlikle olaylari sekmeye baglar (KOKPIT_OTURUM).
-            oturum: id,
-            cols: term.cols,
-            rows: term.rows,
-          })
+          JSON.stringify(
+            servis
+              ? // Servis: claude yok, kanca kimligi yok (hook'u olmayan duz kabuk).
+                { t: 'ac', cwd: yol, komut: 'servis', calistir: servis, cols: term.cols, rows: term.rows }
+              : {
+                  t: 'ac',
+                  cwd: yol,
+                  komut: devam ? 'claude-devam' : 'claude',
+                  claude: claudeId,
+                  // Kanca koprusu bu kimlikle olaylari sekmeye baglar (KOKPIT_OTURUM).
+                  oturum: id,
+                  cols: term.cols,
+                  rows: term.rows,
+                }
+          )
         );
       };
       // Son durum (bitti/hata) bir kez bildirilir. `bitti` mesajindan hemen sonra sunucu
@@ -338,6 +366,7 @@ export default function TerminalOturumu({
         } else if (m.t === 'veri') term.write(m.d);
         else if (m.t === 'bitti') sonDurum('bitti', 'Oturum kapandı (çıkış kodu ' + m.kod + ')');
         else if (m.t === 'hata') sonDurum('hata', m.mesaj);
+        else if (m.t === 'adres' && typeof m.adres === 'string') onAdresRef.current?.(id, m.adres);
         else if (m.t === 'cocuklar' || m.t === 'cikis') {
           const b = bekleyenRef.current.get(m.n);
           bekleyenRef.current.delete(m.n);

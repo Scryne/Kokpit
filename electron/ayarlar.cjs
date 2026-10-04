@@ -3,10 +3,10 @@
 // IPC ile okur/yamalar. Yazim atomik (gecici dosya + rename): yarim JSON kalmaz.
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { log } = require('./log.cjs');
+const { KOKPIT_DIZIN } = require('./config.cjs');
 
-const DOSYA = path.join(os.homedir(), '.kokpit', 'ayarlar.json');
+const DOSYA = path.join(KOKPIT_DIZIN, 'ayarlar.json');
 
 const VARSAYILAN = Object.freeze({
   surum: 1,

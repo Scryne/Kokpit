@@ -108,6 +108,114 @@ kontrol('bittikten sonra izin bildirimi beklemeye cevirmez', r.durum.durum === '
 r = etkinlik.isle(d, P({ hook_event_name: 'BilinmeyenOlay' }), 4200);
 kontrol('bilinmeyen olay durumu degistirmez', r.degisti === false && r.durum === d);
 
+// --- 1b. Soru ayrintisi (v2.3, ada'dan cevap). Girdi sekli 2026-10-04 spike'indaki gercek
+// AskUserQuestion cagrisiyla ayni: questions[].{question, header, options[].{label, description}, multiSelect}.
+{
+  const tekli = {
+    questions: [
+      {
+        question: 'Hangi renk?',
+        header: 'Renk',
+        multiSelect: false,
+        options: [
+          { label: 'Kirmizi', description: 'sicak' },
+          { label: 'Mavi', description: '' },
+          { label: 'Yesil', description: 'dogal' },
+        ],
+      },
+    ],
+  };
+  let s0 = etkinlik.yeniDurum(0);
+  let r1 = etkinlik.isle(s0, P({ hook_event_name: 'UserPromptSubmit', prompt: 'x' }), 10);
+  r1 = etkinlik.isle(r1.durum, P({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: tekli }), 20);
+  const sa = r1.durum.soruAyrinti;
+  kontrol(
+    'soru ayrintisi: tekli soru cevaplanabilir, secenek sirasi korunur',
+    sa && sa.cevaplanabilir === true && sa.secenekler.length === 3 && sa.secenekler[1].etiket === 'Mavi' && sa.soru === 'Hangi renk?' && sa.baslik === 'Renk',
+    sa
+  );
+  const izin = etkinlik.isle(r1.durum, P({ hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'izin' }), 25);
+  kontrol('ayni bekleyisin bildirimi secenekleri silmez', izin.durum.soruAyrinti && izin.durum.soruAyrinti.secenekler.length === 3, izin.durum);
+  const cevap = etkinlik.isle(r1.durum, P({ hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion', tool_input: tekli, tool_response: {} }), 30);
+  kontrol('cevaplaninca soru ayrintisi silinir', cevap.durum.soruAyrinti === null && cevap.durum.durum === 'calisiyor');
+  const durdu = etkinlik.isle(r1.durum, P({ hook_event_name: 'Stop' }), 40);
+  kontrol('Stop soru ayrintisini siler (bayat secenek kalmaz)', durdu.durum.soruAyrinti === null);
+
+  const coklu = etkinlik.soruAyrintisi({ questions: [{ question: 'Hangileri?', multiSelect: true, options: [{ label: 'a' }, { label: 'b' }] }] });
+  kontrol('coklu secim cevaplanamaz (toggle akisi)', coklu.cevaplanabilir === false && coklu.coklu === true, coklu);
+  const iki = etkinlik.soruAyrintisi({ questions: [{ question: 'A?', options: [{ label: 'x' }] }, { question: 'B?', options: [{ label: 'y' }] }] });
+  kontrol('iki soru cevaplanamaz (sekmeli akis)', iki.cevaplanabilir === false && iki.soruSayisi === 2, iki);
+  const bos = etkinlik.soruAyrintisi({ questions: [{ question: 'Ne?' }] });
+  kontrol('secenegi olmayan soru cevaplanamaz', bos.cevaplanabilir === false && bos.secenekler.length === 0, bos);
+  kontrol('bozuk girdi -> null', etkinlik.soruAyrintisi(null) === null && etkinlik.soruAyrintisi({ questions: 'x' }) === null);
+  const bes = etkinlik.soruAyrintisi({ questions: [{ question: 'Q', options: [1, 2, 3, 4, 5].map((n) => ({ label: 'o' + n })) }] });
+  kontrol('en fazla 4 secenek (rakam N+1 serbest metne denk gelir)', bes.secenekler.length === 4, bes);
+  const altAjan = etkinlik.isle(s0, P({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', agent_id: 'a1', tool_input: tekli }), 50);
+  kontrol('alt ajanin sorusu bekletmez, ayrinti yok', altAjan.durum.durum !== 'bekliyor' && altAjan.durum.soruAyrinti === null);
+}
+
+// --- 1c. Hizli komutlar semasi (komutlar.cjs) ---
+{
+  const komutlar = require(path.join(KOK, 'electron', 'komutlar.cjs'));
+  const t = komutlar.temizle([
+    { ad: ' Devam ', metin: 'devam\r\net' },
+    { ad: '', metin: 'x' },
+    { ad: 'y' },
+    ...Array.from({ length: 20 }, (_, i) => ({ ad: 'k' + i, metin: 'm' })),
+  ]);
+  kontrol('komut semasi: bos/eksik atlanir, satir sonu tek satira, en fazla 12', t[0].ad === 'Devam' && t[0].metin === 'devam et' && t.length === 12, t.slice(0, 2));
+  kontrol('komut semasi: dizi degilse null', komutlar.temizle({}) === null);
+  const k = komutlar.oku();
+  kontrol('komutlar dosyasi yoksa varsayilanla olusur', fs.existsSync(komutlar.DOSYA) && k.length === komutlar.VARSAYILAN.length && k[0].metin === 'devam et', k[0]);
+}
+
+// --- 1d. Calistir: adres yakalama + tarif (v2.3) ---
+{
+  const { adresBul } = require(path.join(KOK, 'electron', 'adres.cjs'));
+  const E = '\u001b';
+  kontrol('adres: Vite (port renk kodlari arasinda)', adresBul('  ' + E + '[32m➜' + E + '[39m  Local:   ' + E + '[36mhttp://localhost:' + E + '[1m5173' + E + '[22m/' + E + '[39m') === 'http://localhost:5173/');
+  kontrol('adres: Next', adresBul('   - Local:        http://localhost:3000\n') === 'http://localhost:3000');
+  kontrol('adres: uvicorn 0.0.0.0 -> localhost', adresBul('INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)') === 'http://localhost:8000');
+  kontrol('adres: 127.0.0.1 korunur, sondaki nokta atilir', adresBul('listening at http://127.0.0.1:8790.') === 'http://127.0.0.1:8790');
+  kontrol('adres: uzak adres yakalanmaz', adresBul('see https://vitejs.dev/config and http://example.com:80/') === null);
+  kontrol('adres: portsuz localhost yakalanmaz', adresBul('http://localhost/abc') === null);
+
+  const calistir = require(path.join(KOK, 'electron', 'calistir.cjs'));
+  const proje = fs.mkdtempSync(path.join(GECICI, 'proje-'));
+  kontrol('tarif: package.json yok -> null + neden', calistir.tarif(proje).komut === null && !!calistir.tarif(proje).neden);
+  fs.writeFileSync(path.join(proje, 'package.json'), JSON.stringify({ scripts: { start: 'node x', dev: 'vite' } }));
+  kontrol('tarif: dev, start\'tan once', calistir.tarif(proje).komut === 'npm run dev' && calistir.tarif(proje).kaynak === 'package.json');
+  fs.writeFileSync(path.join(proje, 'package.json'), JSON.stringify({ scripts: { start: 'node x' } }));
+  kontrol('tarif: yalniz start', calistir.tarif(proje).komut === 'npm start');
+  kontrol('tarif: Kokpit kendini calistirmaz', calistir.tarif(KOK).komut === null);
+  kontrol('kaydet: cok satirli komut reddedilir', calistir.kaydet(proje, 'a\n\nb'.repeat(300)) === false);
+  kontrol('kaydet: olmayan klasor reddedilir', calistir.kaydet(path.join(proje, 'yok'), 'x') === false);
+  kontrol('kaydet: gecerli komut', calistir.kaydet(proje, '  uv run uvicorn app:app  ') === true);
+  const t2 = calistir.tarif(proje.toUpperCase());
+  kontrol('tarif: kayit package.json\'u ezer, yol buyuk/kucuk harf bagimsiz', t2.komut === 'uv run uvicorn app:app' && t2.kaynak === 'ayar', t2);
+  kontrol('calistir.json gecici HOME altinda (gercek dosyaya dokunulmadi)', calistir.DOSYA.startsWith(GECICI), calistir.DOSYA);
+}
+
+// --- 1e. Oturum kimligi (v2.3): beyin durumu tahmin degil kimlikle ---
+{
+  const beyin = require(path.join(KOK, 'electron', 'beyin.cjs'));
+  const yol = 'C:\\Proje\\Ornek';
+  const dizin = path.join(GECICI, '.claude', 'projects', beyin.slug(yol));
+  fs.mkdirSync(dizin, { recursive: true });
+  const kimlik = '11111111-2222-4333-8444-555555555555';
+  const baska = '99999999-2222-4333-8444-555555555555';
+  // --resume senaryosu: konusmanin dosyasi bu oturum baslamadan COK once dogmus. Dogum zamani
+  // taklit edilemez (utimes birthtime'i degistirmez), o yuzden oturum "simdi + 5 dk" baslatilir:
+  // diskteki iki dosya da baslangictan once dogmus olur, tipki surdurulen konusma gibi.
+  fs.writeFileSync(path.join(dizin, kimlik + '.jsonl'), '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":5,"cache_read_input_tokens":7}}}\n');
+  fs.writeFileSync(path.join(dizin, baska + '.jsonl'), '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":1}}}\n');
+  const baslangic = Date.now() + 5 * 60_000;
+  kontrol('kimlik verilince surdurulen konusmanin baglami okunur', beyin.oturumBaglami(yol, baslangic, kimlik)?.token === 12, beyin.oturumBaglami(yol, baslangic, kimlik));
+  kontrol('kimlik yoksa eski sezgi surdurulen konusmayi bulamaz (kimligin gerekcesi)', beyin.oturumBaglami(yol, baslangic) === null);
+  kontrol('kimlik yanlis dosyaya dusmez: digeri ayri okunur', beyin.oturumBaglami(yol, baslangic, baska)?.token === 1);
+  kontrol('transcriptVar: var / yok / gecersiz kimlik', beyin.transcriptVar(yol, kimlik) === true && beyin.transcriptVar(yol, '00000000-0000-4000-8000-000000000000') === false && beyin.transcriptVar(yol, '../x') === false);
+}
+
 const oz = etkinlik.kaliciOzet(d);
 kontrol('kalici ozet', oz && oz.dosya === 2 && oz.arti === 6 && oz.eksi === 1 && oz.turlar === 1, oz);
 kontrol('bos oturumun ozeti yok', etkinlik.kaliciOzet(etkinlik.yeniDurum(0)) === null);

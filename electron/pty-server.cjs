@@ -15,9 +15,11 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const { spawnSync, execFile } = require('child_process');
+const { adresBul } = require('./adres.cjs');
 
 const TOKEN = process.env.KOKPIT_PTY_TOKEN || '';
-const LOG_DOSYA = path.join(os.homedir(), '.kokpit', 'pty-server.log');
+// Kokpit'in veri dizini (config.cjs; testlerde KOKPIT_DIZIN ile ayrilir, ortamdan miras).
+const LOG_DOSYA = path.join(require('./config.cjs').KOKPIT_DIZIN, 'pty-server.log');
 
 fs.mkdirSync(path.dirname(LOG_DOSYA), { recursive: true });
 function log(mesaj) {
@@ -156,6 +158,41 @@ function cocukAdlari(pid) {
  */
 const CIKIS_BEKLEME_MS = 90_000;
 
+/**
+ * Servis bolmeleri (Calistir: npm run dev, uvicorn...) kapaninca SUREC AGACI oldurulur.
+ * p.kill() yalniz kabugu kapatir; npm -> node -> vite ya da uvicorn --reload isci surecleri
+ * yetim kalip portu tutabiliyordu (hafiza: hayalet port tuzagi, TenderIQ 2026-09-26).
+ * taskkill /T kabugun torunlarini da alir. Senkron: cikis yolunda da calisabilsin.
+ */
+const servisler = new Set(); // canli servis kabuklarinin pid'leri
+/** true: agac olduruldu. Basarisizsa cagiran p.kill()'e duser. */
+function agaciOldur(pid) {
+  try {
+    const r = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 8000, encoding: 'utf8' });
+    log('servis agaci olduruldu pid=' + pid + ' kod=' + r.status);
+    return r.status === 0;
+  } catch (e) {
+    log('servis agaci oldurulemedi pid=' + pid + ': ' + e.message);
+    return false;
+  }
+}
+/**
+ * Bolme kapanisi icin ASENKRON surum: taskkill ~1 sn surer ve senkron hali sunucunun olay
+ * dongusunu durdurup o arada TUM terminallerin ciktisini donduruyordu. Basarisizsa `yedek`
+ * (p.kill) calisir. Cikis yolunda senkron olan kalir: surec cikmadan bitmeli.
+ */
+function agaciOldurAsenkron(pid, yedek) {
+  execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 8000 }, (hata) => {
+    servisler.delete(pid);
+    log('servis agaci olduruldu pid=' + pid + ' kod=' + (hata ? hata.code ?? 'hata' : 0));
+    if (hata) yedek();
+  });
+}
+function servisleriOldur() {
+  for (const pid of servisler) agaciOldur(pid);
+  servisler.clear();
+}
+
 const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
 
 wss.on('listening', () => {
@@ -186,6 +223,7 @@ wss.on('connection', (ws, istek) => {
   }
 
   let p = null;
+  let servis = false;
 
   const gonder = (nesne) => {
     if (ws.readyState === ws.OPEN) {
@@ -219,11 +257,42 @@ wss.on('connection', (ws, istek) => {
         kancaAyari && fs.existsSync(kancaAyari) && !kancaAyari.includes("'")
           ? " --settings '" + kancaAyari + "'"
           : '';
-      const claudeKomutu = (m.komut === 'claude-devam' ? 'claude --continue' : 'claude') + ayarArgumani;
+      // Oturum kimligi Kokpit'te dogar (v2.3): yeni oturum `--session-id <uuid>`, geri yukleme /
+      // surdurme `--resume <uuid>` — tam o konusma. Kimlik yoksa (eski defter kaydi) eskisi gibi
+      // `--continue`: o klasordeki EN SON konusma, Kokpit disinda acilan baska bir oturum olabilir.
+      const claudeId =
+        typeof m.claude === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(m.claude)
+          ? m.claude
+          : '';
+      const claudeKomutu =
+        (m.komut === 'claude-devam'
+          ? claudeId
+            ? 'claude --resume ' + claudeId
+            : 'claude --continue'
+          : claudeId
+            ? 'claude --session-id ' + claudeId
+            : 'claude') + ayarArgumani;
       // Hook basligi bu degiskeni tasir: olayin hangi sekmeye ait oldugu buradan bilinir.
       const oturumId = typeof m.oturum === 'string' && /^[\w.-]{1,160}$/.test(m.oturum) ? m.oturum : '';
-      const dosya = claudeIle || testKabugu ? POWERSHELL : KABUK;
-      const argumanlar = claudeIle ? ['-NoLogo', '-NoExit', '-Command', claudeKomutu] : testKabugu ? ['-NoLogo', '-NoProfile'] : [];
+      // Servis bolmesi (Calistir): projenin kendi komutu, claude degil. -NoExit: sunucu cokerse
+      // hata ciktisi ekranda kalir. Komut tek satir ve sinirli (calistir.cjs ayni kurali uygular);
+      // renderer zaten token'li bir kabuk acabildigi icin bu yeni bir yetki degil.
+      const servisKomutu =
+        m.komut === 'servis' && typeof m.calistir === 'string' && m.calistir.length <= 500 && !/[\r\n]/.test(m.calistir)
+          ? m.calistir.trim()
+          : '';
+      if (m.komut === 'servis' && !servisKomutu) {
+        gonder({ t: 'hata', mesaj: 'Geçersiz çalıştırma komutu' });
+        return;
+      }
+      const dosya = claudeIle || testKabugu || servisKomutu ? POWERSHELL : KABUK;
+      const argumanlar = servisKomutu
+        ? ['-NoLogo', ...(testKabugu ? ['-NoProfile'] : []), '-NoExit', '-Command', servisKomutu]
+        : claudeIle
+          ? ['-NoLogo', '-NoExit', '-Command', claudeKomutu]
+          : testKabugu
+            ? ['-NoLogo', '-NoProfile']
+            : [];
 
       try {
         p = pty.spawn(dosya, argumanlar, {
@@ -242,11 +311,28 @@ wss.on('connection', (ws, istek) => {
       // pid'i burada sabitliyoruz: onExit'e kadar p null'lanmis olabiliyor
       // (ws.close handler'i once kosuyor) ve log kor kaliyordu.
       const pid = p.pid;
-      log(`pty acildi pid=${pid} cwd=${cwd} komut=${claudeIle ? claudeKomutu : 'kabuk'} kabuk=${path.basename(dosya)}`);
+      servis = Boolean(servisKomutu);
+      if (servis) servisler.add(pid);
+      log(`pty acildi pid=${pid} cwd=${cwd} komut=${servis ? 'servis: ' + servisKomutu : claudeIle ? claudeKomutu : 'kabuk'} kabuk=${path.basename(dosya)}`);
       gonder({ t: 'hazir', pid });
 
-      p.onData((d) => gonder({ t: 'veri', d }));
+      // Servis ciktisindan yerel adres (Vite/Next/uvicorn): degistikce bir kez bildirilir.
+      // Kuyruk tutulur: adres satiri iki veri parcasina bolunebiliyor.
+      let kuyruk = '';
+      let sonAdres = null;
+      p.onData((d) => {
+        gonder({ t: 'veri', d });
+        if (!servis) return;
+        kuyruk = (kuyruk + d).slice(-2048);
+        const adres = adresBul(kuyruk);
+        if (adres && adres !== sonAdres) {
+          sonAdres = adres;
+          log('servis adresi pid=' + pid + ' ' + adres);
+          gonder({ t: 'adres', adres });
+        }
+      });
       p.onExit(({ exitCode }) => {
+        servisler.delete(pid);
         log(`pty kapandi pid=${pid} kod=${exitCode}`);
         gonder({ t: 'bitti', kod: exitCode });
         p = null;
@@ -300,15 +386,26 @@ wss.on('connection', (ws, istek) => {
   ws.on('close', () => {
     if (p) {
       log('ws kapandi -> pty oldurulyor pid=' + p.pid);
-      try { p.kill(); } catch { /* zaten olmus */ }
+      // Servis: agac taskkill ile olunce kabuk da olmus olur. Ardindan p.kill() olu kabugun
+      // konsolunu listelemeye calisiyor ve node-pty'nin yardimci sureci "AttachConsole failed"
+      // ile cokuyordu (zararsiz ama gurultu; test:pty'de goruldu). Yalniz taskkill tutmazsa.
+      const hedef = p;
+      const oldur = () => { try { hedef.kill(); } catch { /* zaten olmus */ } };
+      if (servis) {
+        // Kume'den taskkill bitince cikar: o arada sunucu kapanirsa cikis yolu da oldursun.
+        agaciOldurAsenkron(hedef.pid, oldur);
+      } else {
+        oldur();
+      }
       p = null;
     }
   });
 });
 
-// Yetim birakmama: ebeveyn stdin'i kapatinca bu surec de kapanir.
-process.stdin.on('end', () => { log('ebeveynin stdin"i kapandi -> cikiliyor'); process.exit(0); });
-process.stdin.on('close', () => process.exit(0));
+// Yetim birakmama: ebeveyn stdin'i kapatinca bu surec de kapanir. Servis agaclari once
+// oldurulur: ConPTY kapaninca dev sunucusunun torunlari yasamaya devam edebiliyor.
+process.stdin.on('end', () => { log('ebeveynin stdin"i kapandi -> cikiliyor'); servisleriOldur(); process.exit(0); });
+process.stdin.on('close', () => { servisleriOldur(); process.exit(0); });
 process.stdin.resume();
 
 process.on('uncaughtException', (e) => { log('uncaughtException: ' + (e && e.stack)); });

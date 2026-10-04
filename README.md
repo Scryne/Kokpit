@@ -4,7 +4,9 @@ Scryne'ın projelerini tek ekranda gösteren ve karttan tek tıkla o klasörde `
 açan yerel masaüstü uygulaması.
 
 **Kendi verisi yok.** Gösterdiği her şey `ScryneOS/.claude/scripts/durum.py --json`
-çıktısından, yani git'in zaten takip ettiği dosyalardan türetilir. v1 hiçbir yere yazmaz.
+çıktısından, yani git'in zaten takip ettiği dosyalardan türetilir. v1 hiçbir yere yazmaz. Kokpit'in
+kendi çalışma verisi (ayarlar, oturum defteri, hızlı komutlar, çalıştırma tarifleri) `~/.kokpit/`
+altındadır; projelerin bilgisi değil, Kokpit'in nasıl kullanıldığıdır. Vault'a tek yazma Inbox notu.
 Uygulama silinirse hiçbir şey kaybolmaz — bu bir lens, depo değil.
 
 Kalıcı plan: `ScryneOS/🧠 500-Knowledge/Kokpit-Plani.md` (Katman 2).
@@ -52,6 +54,30 @@ araç. Kenarın altında **limit** (5 saat, hafta). Statusline Kokpit oturumlar�
 ya da soru sorunca 5 sn kendiliğinden açılır. Tıklayınca Kokpit o sekmeyle öne gelir.
 Komut paletinden "Ada'yı kapat".
 
+**Hızlı komutlar (v2.3):** etkinlik şeridinin sağındaki ⚡ menüsü ya da paletteki "Gönder" grubu, seçilen
+mesajı o oturuma yazıp gönderir (klavyeden yazılmış gibi). Varsayılanlar son 30 günün prompt'larından:
+Devam et · Neredeyiz? · Sen karar ver · Doğrula · Commit · Özetle. Liste `~/.kokpit/komutlar.json`
+(ilk açılışta oluşur; "Komutları düzenle" dosyayı açar, değişiklik pencere odağa gelince okunur).
+
+**Ada'dan cevap (v2.3):** sıra sende olan oturum (bitti / seni bekliyor) Ada'da kendi satırının altında
+eylem taşır. claude soru sorduysa (AskUserQuestion, tek soru) seçenekler düğme olur, tıklayınca o
+seçeneğin rakamı oturuma gider; "Kendi cevabın" kutusu serbest cevap verir. Soru yoksa ilk üç hızlı
+komut ve bir yanıt kutusu. Kokpit öne gelmez. Çok sorulu / çoklu seçimli sorular terminalde cevaplanır.
+Cevap gidene kadar soru değiştiyse gönderilmez. **Ctrl+Alt+Shift+K** Kokpit'i her yerden çağırır
+(öndeyse küçültür).
+
+**Çalıştır (v2.3):** Pano satırındaki ▷ projenin uygulamasını claude'un yanında ayrı bir **servis
+bölmesinde** açar (o projede açık sekme varsa içine). Komut önce `~/.kokpit/calistir.json`'dan, yoksa
+`package.json`'dan (`dev` > `start`); bulunamazsa bir kez sorulur ve kaydedilir (`calistir` skill'i de
+aynı dosyaya yazar). Bölme başlığında komut, yakalanan adres (tıklayınca tarayıcıda), yeniden başlat ve
+durdur. Durdurunca **süreç ağacı** ölür (`taskkill /T`): dev sunucusunun torunları portu tutup kalmaz.
+Ölçüldü: konsoldan kopuk torun da ölüyor, port boşalıyor (`test:pty`).
+
+**Sürdür ve oturum kimliği (v2.3):** her claude oturumunun kimliğini Kokpit verir (`--session-id`) ve
+defterde tutar. Geri yükleme ve Pano'daki "Sürdür" `claude --resume <kimlik>` ile **tam o konuşmayı**
+açar (eskiden `--continue`: o klasördeki en son konuşma, Kokpit dışında açılmış başka bir oturum
+olabilirdi). Sağlık/Pano'daki "beyne düştü" ve bağlam göstergesi de tahmin yerine bu kimliğe bakar.
+
 **Geri doldur:** beyne düşmemiş TEK oturumu vault'un kendi zinciriyle özetler
 (`flush_kapsama.py --oturum`, ~20–60 sn, model çağrısı). Betik son 30 dk'da yazılmış transcript'i
 reddeder; Kokpit'te o klasörde açık oturum varken düğme kapalı. `--doldur` bilerek kullanılmaz:
@@ -59,7 +85,7 @@ o, dizindeki açık oturumları da erken doldururdu.
 
 **Klavye:** Ctrl+Shift+P komut paleti (sayfa, proje aç/git, klasör, eylemler) · Ctrl+B kenar
 çubuğu · Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü · Ctrl+Shift+W bölmeyi kapat · Ctrl+Shift+N
-Inbox'a not · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
+Inbox'a not · **Ctrl+Alt+Shift+K her yerden Kokpit'i çağır / küçült** · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
 Türkçe klavyede AltGr olduğu için üç değiştirici) · sekme şeridinde ← →, bölme ayırıcısında ← →
 (%5). **Terminalde:** Ctrl+Shift+F ara (Enter / Shift+Enter / Esc) · Ctrl+C seçim varken
 kopyalar, yokken `^C` · Ctrl+Shift+C/V · sağ tık yapıştır · Ctrl+= / Ctrl+- / Ctrl+0 yazı
@@ -94,15 +120,23 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 ## Test
 
 ```bash
-npm run test:pty     # PTY sunucusunun uçtan uca testi (13 kontrol)
-npm run test:kanca   # kanca köprüsü: durum makinesi, alıcı, statusline köprüsü (39 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi (43 kontrol, önce build)
-npm run e2e:kanca    # GERÇEK claude ile hook zinciri (10 kontrol; elle, plan kullanır)
+npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ağacı dahil (18 kontrol)
+npm run test:kanca   # kanca köprüsü, soru/komut/tarif/adres/kimlik (71 kontrol)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi (65 kontrol, önce build)
+npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontrol; elle, plan kullanır)
+npm run ekran:ada    # v2.3 yüzeylerinin ekran görüntüsü (ada, terminal, Pano)
 npm run typecheck
 npm run build
 npm run design:lint  # DESIGN.md spec denetimi
 npm run ikon         # public/kokpit.svg -> kokpit.ico + kokpit.png
 ```
+
+**Test koşucuları gerçek `~/.kokpit`'e dokunmaz** (v2.3): `test:ui`, `ekran`, `ekran:ada` uygulamayı
+`KOKPIT_DIZIN=<geçici dizin>` ile açar (ayar, defter, komutlar, tarifler, kanca, log, Chromium profili
+orada), sonda dizini siler. Eskiden gerçek dizinde koşup yedekten geri yazıyorlardı: açık bir gerçek
+Kokpit varken test örneği onun oturumunu "önceki çalışmadan kalan" sanıp deftere sahte "kapandı"
+yazıyordu (2026-10-04). `test:ui` kaynak `dist`'ten yeniyse koşmayı reddeder (derleme düşmüşse eski
+arayüzü test edip yeşil yanıyordu).
 
 `test:ui` uygulamayı `--remote-debugging-port` ile açar, CDP üzerinden gerçek tuş/tıklama
 gönderir, DOM'dan okur; iki çalışma yapar (geri yükleme için). Claude AÇMAZ:
@@ -155,6 +189,7 @@ Son yükseltme 2026-09-29: 44.3.0 → 44.4.5, `test:ui` 37/37.
 | `KOKPIT_PYTHON` | `python` | Python yorumlayıcısı |
 | `KOKPIT_DEV` | — | `0` yapılırsa dev sunucusu yerine `dist/` yüklenir |
 | `KOKPIT_TEST_ADA` | — | Test koşucusunda (`KOKPIT_TEST_KABUK=1`) adayı da kur |
+| `KOKPIT_DIZIN` | `~/.kokpit` | Kokpit'in kendi veri dizini; test/ekran koşucuları geçici dizin verir |
 
 `~/.kokpit/ayarlar.json`: `seffaf: false` pencereyi opak yapar, `ada: false` adayı kapatır.
 
@@ -215,3 +250,10 @@ der. Geri doldurma vault'ta: `python .claude/scripts/flush_kapsama.py --proje <a
    açtığı oturumlara `--settings` ile verilir; veri bellekte, Kokpit'in kendi oturumları
    hakkında (kapanınca yalnız özet deftere). Token dosyaya yazılmaz, ortamla gider. Kokpit
    kapalıyken hook claude'u bekletmez (2 sn zaman aşımı, bağlantı hatası bloklamaz).
+8. **Kokpit bir oturuma yalnız Scryne'ın açık eylemiyle yazar** (hızlı komut, Ada'dan cevap). Kendiliğinden
+   gönderim, sıraya alınmış otomatik "devam", koşullu cevap yok: oturumun sahibi kullanıcıdır. Soru cevabı
+   damgasız ya da bayat damgayla gitmez.
+9. **Servis bölmesi ağacıyla ölür.** Bölme kapanınca `taskkill /T` (asenkron), uygulama kapanırken sunucunun
+   kendi çıkışı beklenir (senkron ağaç öldürme). `p.kill()` tek başına konsoldan kopuk torunları bırakır.
+10. **Test ve ekran koşucuları `KOKPIT_DIZIN` ile ayrı dizinde çalışır.** Gerçek `~/.kokpit`'e yazmaz, geri
+    yazma yapmaz.

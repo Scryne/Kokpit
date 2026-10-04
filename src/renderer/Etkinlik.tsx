@@ -133,7 +133,16 @@ function AracSatiri({ a, simdi }: { a: EtkinlikAraci; simdi: number }) {
  * Bolmenin ustundeki tek satir: durum, son arac, tur suresi, oturum ozeti. Tiklayinca son
  * araclarin akisi acilir. Ekran okuyucuya yalniz DURUM degisimi duyurulur; her arac degil.
  */
-export function EtkinlikSeridi({ e, simdi }: { e: OturumEtkinligi; simdi: number }) {
+export function EtkinlikSeridi({
+  e,
+  simdi,
+  sag,
+}: {
+  e: OturumEtkinligi;
+  simdi: number;
+  /** Seridin sag ucu (hizli komut menusu); akis dugmesinin disinda, ic ice dugme olmasin. */
+  sag?: React.ReactNode;
+}) {
   const [acik, setAcik] = useState(false);
   const kap = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -163,6 +172,7 @@ export function EtkinlikSeridi({ e, simdi }: { e: OturumEtkinligi; simdi: number
       <span className="sr-only" role="status">
         {DURUM_ADI[e.durum]}
       </span>
+      <div className="flex items-stretch">
       <button
         type="button"
         onClick={() => setAcik((a) => !a)}
@@ -170,7 +180,7 @@ export function EtkinlikSeridi({ e, simdi }: { e: OturumEtkinligi; simdi: number
         aria-controls={panelId}
         title="Son araçlar"
         className={
-          'flex w-full cursor-pointer items-center gap-3 border-b px-2.5 py-1 text-left text-xs transition-colors duration-[120ms] ' +
+          'flex min-w-0 flex-1 cursor-pointer items-center gap-3 border-b px-2.5 py-1 text-left text-xs transition-colors duration-[120ms] ' +
           (bekliyor ? 'border-dikkat/30 bg-dikkat/10' : 'border-kenar bg-yuzey hover:bg-yuzey-guclu')
         }
       >
@@ -211,6 +221,8 @@ export function EtkinlikSeridi({ e, simdi }: { e: OturumEtkinligi; simdi: number
           <ChevronDown className={'size-3.5 ' + (acik ? 'rotate-180' : '')} aria-hidden="true" />
         </span>
       </button>
+      {sag}
+      </div>
 
       {acik && (
         <div

@@ -193,6 +193,27 @@ yuzden sureler burada, kodda Tailwind sinifi olarak (`duration-[180ms]`) yasar.
   Kapalıyken hap (`rounded-full`), açıkken `rounded-2xl` 440 px kart; açılış 160 ms
   `scaleY` + opaklık, `backdrop-filter` yok. Renk kuralı aynı: amber yalnız seni bekleyen.
 
+## Vibe yüzeyleri (2026-10-04, v2.3)
+
+Yeni renk yok, yeni cam yok. Hepsi mevcut token'larla; amber yine yalnız "seni bekliyor".
+
+- **Hızlı komut menüsü** — etkinlik şeridinin sağ ucunda ⚡ (lucide `Zap`), şeridin yüksekliğinde,
+  sol kenarlı. Açılır panel komut paletiyle aynı yüzey: opak `bg-base` taban + `yuzey-guclu` (cam
+  değil; arkadaki terminal metni içinden okunmasın). Başlık `etiket` ("<proje> · gönder"); satırda ad
+  `metin`, mesajın önizlemesi tek satır `metin-soluk`; son satır "Komutları düzenle" + mono dosya adı.
+- **Ada eylemleri** — sıra sende olan oturumun altında, satırın metin hizasından (`pl-[1.75rem]`).
+  Soru seçenekleri kenarlıklı satır düğmeler: rakam mono soluk (gerçekten basılan tuş o), etiket
+  `metin`, açıklama soluk. **Seçenekler renksiz**: karar Scryne'ın, Kokpit bir seçeneği öne çıkarmaz.
+  Hızlı komutlar `rounded-full` çip; yanıt kutusu `bg-terminal/60` (yazı alanı = terminal ailesi).
+  Soru açıkken satır metni soruyu tekrar etmez, yalnız "Seni bekliyor · <başlık>".
+- **Servis bölmesi başlığı** — tek bölmede de görünür: ▷ ikon, proje adı mono, komut mono soluk
+  (kırpılır, tamamı `title`'da), adres düğmesi mono + `ExternalLink`, yeniden başlat, durdur.
+  Çalışan servisin rengi yok (calisiyor gibi); adres gelmediyse "adres bekleniyor" soluk metin.
+- **Pano satırı** — "Aç" ikonu artık `TerminalSquare` (claude oturumu), ▷ `Play` uygulamanın kendisi.
+  Çalışan servis ▷ düğmesinde portuyla görünür (`:5173`, mono = ölçülmüş değer). "Sürdür" satırın alt
+  metninde altı çizili metin düğmesi: ikincil eylem, düğme ağırlığı almaz.
+- **Çalıştır kutusu** — not kutusuyla aynı desen (yerel `<dialog>`, opak taban); komut alanı mono.
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;

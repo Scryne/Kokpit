@@ -68,4 +68,17 @@ contextBridge.exposeInMainWorld('kokpit', {
     ipcRenderer.on('oturuma:git', d);
     return () => ipcRenderer.removeListener('oturuma:git', d);
   },
+  // Calistir: projenin uygulamasini servis bolmesinde acma tarifi.
+  calistirTarif: (yol) => ipcRenderer.invoke('calistir:tarif', yol),
+  calistirKaydet: (yol, komut) => ipcRenderer.invoke('calistir:kaydet', yol, komut),
+  // Hizli komutlar ve oturuma gonderme (ada -> main -> ana pencere; PTY ana pencerede).
+  komutlarGetir: () => ipcRenderer.invoke('komutlar:getir'),
+  komutlarDuzenle: () => ipcRenderer.invoke('komutlar:duzenle'),
+  adaGonder: (istek) => ipcRenderer.send('ada:gonder', istek),
+  adaOdak: (istek) => ipcRenderer.send('ada:odak', istek),
+  oturumaGonderDinle: (cb) => {
+    const d = (_e, istek) => cb(istek);
+    ipcRenderer.on('oturuma:gonder', d);
+    return () => ipcRenderer.removeListener('oturuma:gonder', d);
+  },
 });

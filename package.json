@@ -16,6 +16,7 @@
     "test:ui": "node scripts/test-ui.cjs",
     "ikon": "electron scripts/ikon-uret.cjs",
     "ekran": "node scripts/ekran.cjs",
+    "ekran:ada": "node scripts/ekran-ada.cjs",
     "kisayol": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/kisayol.ps1",
     "design:lint": "npx -p @google/design.md designmd lint DESIGN.md",
     "test:kanca": "node scripts/test-kanca.cjs",
