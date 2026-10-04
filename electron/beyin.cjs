@@ -64,8 +64,32 @@ function transcriptBul(yol, baslangicMs) {
   return aday;
 }
 
-function oturumBeyinDurumu(yol, baslangicMs) {
-  const t = transcriptBul(yol, baslangicMs);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Kimligi bilinen oturumun transcript'i (v2.3: Kokpit `--session-id` verir). Tahmin yok:
+ * ayni klasorde iki oturum ya da `--resume` (dosya eskiden dogmus) dogum zamani sezgisini
+ * yaniltirdi. Kimlik yoksa ya da dosya yoksa eski sezgiye (transcriptBul) dusulur.
+ */
+function transcriptSec(yol, baslangicMs, claudeId) {
+  if (claudeId && UUID.test(claudeId)) {
+    try {
+      const st = fs.statSync(path.join(PROJELER, slug(yol), claudeId + '.jsonl'));
+      return { id: claudeId, dogum: st.birthtimeMs || st.mtimeMs, mtime: st.mtimeMs };
+    } catch {
+      /* claude ilk mesajdan once kapandiysa dosya hic dogmaz */
+    }
+  }
+  return transcriptBul(yol, baslangicMs);
+}
+
+/** "Surdur" teklif edilebilir mi: o kimligin transcript'i diskte var mi. */
+function transcriptVar(yol, claudeId) {
+  return Boolean(claudeId && UUID.test(claudeId) && fs.existsSync(path.join(PROJELER, slug(yol), claudeId + '.jsonl')));
+}
+
+function oturumBeyinDurumu(yol, baslangicMs, claudeId) {
+  const t = transcriptSec(yol, baslangicMs, claudeId);
   if (!t) return 'yok';
   const f = flushDurumu(t.id);
   if (!f) return Date.now() - t.mtime < TAZE_MS ? 'bekliyor' : 'dusmedi';
@@ -81,8 +105,8 @@ function oturumBeyinDurumu(yol, baslangicMs) {
  */
 const KUYRUK_BAYT = 512 * 1024;
 
-function oturumBaglami(yol, baslangicMs) {
-  const t = transcriptBul(yol, baslangicMs);
+function oturumBaglami(yol, baslangicMs, claudeId) {
+  const t = transcriptSec(yol, baslangicMs, claudeId);
   if (!t) return null;
   const dosya = path.join(PROJELER, slug(yol), t.id + '.jsonl');
   let metin;
@@ -120,4 +144,4 @@ function oturumBaglami(yol, baslangicMs) {
   return null;
 }
 
-module.exports = { oturumBeyinDurumu, oturumBaglami, slug };
+module.exports = { oturumBeyinDurumu, oturumBaglami, transcriptVar, slug };

@@ -21,6 +21,7 @@ function yeniDurum(simdi) {
     claudeOturumu: null,
     arac: null, // { ad, hedef, alt, arti, eksi, basladi, bitti }
     soru: null, // bekliyor iken kullaniciya sorulan sey (kisa)
+    soruAyrinti: null, // AskUserQuestion ise secenekler (ada'dan cevap icin), bkz. soruAyrintisi
     turBasladi: null,
     sonTurSuresiMs: null,
     degisti: simdi,
@@ -78,6 +79,33 @@ function hedefOzeti(ad, girdi) {
       }
       return '';
   }
+}
+
+/**
+ * AskUserQuestion'un ilk sorusu ve secenekleri: Kokpit/ada bunu dugme olarak gosterir.
+ * TUI klavyesi (2026-10-04 spike'inda gercek claude 2.1.289 ile olculdu, docs soylemiyor):
+ * secenekler 1..N numarali, rakam tusu secip GONDERIR (Enter gerekmez); N+1 "Type something"
+ * satiri — rakami serbest metin kutusunu acar, metin + Enter gonderir; N+2 "Chat about this".
+ * Birden cok soru ya da coklu secim sekmeli/toggle'li bir akis: oradan cevap verilmez,
+ * `cevaplanabilir` false olur ve arayuz terminale yonlendirir.
+ */
+function soruAyrintisi(girdi) {
+  const sorular = Array.isArray(girdi?.questions) ? girdi.questions : [];
+  const ilk = sorular[0];
+  if (!ilk || typeof ilk !== 'object') return null;
+  const secenekler = (Array.isArray(ilk.options) ? ilk.options : [])
+    .slice(0, 4)
+    .map((o) => ({ etiket: kisalt(o?.label, 60), aciklama: kisalt(o?.description, 140) }))
+    .filter((o) => o.etiket);
+  const coklu = ilk.multiSelect === true;
+  return {
+    soru: kisalt(ilk.question, 240),
+    baslik: kisalt(ilk.header, 24),
+    secenekler,
+    coklu,
+    soruSayisi: sorular.length,
+    cevaplanabilir: sorular.length === 1 && !coklu && secenekler.length > 0,
+  };
 }
 
 /** Gosterilen arac adi: mcp araclari "MCP", gerisi oldugu gibi. */
@@ -141,6 +169,7 @@ function isle(onceki, govde, simdi = Date.now()) {
       d.turBasladi = simdi;
       d.arac = null;
       d.soru = null;
+      d.soruAyrinti = null;
       d.ozet.turlar++;
       break;
 
@@ -158,6 +187,7 @@ function isle(onceki, govde, simdi = Date.now()) {
       if (ad === 'AskUserQuestion' && !alt) {
         d.durum = 'bekliyor';
         d.soru = hedefOzeti(ad, govde.tool_input) || 'Soru soruyor';
+        d.soruAyrinti = soruAyrintisi(govde.tool_input);
         sinyal = 'bekliyor';
       } else if (d.durum !== 'bekliyor') {
         d.durum = 'calisiyor';
@@ -192,6 +222,7 @@ function isle(onceki, govde, simdi = Date.now()) {
       if (ad === 'AskUserQuestion' && d.durum === 'bekliyor') {
         d.durum = 'calisiyor';
         d.soru = null;
+        d.soruAyrinti = null;
       }
       break;
     }
@@ -199,8 +230,11 @@ function isle(onceki, govde, simdi = Date.now()) {
     case 'Notification': {
       const tur = govde.notification_type;
       if (BEKLETEN_BILDIRIMLER.has(tur) && d.durum !== 'bitti') {
+        // AskUserQuestion zaten secenekleriyle bekliyorsa ayni bekleyisin bildirimi onu ezmesin.
+        if (d.durum === 'bekliyor' && d.soruAyrinti) break;
         d.durum = 'bekliyor';
         d.soru = kisalt(govde.message, 80) || 'Cevap bekliyor';
+        d.soruAyrinti = null;
         sinyal = 'bekliyor';
       }
       // idle_prompt bilerek yok sayilir: Stop'tan ~60 sn sonra gelir, "bitti" zaten soyledi.
@@ -213,6 +247,7 @@ function isle(onceki, govde, simdi = Date.now()) {
       d.sonTurSuresiMs = d.turBasladi !== null ? simdi - d.turBasladi : null;
       d.turBasladi = null;
       d.soru = null;
+      d.soruAyrinti = null;
       sinyal = 'bitti';
       break;
 
@@ -220,6 +255,7 @@ function isle(onceki, govde, simdi = Date.now()) {
       d.durum = 'kapandi';
       d.turBasladi = null;
       d.soru = null;
+      d.soruAyrinti = null;
       break;
 
     default:
@@ -265,4 +301,4 @@ function durumSatiri(govde) {
   };
 }
 
-module.exports = { yeniDurum, isle, kaliciOzet, durumSatiri, hedefOzeti, farkSayilari };
+module.exports = { yeniDurum, isle, kaliciOzet, durumSatiri, hedefOzeti, farkSayilari, soruAyrintisi };

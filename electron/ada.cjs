@@ -14,7 +14,9 @@ const { BrowserWindow, ipcMain, screen } = require('electron');
 const { log } = require('./log.cjs');
 
 const GENISLIK = 460;
-const YUKSEKLIK = 340;
+// Acik kart + soru secenekleri + yazi kutusu sigsin (v2.3). Bos alan fareyi gecirdigi icin
+// buyuk pencere alttakini kapatmaz.
+const YUKSEKLIK = 520;
 
 let ada = null;
 let anaOdakta = true;
@@ -126,6 +128,23 @@ module.exports = {
   },
   sinyal(id, sinyal) {
     gonder('etkinlik:sinyal', { id, sinyal });
+  },
+  /**
+   * Yazi kutusu icin gecici odak. Ada `focusable: false` kurulur; kutuya tiklaninca acilir,
+   * gonderince/kutudan cikinca kapanir. Odaktayken fare olaylari da yakalanir (imlec kartin
+   * disina kaysa bile kutu yazilabilir kalsin).
+   */
+  odak(istek) {
+    if (!ada || ada.isDestroyed()) return;
+    if (istek) {
+      ada.setFocusable(true);
+      ada.setIgnoreMouseEvents(false);
+      ada.focus();
+    } else {
+      ada.blur();
+      ada.setFocusable(false);
+      ada.setIgnoreMouseEvents(true, { forward: true });
+    }
   },
   kapat() {
     if (ada && !ada.isDestroyed()) ada.destroy();

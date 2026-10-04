@@ -124,6 +124,67 @@ cocuk.stdout.on('data', async (d) => {
   await bekle(1500);
   kontrol('kabuk cikinca bitti mesaji geldi', bitti !== null);
 
+  // 4b) Servis bolmesi (Calistir, v2.3): komut pwsh'ta calisir, adres ANSI'li ciktidan
+  // yakalanir, bolme kapaninca TUM agac olur ve port bosalir (hayalet port tuzagi).
+  // Sunucu Vite gibi yazar: port rakamlari renk kodlari arasinda. Bir de torun surec acar
+  // (npm -> node -> vite zincirinin yerine): p.kill() yalniz kabugu oldururdu.
+  {
+    const fs = require('fs');
+    const os = require('os');
+    const net = require('net');
+    const gecici = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-servis-'));
+    const pidDosyasi = path.join(gecici, 'pidler.json');
+    const betik = path.join(gecici, 'sunucu.js');
+    fs.writeFileSync(
+      betik,
+      [
+        "const http = require('http'); const { spawn } = require('child_process'); const fs = require('fs');",
+        // Torun konsoldan KOPUK (detached): ConPTY kapaninca konsola bagli surecler zaten olur, p.kill()
+        // onlari da goturur (mutasyon testi 2026-10-04: yalniz-kabuk mutasyonu kacti). Hayalet port
+        // konsoldan kopmus surectir; agac oldurmenin gerekcesi bu.
+        "const torun = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true, windowsHide: true }); torun.unref();",
+        "const s = http.createServer((q, r) => r.end('ok')).listen(0, '127.0.0.1', () => {",
+        "  const port = s.address().port;",
+        "  fs.writeFileSync(" + JSON.stringify(pidDosyasi) + ", JSON.stringify({ ana: process.pid, torun: torun.pid, port }));",
+        "  console.log('  VITE ready\\n  \\u001b[32m➜\\u001b[39m  Local:   \\u001b[36mhttp://localhost:\\u001b[1m' + port + '\\u001b[22m/\\u001b[39m');",
+        '});',
+      ].join('\n')
+    );
+    const ws2 = new WebSocket(`ws://127.0.0.1:${port}/?token=${TOKEN}`);
+    let adres = null;
+    let hata2 = null;
+    ws2.on('message', (ham) => {
+      const m = JSON.parse(ham.toString());
+      if (m.t === 'adres') adres = m.adres;
+      else if (m.t === 'hata') hata2 = m.mesaj;
+    });
+    await new Promise((r) => ws2.on('open', r));
+    // Gecersiz komut (cok satirli) reddedilir: servis yalniz tek satir komut kosar.
+    const red = new WebSocket(`ws://127.0.0.1:${port}/?token=${TOKEN}`);
+    let redMesaji = null;
+    red.on('message', (ham) => { const m = JSON.parse(ham.toString()); if (m.t === 'hata') redMesaji = m.mesaj; });
+    await new Promise((r) => red.on('open', r));
+    red.send(JSON.stringify({ t: 'ac', cwd: gecici, komut: 'servis', calistir: 'echo a\r\necho b', cols: 100, rows: 30 }));
+    ws2.send(JSON.stringify({ t: 'ac', cwd: gecici, komut: 'servis', calistir: 'node "' + betik + '"', cols: 120, rows: 30 }));
+    for (let i = 0; i < 60 && (!adres || !fs.existsSync(pidDosyasi)); i++) await bekle(250);
+    kontrol('cok satirli servis komutu reddedildi', redMesaji === 'Geçersiz çalıştırma komutu');
+    try { red.close(); } catch { /* */ }
+    const pidler = fs.existsSync(pidDosyasi) ? JSON.parse(fs.readFileSync(pidDosyasi, 'utf8')) : null;
+    kontrol('servis basladi, adres ANSI renkli ciktidan yakalandi', !!pidler && adres === 'http://localhost:' + pidler.port + '/' && !hata2);
+    const yasiyor = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    kontrol('servisin ana ve torun sureci calisiyor', !!pidler && yasiyor(pidler.ana) && yasiyor(pidler.torun));
+    ws2.close();
+    await bekle(2500);
+    kontrol('bolme kapaninca agac oldu (ana + torun)', !!pidler && !yasiyor(pidler.ana) && !yasiyor(pidler.torun));
+    const portAcik = await new Promise((r) => {
+      const b = net.connect(pidler ? pidler.port : 1, '127.0.0.1');
+      b.on('connect', () => { b.destroy(); r(true); });
+      b.on('error', () => r(false));
+    });
+    kontrol('port bosaldi (hayalet port yok)', !portAcik);
+    try { fs.rmSync(gecici, { recursive: true, force: true }); } catch { /* */ }
+  }
+
   // 5) Yetim kontrolu
   cocuk.stdin.end();
   await bekle(1500);
@@ -136,4 +197,4 @@ cocuk.stdout.on('data', async (d) => {
   process.exit(kalan === 0 ? 0 : 1);
 });
 
-setTimeout(() => { console.log('ZAMAN ASIMI'); try { cocuk.kill(); } catch {} process.exit(1); }, 90000);
+setTimeout(() => { console.log('ZAMAN ASIMI'); try { cocuk.kill(); } catch {} process.exit(1); }, 150000);

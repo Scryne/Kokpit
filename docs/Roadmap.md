@@ -1,7 +1,7 @@
 ---
 proje: Kokpit
 created: 2026-09-10
-modified: 2026-10-03
+modified: 2026-10-04
 type: roadmap
 status: aktif
 ---
@@ -31,6 +31,10 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 13 | Etkinlik şeridi + zil ayrımı | ✅ Tamamlandı | Bölmede "ne yapıyor" satırı ve son araçlar akışı; "bitti" ile "seni bekliyor" ayrı; bildirim metni neyin olduğunu söylüyor |
 | 14 | Limit ve kesin bağlam | ✅ Tamamlandı | 5 saat / haftalık limit kenarda; bağlam statusline'dan; Scryne'ın kendi durum satırı aynen kalıyor |
 | 15 | Ada | ✅ Tamamlandı | Kokpit arka plandayken üst ortada şerit; bekleyen/çalışan oturum, limit; tıklayınca o sekme; gerçek ekranda görüldü |
+| 16 | Oturuma yazma + hızlı komutlar | ✅ Tamamlandı | Etkinlik şeridindeki menüden ve paletten seçilen mesaj o oturuma yazılıp gönderiliyor (kabukta yan etkisiyle kanıtlı); liste `~/.kokpit/komutlar.json` |
+| 17 | Ada'dan cevap | ✅ Tamamlandı | Ada'da soru seçenekleri (rakam tuşu, gerçek claude ile ölçüldü), serbest cevap, hızlı komut çipleri, yanıt kutusu; bayat cevap damga ile reddediliyor; Kokpit'i çağır kısayolu |
+| 18 | Çalıştır (servis bölmesi) | ✅ Tamamlandı | Projenin uygulaması claude'un yanında ayrı bölmede; adres ANSI'li çıktıdan yakalanıyor; kapatınca süreç ağacı ölüyor ve port boşalıyor (konsoldan kopuk torun dahil) |
+| 19 | Oturum kimliği + Sürdür | ✅ Tamamlandı | Kokpit `--session-id` veriyor; geri yükleme ve Sürdür `--resume <kimlik>` ile tam o konuşmayı açıyor (gerçek claude ile ölçüldü) |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -435,3 +439,56 @@ Alınan üç fikir: oturumun o an ne yaptığı, arka planda küçük bir yüzey
   defter özeti). Test koşucuları `--disable-backgrounding-occluded-windows` ile açılıyor:
   pencerenin üstü kapalıyken Chromium kare üretmiyor, ölçüm isteyen bütçe grafiği hiç
   çizilmiyordu (ölçüldü: `visibilityState hidden`, rAF tetiklenmiyor).
+
+### v2.3 (2026-10-04): Vibe kokpit — cevap, çalıştır, sürdür
+
+**Neden:** Scryne "bilgisayarımı vibe coding sistemine çevirmek; tüm yetki sende" dedi. İşe kanıtla
+başlandı: son 30 günün 727 insan prompt'u (`~/.claude/history.jsonl`, keşif ajanı) tarandı. Üç sürtünme
+öne çıktı: **"kaldığımız yerden devam / neredeyiz / ne kaldı" ~70** · **tek kelimelik cevaplar
+("devam et" 10 kez birebir, "tamam/onaylıyorum" ~90)** · **"nasıl çalıştırırım" 29** (Kokpit'in
+kendisi 7 kez elle `! cd … && npm start` ile açılmış). Fazlar bunlara karşılık; aynı gün iki global
+skill de yazıldı (`devam`, `calistir`, bkz. vault `Calisma-Sistemleri.md`).
+
+- **Faz 16, Oturuma yazma + hızlı komutlar** (✅): `OturumApi.yaz` (klavyeden yazılmış gibi PTY'ye),
+  etkinlik şeridinin sağ ucunda ⚡ menüsü (menü deseni: oklar, Esc odağı geri verir), palette
+  "Gönder" grubu. Komutlar `~/.kokpit/komutlar.json` (yoksa varsayılanla oluşur, Scryne düzenler):
+  Devam et · Neredeyiz? · Sen karar ver · Doğrula · Commit · Özetle. Mesaj ve Enter ayrı gider
+  (~350 ms): aynı pakette Enter yapıştırmanın parçası sayılıyor (e2e'de de böyle).
+- **Faz 17, Ada'dan cevap** (✅): sıra sende olan oturumun altında (bitti / seni bekliyor) seçenekler,
+  çipler ve yanıt kutusu. **Spike (gerçek claude 2.1.289, docs yazmıyor):** AskUserQuestion'da
+  seçenek rakamı seçip GÖNDERİR (Enter yok); serbest cevap N+1 ("Type something") rakamı + metin +
+  Enter; N+2 "Chat about this". Çok soru / çoklu seçim sekmeli bir akış: oradan cevap verilmez,
+  terminale yönlendirilir. Cevap `damga` (sorunun `degisti` anı) taşır; soru o arada değiştiyse rakam
+  gönderilmez (başka ekranda başka şey seçerdi). Ada `focusable: false`; yanıt kutusuna tıklanınca
+  geçici odak alır. **Ctrl+Alt+Shift+K** Kokpit'i çağırır / küçültür.
+- **Faz 18, Çalıştır** (✅): `electron/calistir.cjs` tarif (önce `~/.kokpit/calistir.json`, sonra
+  package.json `dev` > `start`; Python'da tahmin yok, bir kez sorulur). Servis bölmesi claude'un
+  yanında (o projede açık sekme varsa içine bölme). `electron/adres.cjs` ANSI'yi soyup yerel adresi
+  yakalar (Vite port rakamını renk kodları arasına koyuyor). Kapatınca **süreç ağacı** `taskkill /T`
+  ile ölür. Servis deftere, ada'ya ve kapatma onayına girmez.
+- **Faz 19, Oturum kimliği + Sürdür** (✅): kimlik Kokpit'te doğar (`crypto.randomUUID`, `claude
+  --session-id`), defterde kalır; geri yükleme ve Pano'daki "Sürdür" `claude --resume <kimlik>`.
+  Spike: `--resume` aynı transcript dosyasına devam ediyor ve konuşmayı hatırlıyor. `beyin.cjs`
+  kimlik varsa tahmin yerine o dosyaya bakar (sürdürülen konuşmanın dosyası eskiden doğduğu için
+  doğum zamanı sezgisi onu hiç bulamıyordu).
+- **Bulgular (her biri ölçülerek düzeltildi):**
+  1. **Test koşucusu gerçek veriyi bozuyordu.** Scryne'ın açık Kokpit'i varken test örneği aynı
+     `~/.kokpit`'i kullanıyor, onun açık oturumunu "önceki çalışmadan kalan" sanıp deftere sahte
+     "kapandı" yazıyordu (bir satır, elle geri alındı); koşucunun sondaki yedekten geri yazması da o
+     arada yazılanı ezebilirdi. Artık `KOKPIT_DIZIN` (config.cjs) ile her koşu geçici dizinde;
+     Chromium profili de ayrı. Gerçek defter/ayar hash'i test öncesi ve sonrası aynı.
+  2. **Electron çıkarken PTY sunucusunu da götürüyordu**, sunucunun çıkışta yaptığı ağaç öldürme
+     yarıda kalıyordu (log "çıkılıyor"da kesik). `before-quit` artık sunucunun kendi çıkmasını bekliyor
+     (`durdurBekle`, en fazla 6 sn).
+  3. **Senkron taskkill (~1 sn) sunucunun olay döngüsünü durduruyordu**: o arada tüm terminallerin
+     çıktısı donuyordu. Bölme kapanışında asenkron; çıkışta senkron kalıyor.
+  4. **Mutasyon testi** (15 bozuk sürüm, 15'i yakalandı): ilk turda "yalnız kabuğu öldür" mutasyonu
+     kaçtı — ConPTY kapanınca konsola bağlı süreçler zaten ölüyor; hayalet port konsoldan **kopuk**
+     süreçtir. Test torunu `detached` yapıldı, mutasyon yakalandı. UI mutasyonlarının ilk turu
+     "kaçtı" çıktı çünkü derleme bir tip hatasıyla düşmüş, `dist` eski kalmıştı: `test:ui` artık
+     kaynak `dist`'ten yeniyse koşmayı reddediyor.
+- **Testler:** `test:kanca` 71 (39'dan; soru ayrıntısı, komut şeması, adres, tarif, kimlik),
+  `test:pty` 18 (13'ten; servis, ANSI'li adres, kopuk torunla ağaç ölümü, port boşalması, çok satırlı
+  komut reddi), `test:ui` 65 (43'ten; hızlı komut kabukta yan etkisiyle, ada yolu rakamı kabuğa,
+  bayat damga reddi, servis bölmesi/yeniden başlat/durdur, kimlik zinciri), `e2e:kanca` 11 (gerçek
+  claude `--session-id`). `npm run ekran:ada` (scripts/ekran-ada.cjs) ada + terminal + Pano görüntüsü.

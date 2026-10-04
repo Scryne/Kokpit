@@ -164,10 +164,17 @@ export interface Oturum {
   oran: number;
   /** Zil caldi ve kullanici o sirada bakmiyordu: claude bitti ya da soru soruyor. */
   dikkat?: boolean;
-  /** Geri yukleme: `claude --continue` ile acilir (onceki calismadan kalan oturum). */
+  /** Geri yukleme / surdurme: `claude --resume <claude>` (kimlik yoksa `--continue`). */
   devam?: boolean;
+  /** claude oturum kimligi (uuid): Kokpit verir (`--session-id`), defterde kalir (v2.3). */
+  claude?: string;
   /** Guvenli cikis suruyor: claude'a cikis tuslari gitti, SessionEnd bekleniyor. */
   kapaniyor?: boolean;
+  /**
+   * Servis bolmesi (Calistir): claude degil, projenin kendi komutu (npm run dev...). Deftere,
+   * ada'ya ve kapatma onayina girmez; kapaninca surec agaci oldurulur.
+   */
+  servis?: { komut: string; adres?: string };
 }
 
 export interface PtyBilgi {
@@ -180,7 +187,7 @@ export type PtyBilgiSonuc =
   | { hata: string; bilgi?: undefined };
 
 export type DefterOlayi =
-  | { olay: 'acildi'; id: string; ad: string; yol: string }
+  | { olay: 'acildi'; id: string; ad: string; yol: string; claude?: string }
   | { olay: 'kapandi'; id: string; kod?: number | null; sebep: 'kullanici' | 'kabuk' };
 
 /** Onceki calismada acik kalmis oturum: geri yukleme teklifi. */
@@ -188,6 +195,8 @@ export interface OncekiOturum {
   ad: string;
   yol: string;
   baslangic: number;
+  /** Varsa geri yukleme tam bu konusmayi acar (--resume). */
+  claude?: string | null;
 }
 
 /** Kapanan oturumun beyne dusme durumu (electron/beyin.cjs). */
@@ -208,6 +217,9 @@ export interface SonOturum {
   sureSn: number;
   beyin: BeyinKaydi;
   ozet?: OturumOzeti | null;
+  claude?: string | null;
+  /** Konusma diskte var: `claude --resume` ile surdurulebilir. */
+  surdurulebilir?: boolean;
 }
 
 export interface Ayarlar {
@@ -233,11 +245,42 @@ export interface EtkinlikAraci {
   bitti: number | null;
 }
 
+/** AskUserQuestion'un ilk sorusu (electron/etkinlik.cjs soruAyrintisi). */
+export interface SoruAyrintisi {
+  soru: string;
+  baslik: string;
+  secenekler: { etiket: string; aciklama: string }[];
+  coklu: boolean;
+  soruSayisi: number;
+  /** Tek soru, tekli secim: Kokpit/ada'dan rakam tusuyla cevaplanabilir. */
+  cevaplanabilir: boolean;
+}
+
+/** Projenin uygulamasini acan komut (electron/calistir.cjs). */
+export type CalistirTarifi =
+  | { komut: string; kaynak: 'ayar' | 'package.json'; neden?: undefined }
+  | { komut: null; neden: string; kaynak?: undefined; /** Proje Kokpit'in kendisi: sorulmaz. */ kendisi?: boolean };
+
+/** Oturuma tek tikla gonderilen hazir mesaj (~/.kokpit/komutlar.json). */
+export interface HizliKomut {
+  ad: string;
+  metin: string;
+}
+
+/**
+ * Oturuma gonderme: duz mesaj ya da acik sorunun cevabi. `damga` sorunun kanca durumundaki
+ * `degisti` ani: cevap gidene kadar soru degistiyse istek dusurulur (bayat cevap yok).
+ */
+export type GonderIstegi =
+  | { id: string; tur: 'metin'; metin: string }
+  | { id: string; tur: 'secim'; secim: number | 'diger'; metin?: string; damga: number };
+
 export interface OturumEtkinligi {
   durum: EtkinlikDurumu;
   claudeOturumu: string | null;
   arac: EtkinlikAraci | null;
   soru: string | null;
+  soruAyrinti?: SoruAyrintisi | null;
   turBasladi: number | null;
   sonTurSuresiMs: number | null;
   degisti: number;
@@ -317,7 +360,7 @@ declare global {
       notEkle: (metin: string, kaynak: string | null) => Promise<{ dosya?: string; hata?: string }>;
       notAcSorulunca: (cb: () => void) => () => void;
       oturumBaglami: (
-        liste: { id: string; yol: string; baslangic: number }[]
+        liste: { id: string; yol: string; baslangic: number; claude?: string }[]
       ) => Promise<Record<string, OturumBaglami | null>>;
       beyinDoldur: (session: string, proje: string) => Promise<{ sonuc: string; tamam: boolean }>;
       etkinlikAnlik: () => Promise<EtkinlikAnlik>;
@@ -329,6 +372,13 @@ declare global {
       adaFare: (icinde: boolean) => void;
       adaGit: (id: string) => void;
       oturumaGitDinle: (cb: (id: string) => void) => () => void;
+      calistirTarif: (yol: string) => Promise<CalistirTarifi>;
+      calistirKaydet: (yol: string, komut: string) => Promise<boolean>;
+      komutlarGetir: () => Promise<HizliKomut[]>;
+      komutlarDuzenle: () => Promise<boolean>;
+      adaGonder: (istek: GonderIstegi) => void;
+      adaOdak: (istek: boolean) => void;
+      oturumaGonderDinle: (cb: (istek: GonderIstegi) => void) => () => void;
     };
   }
 }

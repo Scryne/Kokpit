@@ -25,6 +25,10 @@ interface Props {
   onArsivDegistir: () => void;
   onSaglik: () => void;
   onBaslat: (p: Proje) => void;
+  /** Calistir: projenin uygulamasini servis bolmesinde acar (komut yoksa sorar). */
+  onCalistir: (p: Proje) => void;
+  /** Son konusmayi surdur (claude --resume <kimlik>). */
+  onSurdur: (p: Proje, claudeId: string) => void;
   onOturumaGit: (id: string) => void;
 }
 
@@ -37,18 +41,22 @@ export default function Pano({
   onArsivDegistir,
   onSaglik,
   onBaslat,
+  onCalistir,
+  onSurdur,
   onOturumaGit,
 }: Props) {
   // Kenar cubuguyla ayni gruplar ve sira: aktif, kullanimda, arsiv.
   const gruplar = projeGruplari(durum.projeler);
   const projeler = durum.projeler;
   const kirliToplam = projeler.reduce((t, p) => t + (p.git?.kirli ?? 0), 0);
-  const acikOturum = oturumlar.filter((o) => o.durumu === 'acik');
+  // Servis bolmeleri (Calistir) claude oturumu sayilmaz; ayri gosterilir.
+  const acikOturum = oturumlar.filter((o) => o.durumu === 'acik' && !o.servis);
   const sayi = (g: string) => gruplar.find((x) => x.grup === g)?.projeler.length ?? 0;
   const logGun = durum.beyin.son_log_gun;
   const alarmlar = durum.saglik?.alarmlar ?? [];
 
-  const oturumBul = (p: Proje) => oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik');
+  const oturumBul = (p: Proje) => oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik' && !o.servis);
+  const servisBul = (p: Proje) => oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik' && o.servis);
 
   return (
     <div className="space-y-6">
@@ -197,6 +205,20 @@ export default function Pano({
                           )}
                         </span>{' '}
                         · <BeyinKaydiRozeti kaydi={son.beyin} />
+                        {son.surdurulebilir && son.claude && (
+                          <>
+                            {' · '}
+                            <button
+                              type="button"
+                              onClick={() => onSurdur(p, son.claude!)}
+                              title="Son konuşmaya kaldığı yerden dön (claude --resume)"
+                              aria-label={p.ad + ' son konuşmasını sürdür'}
+                              className="cursor-pointer text-metin-ikincil underline decoration-kenar-guclu underline-offset-2 transition-colors duration-[180ms] hover:text-metin hover:decoration-metin-soluk"
+                            >
+                              Sürdür
+                            </button>
+                          </>
+                        )}
                       </span>
                     )}
                   </th>
@@ -242,12 +264,36 @@ export default function Pano({
                         <button
                           type="button"
                           onClick={() => onBaslat(p)}
+                          title={p.ad + ' klasöründe claude oturumu aç'}
                           className="inline-flex cursor-pointer items-center gap-1.5 rounded-kontrol border border-kenar px-2.5 py-1.5 text-xs text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
                         >
-                          <Play className="size-3.5" aria-hidden="true" />
+                          <TerminalSquare className="size-3.5" aria-hidden="true" />
                           Aç
                         </button>
                       )}
+                      {(() => {
+                        // Calistir: uygulamanin kendisi (dev sunucusu). Calisiyorsa adresi gorunur.
+                        const s = servisBul(p);
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => (s ? onOturumaGit(s.id) : onCalistir(p))}
+                            aria-label={s ? p.ad + ' çalışıyor, bölmesine git' : p.ad + ' uygulamasını çalıştır'}
+                            title={s ? (s.servis?.adres ?? 'çalışıyor') + ' · bölmeye git' : 'Uygulamayı çalıştır'}
+                            className={
+                              'inline-flex cursor-pointer items-center gap-1.5 rounded-kontrol border p-1.5 text-xs transition-colors duration-[180ms] ' +
+                              (s
+                                ? 'border-kenar-guclu text-metin hover:bg-yuzey-guclu'
+                                : 'border-kenar text-metin-soluk hover:border-kenar-guclu hover:text-metin')
+                            }
+                          >
+                            <Play className="size-3.5" aria-hidden="true" />
+                            {s?.servis?.adres && (
+                              <span className="enstruman pr-0.5">{s.servis.adres.replace(/^https?:\/\/(localhost|127\.0\.0\.1)/, '').replace(/\/$/, '')}</span>
+                            )}
+                          </button>
+                        );
+                      })()}
                       <button
                         type="button"
                         onClick={() => window.kokpit.klasorAc(p.yol)}

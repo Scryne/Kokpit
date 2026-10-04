@@ -15,18 +15,16 @@ const SAYFA = process.argv[2] || 'saglik';
 const CIKTI = process.argv[3] || path.join(os.tmpdir(), 'kokpit-' + SAYFA + '.png');
 const TUS = { pano: '1', saglik: '3', envanter: '4' };
 const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
-// Uygulama kapanirken ayarlari yazar ve bekleyen geri yukleme teklifini "kapandi" diye
-// tuketir; ekran almak Scryne'in gercek durumunu degistirmesin diye ikisi geri konur.
-const AYARLAR = path.join(os.homedir(), '.kokpit', 'ayarlar.json');
-const DEFTER = path.join(os.homedir(), '.kokpit', 'oturumlar.jsonl');
-const oku = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null);
-const ayarOnce = oku(AYARLAR);
-const defterOnce = oku(DEFTER);
+// Uygulama ayri bir veri dizininde acilir (KOKPIT_DIZIN): gercek ayar ve defterin KOPYASI
+// oraya konur (ekran gercek gorunsun), gercek dosyalara hic yazilmaz. Eskiden gercek dizinde
+// acilip sonra geri yaziliyordu; acik bir gercek Kokpit'in o arada yazdigini ezebilirdi.
+const GERCEK = path.join(os.homedir(), '.kokpit');
+const TEST_DIZIN = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-ekran-'));
+for (const ad of ['ayarlar.json', 'oturumlar.jsonl', 'komutlar.json', 'calistir.json']) {
+  try { fs.copyFileSync(path.join(GERCEK, ad), path.join(TEST_DIZIN, ad)); } catch { /* yoksa varsayilan */ }
+}
 function geriKoy() {
-  for (const [f, icerik] of [[AYARLAR, ayarOnce], [DEFTER, defterOnce]]) {
-    if (icerik !== null) fs.writeFileSync(f, icerik);
-    else if (fs.existsSync(f)) fs.unlinkSync(f);
-  }
+  try { fs.rmSync(TEST_DIZIN, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }); } catch { /* temp'te kalir */ }
 }
 
 function jsonGetir(url) {
@@ -41,7 +39,7 @@ function jsonGetir(url) {
 
 (async () => {
   const app = spawn(electronBin, [KOK, '--remote-debugging-port=' + PORT, '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding'], {
-    cwd: KOK, stdio: 'ignore', env: { ...process.env, KOKPIT_DEV: '0', KOKPIT_TEST_KABUK: '1' },
+    cwd: KOK, stdio: 'ignore', env: { ...process.env, KOKPIT_DEV: '0', KOKPIT_TEST_KABUK: '1', KOKPIT_DIZIN: TEST_DIZIN },
   });
   let hedef = null;
   for (let i = 0; i < 40 && !hedef; i++) {
