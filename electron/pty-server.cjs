@@ -393,8 +393,13 @@ wss.on('connection', (ws, istek) => {
       // Servis: agac taskkill ile olunce kabuk da olmus olur. Ardindan p.kill() olu kabugun
       // konsolunu listelemeye calisiyor ve node-pty'nin yardimci sureci "AttachConsole failed"
       // ile cokuyordu (zararsiz ama gurultu; test:pty'de goruldu). Yalniz taskkill tutmazsa.
+      // Kabuk kendiliginden cikmissa da (Guvenli kapat, claude'dan cikis) ayni cokme oluyordu:
+      // 10-04'te logda 129 yigin izi. Once surec yasiyor mu bakilir.
       const hedef = p;
-      const oldur = () => { try { hedef.kill(); } catch { /* zaten olmus */ } };
+      const oldur = () => {
+        try { process.kill(hedef.pid, 0); } catch { return; /* zaten olmus */ }
+        try { hedef.kill(); } catch { /* zaten olmus */ }
+      };
       if (servis) {
         // Kume'den taskkill bitince cikar: o arada sunucu kapanirsa cikis yolu da oldursun.
         agaciOldurAsenkron(hedef.pid, oldur);
