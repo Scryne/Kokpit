@@ -240,7 +240,249 @@ function osGorunur(pid, ana) {
   });
 }
 
-const AC_DUGMESI = `(() => { const b = [...document.querySelectorAll('table tbody tr button')].find(x => x.textContent.trim() === 'Aç'); b.click(); return true; })()`;
+/**
+ * v2.7 saklanma: kenara sakla -> cene, niyetli bakista sarkma, kalicilik, saklanmisken bakis yok,
+ * gercek tam ekran pencerede sinema, surukleme. Tam ekran ve surukleme GERCEK Win32 ile: tam ekran
+ * icin cercevesiz bir WinForms penceresi birincil ekrani kaplar (birkac saniye); surukleme icin imlec
+ * gercekten kaydirilir (main imleci OS'tan okur, CDP fare olayi imleci oynatmaz) ve sonra geri konur.
+ */
+async function adaSaklanmaTesti(app, adaCdp, disYaz, disSil) {
+  console.log('Ada v2.7: kenara sakla, sarkma, sinema (gercek tam ekran), surukleme');
+  const ayarOku = () => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(TEST_DIZIN, 'ayarlar.json'), 'utf8'));
+    } catch {
+      return {};
+    }
+  };
+  const fareyiCek = () => adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 510 });
+  const adaDugmesi = (etiket) =>
+    `(() => { const b = document.querySelector('.ada-kart button[aria-label=${JSON.stringify(etiket)}]'); if (!b) return false; b.click(); return true; })()`;
+
+  await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 230, y: 18 });
+  await adaCdp.bekle(`!!document.querySelector('.ada-kart button[aria-label="Kenara sakla"]')`, 5000, 'Kenara sakla dugmesi');
+  kontrol('saklan: acik kartta "Kenara sakla" dugmesi, kapali hapta yok', true);
+  kontrol('saklan: tiklandi', await adaCdp.js(adaDugmesi('Kenara sakla')));
+  await adaCdp.bekle(`!!document.querySelector('.ada-cene') && !document.querySelector('.ada-kart')`, 5000, 'cene');
+  kontrol('saklan: kart gitti, yalniz cene var', true);
+  kontrol('saklan: pencere OS\'ta gorunur kaldi (cene icin)', osGorunur(app.pid, false));
+  for (let i = 0; i < 20 && ayarOku().adaSakli !== true; i++) await uyu(100);
+  kontrol('saklan: kalici (ayarlar.json adaSakli: true)', ayarOku().adaSakli === true, ayarOku());
+
+  // Niyetli bakis: imlec cenenin ustunden gecerken acilmaz, durunca sarkar.
+  await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 230, y: 4 });
+  await uyu(120);
+  kontrol('sarkma: imlec gecerken (120 ms) kart acilmadi', await adaCdp.js(`!document.querySelector('.ada-kart')`));
+  await adaCdp.bekle(`!!document.querySelector('.ada-kart.ada-sarkan')`, 3000, 'sarkan kart');
+  kontrol('sarkma: imlec durunca kart kenardan sarkti (ust koseler duz)', true);
+  kontrol('sarkma: kartta "Geri getir" var', await adaCdp.js(`!!document.querySelector('.ada-kart button[aria-label="Geri getir"]')`));
+  await fareyiCek();
+  await adaCdp.bekle(`!!document.querySelector('.ada-cene')`, 3000, 'cene geri');
+  kontrol('sarkma: imlec ayrilinca yine cene', true);
+
+  // Saklanmisken "seni bekliyor": cene amber, kart kendiliginden acilmaz. Otomatik bakis yalniz bir
+  // GECISTE tetiklenir (calisiyor -> bekliyor); dogrudan bekliyor doganla sinanirsa bozuk kod da gecer.
+  disYaz('102', { sessionId: 'dis-2', cwd: 'C:\\x\\SakliProje', status: 'busy' });
+  await adaCdp.bekle(`document.querySelector('.ada-cene-alan')?.getAttribute('aria-label')?.includes('SakliProje çalışıyor')`, 10000, 'calisan dis oturum');
+  disYaz('102', { sessionId: 'dis-2', cwd: 'C:\\x\\SakliProje', status: 'waiting' });
+  // Gecis boyunca izlenir: bakis 5 sn acip kapanacagi icin sonda bakmak bozuk kodu da gecirir (mutasyonla goruldu).
+  let kartAcildi = false;
+  let amber = false;
+  for (let son = Date.now() + 10000; Date.now() < son && !amber; ) {
+    const d = await adaCdp.js(`({ kart: !!document.querySelector('.ada-kart'), amber: document.querySelector('.ada-cene')?.dataset.hal === 'bekliyor' })`);
+    kartAcildi ||= d.kart;
+    amber = d.amber;
+    if (!amber) await uyu(100);
+  }
+  await uyu(1500);
+  kartAcildi ||= await adaCdp.js(`!!document.querySelector('.ada-kart')`);
+  kontrol('saklanmisken calisiyor -> bekliyor: cene amber', amber);
+  kontrol('saklanmisken calisiyor -> bekliyor: kart hic kendiliginden acilmadi', !kartAcildi);
+
+  // Sinema: gercek tam ekran pencere. Windows'un odak kilidi, Scryne o an baska pencerede yaziyorsa yeni
+  // pencerenin one gecmesini engelleyebiliyor (2026-10-06: mutasyon kosularinda form one gecmedi, sinema
+  // kontrolleri yaniltici dustu ya da yaniltici gecti). Form kendini AttachThreadInput ile one alir ve
+  // basardi mi yazar; test bunu ve Kokpit'in "sinema" log satirini on kosul sayar. Form test kapatana kadar
+  // acik kalir (dur dosyasi; en fazla 40 sn).
+  const formBetik = path.join(TEST_DIZIN, 'tam-ekran.ps1');
+  fs.writeFileSync(formBetik, [
+    'param([string]$durum, [string]$dur)',
+    'Add-Type -AssemblyName System.Windows.Forms',
+    "Add-Type -Namespace K -Name W -MemberDefinition '",
+    '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
+    '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);',
+    '[DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);',
+    '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr p);',
+    '[DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool c);',
+    '[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();',
+    "'",
+    '$f = New-Object System.Windows.Forms.Form',
+    "$f.FormBorderStyle = 'None'; $f.StartPosition = 'Manual'; $f.BackColor = 'Black'; $f.ShowInTaskbar = $false",
+    '$f.Bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds',
+    '$f.Add_Shown({',
+    '  $on = [K.W]::GetForegroundWindow(); $a = [K.W]::GetWindowThreadProcessId($on, [IntPtr]::Zero); $b = [K.W]::GetCurrentThreadId()',
+    '  [void][K.W]::AttachThreadInput($a, $b, $true); [void][K.W]::BringWindowToTop($f.Handle); [void][K.W]::SetForegroundWindow($f.Handle); [void][K.W]::AttachThreadInput($a, $b, $false)',
+    '  $f.Activate()',
+    '})',
+    '$basla = Get-Date',
+    '$t = New-Object System.Windows.Forms.Timer; $t.Interval = 100',
+    '$t.Add_Tick({ Set-Content -Path $durum -Value ([int]([K.W]::GetForegroundWindow() -eq $f.Handle)); if ((Test-Path $dur) -or ((Get-Date) - $basla).TotalSeconds -gt 40) { $f.Close() } })',
+    '$t.Start()',
+    '[void]$f.ShowDialog()',
+  ].join('\r\n'));
+  const logSinema = () => {
+    try {
+      return fs.readFileSync(LOG('kokpit.log'), 'utf8').split('\n').filter((s) => s.includes('ada: tam ekran') || s.includes('ada: tam ekran bitti')).pop() ?? '';
+    } catch {
+      return '';
+    }
+  };
+  /** Tam ekran pencere acar; on plana gecip Kokpit'in sinemaya girdigini bekler. */
+  const tamEkranAc = async () => {
+    const durum = path.join(TEST_DIZIN, 'tam-ekran.durum');
+    const dur = path.join(TEST_DIZIN, 'tam-ekran.dur');
+    for (const f of [durum, dur]) fs.rmSync(f, { force: true });
+    const p = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', formBetik, durum, dur], { stdio: 'ignore', windowsHide: false });
+    const cikti = new Promise((r) => p.on('exit', r)); // spawn aninda: form erken kapanirsa beklemek takilmasin
+    let onde = false;
+    let sinema = false;
+    for (let son = Date.now() + 10000; Date.now() < son && !(onde && sinema); ) {
+      try { onde = fs.readFileSync(durum, 'utf8').trim() === '1'; } catch { /* henuz yok */ }
+      sinema = logSinema().includes('sinema');
+      if (!(onde && sinema)) await uyu(150);
+    }
+    const kapat = async () => {
+      fs.writeFileSync(dur, '1');
+      await Promise.race([cikti, uyu(5000)]);
+      try { p.kill(); } catch { /* */ }
+    };
+    return { onde, sinema, kapat };
+  };
+  const osBekle = async (gorunur, ms) => {
+    const son = Date.now() + ms;
+    while (Date.now() < son) {
+      if (osGorunur(app.pid, false) === gorunur) return true;
+      await uyu(200);
+    }
+    return false;
+  };
+  let form = await tamEkranAc();
+  kontrol('on kosul: tam ekran pencere one gecti ve Kokpit sinemaya girdi (log)', form.onde && form.sinema, { onde: form.onde, log: logSinema() });
+  if (form.onde && form.sinema) {
+    // Bekleyen var: tam ekranda bile cene gorunur kalmali.
+    kontrol('sinema + bekleyen: pencere gorunur, yalniz cene', osGorunur(app.pid, false) && (await adaCdp.js(`!!document.querySelector('.ada-cene') && !document.querySelector('.ada-kart')`)));
+    disSil();
+    kontrol('sinema: bekleyen gidince Ada tamamen gizlendi (IsWindowVisible)', await osBekle(false, 8000));
+  } else {
+    disSil();
+  }
+  await form.kapat();
+  kontrol('sinema: tam ekran kapaninca Ada geri geldi', await osBekle(true, 4000));
+  await adaCdp.bekle(`!!document.querySelector('.ada-cene')`, 3000, 'sinemadan sonra sakli');
+  kontrol('sinema bitti: onceki kip (sakli) korundu', true);
+
+  // Geri getir.
+  await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 230, y: 4 });
+  await adaCdp.bekle(`!!document.querySelector('.ada-kart button[aria-label="Geri getir"]')`, 3000, 'geri getir');
+  kontrol('geri getir: tiklandi', await adaCdp.js(adaDugmesi('Geri getir')));
+  await adaCdp.bekle(`!document.querySelector('.ada-cene') && !!document.querySelector('.ada-kart.rounded-full')`, 3000, 'hap');
+  kontrol('geri getir: hap geri geldi', true);
+  await fareyiCek();
+  for (let i = 0; i < 20 && ayarOku().adaSakli !== false; i++) await uyu(100);
+  kontrol('geri getir: kalici (adaSakli: false)', ayarOku().adaSakli === false, ayarOku());
+
+  // Sakli degilken de sinema: bekleyen yok -> tamamen gizli.
+  form = await tamEkranAc();
+  kontrol('on kosul (normal kipte): tam ekran one gecti, sinema', form.onde && form.sinema, { onde: form.onde, log: logSinema() });
+  if (form.onde && form.sinema) kontrol('sinema (normal kipte): Ada gizlendi', await osBekle(false, 3000));
+  await form.kapat();
+  kontrol('sinema (normal kipte): tam ekran bitince Ada geri (OS)', await osBekle(true, 4000));
+  kontrol('sinema (normal kipte): geri gelen hap (cene degil)', await adaCdp.js(`!document.querySelector('.ada-cene') && !!document.querySelector('.ada-kart')`), await adaCdp.js(`document.querySelector('.ada-kart')?.className ?? 'kart yok'`));
+
+  // Surukleme: main imleci OS'tan okur. Imlec gercekten kaydirilir, sonra yerine konur.
+  let koffi = null;
+  try {
+    koffi = require('koffi');
+  } catch {
+    /* yoksa surukleme atlanir */
+  }
+  if (!koffi) {
+    kontrol('surukleme: koffi yok, atlandi', false);
+    return;
+  }
+  const u = koffi.load('user32.dll');
+  const NOKTA = koffi.struct('TEST_NOKTA', { x: 'long', y: 'long' });
+  const imlecAl = u.func('bool __stdcall GetCursorPos(_Out_ TEST_NOKTA* p)');
+  const imlecKoy = u.func('bool __stdcall SetCursorPos(int x, int y)');
+  const ekranOlcu = u.func('int __stdcall GetSystemMetrics(int i)');
+  const eski = {};
+  imlecAl(eski);
+  // Sabit noktalar: ekranin ortasi ve 500 px solu. Imlecin o anki yerinden sayilirsa (ilk surum) imlec
+  // soldayken sifira kirpiliyor, surukleme yolu kisaliyordu (2026-10-06, her kosuda dustu).
+  const orta = { x: Math.round(ekranOlcu(0) / 2), y: Math.round(ekranOlcu(1) / 2) };
+  /** Imleci koyar, gercekten orada mi bakar, IPC'yi gonderir, hala orada mi bakar (Scryne fareyi oynatirsa tekrar). */
+  const imlecleTasi = async (x, asamalar) => {
+    for (let deneme = 0; deneme < 4; deneme++) {
+      imlecKoy(x, orta.y);
+      await uyu(60);
+      const once = {};
+      imlecAl(once);
+      await adaCdp.js(`(() => { for (const a of ${JSON.stringify(asamalar)}) window.kokpit.adaTasi(a); return true; })()`);
+      const sonra = {};
+      imlecAl(sonra);
+      if (once.x === x && sonra.x === x) return true;
+      await uyu(300);
+    }
+    return false;
+  };
+  const x0 = await adaCdp.js('window.screenX');
+  try {
+    const t1 = (await imlecleTasi(orta.x, ['basla'])) && (await imlecleTasi(orta.x - 500, ['surukle', 'bit']));
+    await uyu(300);
+    const x1 = await adaCdp.js('window.screenX');
+    kontrol('surukle: pencere sola tasindi', t1 && x1 < x0 - 100, JSON.stringify({ imlecTuttu: t1, x0, x1, orta }));
+    for (let i = 0; i < 20 && typeof ayarOku().adaKonum !== 'number'; i++) await uyu(100);
+    const k = ayarOku().adaKonum;
+    kontrol('surukle: yer kalici, oran olarak (adaKonum < 0.5)', typeof k === 'number' && k < 0.5, k);
+    // Geri: ortaya yakin birakilinca miknatis tam ortaya oturtur, kayit silinir (null = orta).
+    const t2 = (await imlecleTasi(orta.x - 500, ['basla'])) && (await imlecleTasi(orta.x + 3, ['surukle', 'bit']));
+    await uyu(300);
+    const x2 = await adaCdp.js('window.screenX');
+    kontrol('surukle: ortaya yakin birakinca tam orta (miknatis)', t2 && x2 === x0, JSON.stringify({ imlecTuttu: t2, x0, x2 }));
+    for (let i = 0; i < 20 && ayarOku().adaKonum !== null; i++) await uyu(100);
+    kontrol('surukle: ortadayken kayit null', ayarOku().adaKonum === null, ayarOku().adaKonum);
+  } finally {
+    imlecKoy(eski.x, eski.y);
+  }
+
+  // Surukledikten sonra birakmanin urettigi tik Kokpit'i acmamali; duz tik acmali (pozitif kontrol).
+  // Gercek renderer yolu: CDP fare olaylari pointerdown/move/up + click uretir.
+  const tikSayisi = () => {
+    try {
+      return fs.readFileSync(LOG('kokpit.log'), 'utf8').split('\n').filter((s) => s.includes('ada tiklamasi')).length;
+    } catch {
+      return 0;
+    }
+  };
+  await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 230, y: 18 });
+  await adaCdp.bekle(`!!document.querySelector('.ada-kart button[data-ada-ana]')`, 3000, 'ana dugme');
+  const b = await adaCdp.js(`(() => { const r = document.querySelector('.ada-kart button[data-ada-ana]').getBoundingClientRect(); return { x: r.left + 60, y: r.top + r.height / 2 }; })()`);
+  const fareOlayi = (type, x, extra = {}) => adaCdp.gonder('Input.dispatchMouseEvent', { type, x, y: b.y, button: 'left', clickCount: 1, ...extra });
+  const once = tikSayisi();
+  await fareOlayi('mousePressed', b.x, { buttons: 1 });
+  for (const dx of [8, 20, 40]) await fareOlayi('mouseMoved', b.x + dx, { buttons: 1 });
+  kontrol('surukleme sirasinda imlec "tutma eli" (ada-surukleniyor)', await adaCdp.js(`!!document.querySelector('.ada-surukleniyor')`));
+  await fareOlayi('mouseReleased', b.x + 40, { buttons: 0 });
+  await uyu(600);
+  kontrol('surukledikten sonraki tik Kokpit\'i acmadi', tikSayisi() === once, { once, simdi: tikSayisi() });
+  await fareOlayi('mousePressed', b.x, { buttons: 1 });
+  await fareOlayi('mouseReleased', b.x, { buttons: 0 });
+  for (let i = 0; i < 20 && tikSayisi() === once; i++) await uyu(100);
+  kontrol('duz tik Kokpit\'i acti (pozitif kontrol)', tikSayisi() === once + 1, { once, simdi: tikSayisi() });
+  await fareyiCek();
+}
+
+const AC_DUGMESI =`(() => { const b = [...document.querySelectorAll('table tbody tr button')].find(x => x.textContent.trim() === 'Aç'); b.click(); return true; })()`;
 
 /** Acik terminalde uzun bir surec baslatir: kapatma korumasinin "cocuk var" dali. */
 async function cocukBaslat(cdp) {
@@ -304,6 +546,8 @@ async function main() {
     disSil();
     await adaCdp.bekle(`!document.querySelector('.ada-kart').innerText.includes('DisProje')`, 10000, 'dis oturum dustu');
     kontrol('dis oturum kaydi silinince Ada\'dan dustu', true);
+
+    await adaSaklanmaTesti(app, adaCdp, disYaz, disSil);
 
     console.log('Terminal ac');
     await cdp.js(AC_DUGMESI);
@@ -378,6 +622,51 @@ async function main() {
     await cdp.js(`(() => { [...document.querySelectorAll('[role="menuitem"]')].find(b => b.textContent.includes('Test komutu')).click(); return true; })()`);
     const yazildi = await (async () => { for (let i = 0; i < 40; i++) { if (fs.existsSync(gonderDosyasi)) return true; await uyu(250); } return false; })();
     kontrol('komut kabuga yazildi ve Enter ile calisti (dosya olustu)', yazildi, gonderDosyasi);
+
+    console.log('Sag tik yapistir: duz kabukta bir kez, fareyi izleyen uygulamada hic');
+    // 2026-10-05: claude fareyi izliyor (?1000h) ve sag tik olayini alinca panoyu kendisi
+    // yapistiriyor; Kokpit de yapistirinca metin iki kez gidiyordu. Pano kullanicinin, geri konur.
+    // Pano API'si odakli belge ister; test penceresi arkada kalabiliyor.
+    await cdp.gonder('Emulation.setFocusEmulationEnabled', { enabled: true });
+    const eskiPano = await cdp.js(`navigator.clipboard.readText().catch(() => '')`);
+    const panoYaz = (m) => cdp.js(`navigator.clipboard.writeText(${JSON.stringify(m)}).then(() => true)`);
+    const sagTikla = async () => {
+      const { x, y } = await cdp.js(`(() => { const r = document.querySelector('.xterm-screen').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+      await cdp.gonder('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 });
+      await cdp.gonder('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1 });
+    };
+    const sagDosya = path.join(TEST_DIZIN, 'sagtik.txt');
+    await panoYaz("Add-Content -Path '" + sagDosya + "' -Value q;");
+    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+    await sagTikla();
+    await uyu(600);
+    await cdp.tus('Enter');
+    const sagSatir = await (async () => { for (let i = 0; i < 40; i++) { if (fs.existsSync(sagDosya)) { await uyu(300); return fs.readFileSync(sagDosya, 'utf8').trim().split(/\r?\n/).length; } await uyu(250); } return 0; })();
+    kontrol('duz kabukta sag tik bir kez yapistirdi', sagSatir === 1, sagSatir + ' satir');
+
+    // Fareyi izleyen uygulama taklidi: ?1000h + ?1006h acar, stdin'i ham okur, gordugunu yazar.
+    const fareBetik = path.join(TEST_DIZIN, 'fare.cjs');
+    const fareCikti = path.join(TEST_DIZIN, 'fare.json');
+    const fareHazir = path.join(TEST_DIZIN, 'fare.hazir');
+    fs.writeFileSync(fareBetik, [
+      "const fs = require('fs');",
+      "let gelen = '';",
+      "process.stdin.setRawMode(true); process.stdin.setEncoding('utf8'); process.stdin.on('data', (d) => { gelen += d; });",
+      "process.stdout.write('\\x1b[?1000h\\x1b[?1006h');",
+      'setTimeout(() => fs.writeFileSync(process.argv[3], \'1\'), 300);',
+      "setTimeout(() => { process.stdout.write('\\x1b[?1000l\\x1b[?1006l'); fs.writeFileSync(process.argv[2], JSON.stringify(gelen)); process.exit(0); }, 3500);",
+    ].join('\n'));
+    await panoYaz('KOKPIT-SAGTIK-KOPYA');
+    await cdp.yaz("node '" + fareBetik + "' '" + fareCikti + "' '" + fareHazir + "'");
+    await cdp.tus('Enter');
+    for (let i = 0; i < 40 && !fs.existsSync(fareHazir); i++) await uyu(150);
+    await sagTikla();
+    for (let i = 0; i < 40 && !fs.existsSync(fareCikti); i++) await uyu(250);
+    const fareGelen = fs.existsSync(fareCikti) ? JSON.parse(fs.readFileSync(fareCikti, 'utf8')) : null;
+    kontrol('fareyi izleyen uygulamaya sag tik fare olayi olarak gitti', !!fareGelen && fareGelen.includes('\x1b[<2;'), JSON.stringify(fareGelen));
+    kontrol('fareyi izleyen uygulamada Kokpit yapistirmadi', !!fareGelen && !fareGelen.includes('KOKPIT-SAGTIK-KOPYA'), JSON.stringify(fareGelen));
+    await panoYaz(eskiPano);
+    await cdp.gonder('Emulation.setFocusEmulationEnabled', { enabled: false });
 
     console.log('Soruya cevap (v2.3): ada yolu, damga denetimi');
     await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
@@ -665,7 +954,7 @@ async function main() {
     await cdp.tus('1', 2, 'Digit1');
     const kisayolLogu = fs.readFileSync(LOG('kokpit.log'), 'utf8').split('\n').filter((s) => s.includes('genel kisayol')).pop() ?? '';
     // Gercek Kokpit aciksa kisayol onda: test orneginde "KAYDEDILEMEDI" beklenen durum.
-    kontrol('genel kisayol kaydi denendi ve loglandi', /genel kisayol Control\+Alt\+Shift\+[NA] (kayitli|KAYDEDILEMEDI)/.test(kisayolLogu), kisayolLogu);
+    kontrol('genel kisayol kaydi denendi ve loglandi', /genel kisayol Control\+Alt\+Shift\+[NAG] (kayitli|KAYDEDILEMEDI)/.test(kisayolLogu), kisayolLogu);
 
     console.log('Inbox notu (Ctrl+Shift+N)');
     const d = new Date();
@@ -779,7 +1068,7 @@ async function main() {
     kontrol('X: Ada yasiyor ve OS\'ta gorunur', osGorunur(app.pid, false) && (await adaCdp.js(`!!document.querySelector('.ada-kart')`)));
     kontrol('tepsi kuruldu, ilk kapanista bir kez bildirildi', JSON.parse(fs.readFileSync(AYARLAR, 'utf8')).tepsiBildirildi === true);
     // Ada'ya tikla: oturum yok -> Kokpit one gelir.
-    await adaCdp.js(`(() => { document.querySelector('.ada-kart > button').click(); return true; })()`);
+    await adaCdp.js(`(() => { document.querySelector('.ada-kart button[data-ada-ana]').click(); return true; })()`);
     await cdp.bekle(`document.visibilityState === 'visible'`, 5000, 'ada tiklamasi pencereyi acti').catch(() => {});
     kontrol('Ada tiklamasi (oturum yok) Kokpit\'i one getirdi', osGorunur(app.pid, true));
     const cikis = new Promise((r) => { const t = setTimeout(() => r('zaman-asimi'), 10000); app.on('exit', (k) => { clearTimeout(t); r(k); }); });

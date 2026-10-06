@@ -53,6 +53,16 @@ araç. Kenarın altında **limit** (5 saat, hafta). Statusline Kokpit oturumlar�
 gelince oturum listesi açılır; bir oturum bitince ya da soru sorunca 5 sn kendiliğinden açılır.
 Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
 
+**Ada v2.7, saklanma:**
+- **Kenara sakla:** açık kartın sağ üstündeki ⤒ (ya da tepsi menüsü, ya da **Ctrl+Alt+Shift+G**). Ada ekranın üst
+  kenarının arkasına çekilir, yalnız gümüş çenesi ve gözlerinin alt yarısı görünür. İmleci çenenin üstünde bir an
+  tutunca kart kenardan sarkar; geçip gidersen açılmaz. Seni bekleyen bir şey olunca çene amber yanar, kart
+  kendiliğinden açılmaz. Geri getirmek: sarkan karttaki ⤓ ya da aynı kısayol. Kapatıp açınca da saklı kalır.
+- **Tam ekranda çekilir:** YouTube tam ekran, oyun, sunum gibi Ada'nın ekranını tamamen kaplayan bir pencere öndeyken
+  Ada tamamen kaybolur (seni bekleyen varsa yalnız çenesi görünür), tam ekran bitince geri gelir. Büyütülmüş pencere
+  ve ikinci ekrandaki tam ekran sayılmaz. Tepsiden kapatılır: "Tam ekranda çekil".
+- **Yer:** hapı üst kenar boyunca sürükle; ortaya yaklaşınca ortaya oturur. Tepside "Ada'yı ortala".
+
 **Ada v2.6, masaüstü ajanı:**
 - **Hep açık.** Oturum yokken, Kokpit öndeyken ve ana pencere tepsideyken de görünür (eskiden yalnız
   Kokpit arka plandayken ve bir oturum varken). Tepsi menüsü: "Ada'yı göster", "Kokpit öndeyken de göster".
@@ -125,10 +135,10 @@ o, dizindeki açık oturumları da erken doldururdu.
 
 **Klavye:** Ctrl+Shift+P komut paleti (sayfa, proje aç/git, klasör, eylemler) · Ctrl+B kenar
 çubuğu · Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü · Ctrl+Shift+W bölmeyi kapat · Ctrl+Shift+N
-Inbox'a not · **Ctrl+Alt+Shift+K her yerden Kokpit'i çağır / küçült** · **Ctrl+Alt+Shift+A klavyeyle Ada** · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
+Inbox'a not · **Ctrl+Alt+Shift+K her yerden Kokpit'i çağır / küçült** · **Ctrl+Alt+Shift+A klavyeyle Ada** · **Ctrl+Alt+Shift+G Ada'yı kenara sakla / geri getir** · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
 Türkçe klavyede AltGr olduğu için üç değiştirici) · sekme şeridinde ← →, bölme ayırıcısında ← →
 (%5). **Terminalde:** Ctrl+Shift+F ara (Enter / Shift+Enter / Esc) · Ctrl+C seçim varken
-kopyalar, yokken `^C` · Ctrl+Shift+C/V · sağ tık yapıştır · Ctrl+= / Ctrl+- / Ctrl+0 yazı
+kopyalar, yokken `^C` · Ctrl+Shift+C/V · sağ tık yapıştır (fareyi izleyen uygulamada, ör. claude, tık uygulamaya gider ve yapıştırmayı o yapar) · Ctrl+= / Ctrl+- / Ctrl+0 yazı
 boyutu (kalıcı) · dosyayı sürükleyip bırakınca yolu yazılır. Terminal odaktayken **Ctrl+B
 claude'a gider** (Claude Code'un "arka plana at" kısayolu; Ctrl+V de `^V` olarak gider,
 resim yapıştırma). Uygulamanın öbür kısayolları terminale hiç ulaşmaz.

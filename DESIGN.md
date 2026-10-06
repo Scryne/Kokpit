@@ -285,6 +285,33 @@ Yeni renk yok, yeni cam yok; amber yine yalnız "seni bekliyor" (ve ≥ %80 limi
 - **Tepsi:** Kokpit ikonu; ipucunda `Kokpit · 5 saat %15 · hafta %92`. X tepsiye indirir; ilk seferde bir
   kez balon. Çıkış: tepsi menüsü ya da palet "Kokpit'ten çık".
 
+## Ada v2.7: saklanma (2026-10-06)
+
+Scryne: "Ada YouTube izlerken orada duruyor; kalsın ama gizlemek için bir şey olsun." Ada'yı kapatmak (tepside zaten
+vardı) değil, **yolundan çekilmek** istendi. Yeni renk yok, yeni cam yok; amber yine yalnız "seni bekliyor".
+
+- **Çene (saklı Ada).** Ada ekranın üst kenarının arkasına çekilir; görünen yalnız gümüş gövdenin alt kenarı
+  (30×8 px, alt köşeler 8 px) ve gözlerin alt yarısı: kenardan bakıyor. Malzeme gözün gövdesiyle aynı gradyan.
+  Tutulacak alan görünenden geniş (çevresinde 20 px, altında 7 px) ve kenara yapışık: ekranın üst kenarı sonsuz
+  yüksek bir hedeftir. Uyurken gözler çizgi. Seni bekleyen varsa çenenin çevresinde amber halka + hafif amber gölge,
+  durgun. Giriş tek seferlik 220 ms (kenardan iner), sonsuz animasyon yok (hareket bütçesi, v2.5).
+- **Niyetli bakış.** İmleç çenenin üstünde **380 ms** durunca kart kenardan sarkar; geçip giderse açılmaz (çene ekranın
+  üst ortasında, tarayıcı sekmesine giden imleç oradan geçer). Tıklayınca beklemeden sarkar. Sarkan kartın üst köşeleri
+  düz, üst halka çizgisi yok (`.ada-sarkan`): kart ekranın kenarından iniyor, ondan kopmuyor.
+- **Saklıyken kendiliğinden açılma yok.** Normalde "bitti/seni bekliyor" kartı 5 sn açar; saklıyken açmaz, yalnız çene
+  amber yanar. Scryne gizlemeyi seçti; Ada'nın görevi haber vermek, araya girmek değil.
+- **Kenara sakla / Geri getir** — açık kartın başlık satırının sağ ucunda lucide `ArrowUpToLine` / `ArrowDownFromLine`
+  (soluk ikon, hover'da `yuzey-guclu` zemin). Kapalı hapta yok: hap kompakt kalır ve hover zaten kartı açar. Aynı
+  anahtar tepsi menüsünde ("Kenara sakla") ve **Ctrl+Alt+Shift+G**'de. Kalıcı (`adaSakli`).
+- **Sinema (tam ekran).** Ön plandaki pencere Ada'nın ekranını tam kaplıyorsa (tam ekran video, oyun, sunum) Ada
+  pencereyi **tamamen** gizler. Seni bekleyen varsa yalnız çene görünür. Tam ekran bitince önceki hal (hap ya da çene)
+  geri gelir. Algı: `user32` (koffi) ile 600 ms'de bir ön plan dikdörtgeni = ekran dikdörtgeni; büyütülmüş pencere
+  (`IsZoomed`, kenarları taşan çerçeve), masaüstü (`Progman`/`WorkerW`) ve başka ekrandaki tam ekran sayılmaz.
+  Tepsiden kapatılabilir ("Tam ekranda çekil", `adaTamEkran`). Sinemada kartta saklan düğmesi yok: çekilme otomatik.
+- **Yer.** Hap başlık satırından yatay sürüklenir (5 px eşik; altı tıklamadır, sürüklemenin ardından gelen tık yutulur).
+  Merkeze 28 px yaklaşınca tam ortaya oturur (mıknatıs). Yer çalışma alanı genişliğinin oranı olarak saklanır
+  (`adaKonum`; orta = `null`). Tepside ortada değilse "Ada'yı ortala". İmleç sürükleme boyunca `grabbing`.
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;

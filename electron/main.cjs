@@ -253,8 +253,17 @@ function adaKur() {
     preload: path.join(__dirname, 'preload.cjs'),
     acik: ayarlar.oku().ada !== false,
     hep: ayarlar.oku().adaHep !== false,
+    sakli: ayarlar.oku().adaSakli === true,
+    tamEkran: ayarlar.oku().adaTamEkran !== false,
+    konum: ayarlar.oku().adaKonum,
+    // Ada'nin kendi degistirdigi ayarlar (saklan, yer): diske ve tepsi menusune.
+    onAyar: (yama) => {
+      ayarlar.yaz(yama);
+      tepsiMenusu();
+    },
     // Bos kimlik: oturum yok, Ada'ya tiklandi -> yalniz Kokpit one gelir.
     onGit: (id) => {
+      log('ada tiklamasi: ' + (id || 'kokpit'));
       pencereyiOneGetir();
       if (pencere && id) pencere.webContents.send('oturuma:git', id);
     },
@@ -603,6 +612,27 @@ function tepsiMenusu() {
         ada.ayar(a.acik, m.checked);
       },
     },
+    {
+      label: 'Kenara sakla',
+      type: 'checkbox',
+      checked: a.sakli,
+      enabled: a.acik,
+      accelerator: 'Control+Alt+Shift+G',
+      registerAccelerator: false,
+      // ada.sakla ayari onAyar ile yazar ve menuyu yeniden kurar.
+      click: (m) => ada.sakla(m.checked),
+    },
+    {
+      label: 'Tam ekranda çekil',
+      type: 'checkbox',
+      checked: a.tamEkran,
+      enabled: a.acik,
+      click: (m) => {
+        ayarlar.yaz({ adaTamEkran: m.checked });
+        ada.tamEkranAyarla(m.checked);
+      },
+    },
+    ...(a.ortada ? [] : [{ label: "Ada'yı ortala", enabled: a.acik, click: () => ada.ortala() }]),
     { label: 'Limitleri tazele', click: () => void limit.tazele() },
   ];
   if (ACILIS_DESTEKLI) {
@@ -722,6 +752,10 @@ app.whenReady().then(() => {
       if (!ada.klavye(!!pencere && pencere.isFocused())) log('ada kisayolu: ada kapali ya da oturum yok');
     });
     log('genel kisayol ' + adaKisayolu + (adaKayit ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
+    // v2.7: Ada'yi kenara sakla / geri getir. Ayni uc degistirici kurali.
+    const saklaKisayolu = 'Control+Alt+Shift+G';
+    const saklaKayit = globalShortcut.register(saklaKisayolu, () => ada.saklaDegistir());
+    log('genel kisayol ' + saklaKisayolu + (saklaKayit ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
   }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
 });

@@ -333,6 +333,12 @@ export interface DisOturum {
   baslangic: number | null;
 }
 
+/**
+ * Ada'nin yeri (v2.7): normal hap; sakli = ust kenara cekilmis, yalniz cene; sinema = tam ekran
+ * uygulama onde, pencere gizli (seni bekleyen varsa yalniz cene).
+ */
+export type AdaKipi = 'normal' | 'sakli' | 'sinema';
+
 /** Ada'dan gorev hedefi: ana pencerenin proje listesi. */
 export interface AdaProjesi {
   ad: string;
@@ -429,9 +435,11 @@ declare global {
       adaProjeler: (liste: AdaProjesi[]) => void;
       adaProjelerDinle: (cb: (l: AdaProjesi[]) => void) => () => void;
       adaDisDinle: (cb: (l: DisOturum[]) => void) => () => void;
-      adaAyarDinle: (cb: (a: { hep: boolean }) => void) => () => void;
+      adaAyarDinle: (cb: (a: { hep: boolean; kip?: AdaKipi }) => void) => () => void;
       adaGorev: (gorev: { ad: string; metin: string }) => void;
       adaLimitTazele: () => void;
+      adaSakla: (istek: boolean) => void;
+      adaTasi: (asama: 'basla' | 'surukle' | 'bit') => void;
       gorevAcDinle: (cb: (g: { ad: string; yol: string; metin: string }) => void) => () => void;
       adaAyarDegistiDinle: (cb: (acik: boolean) => void) => () => void;
       uygulamaCik: () => void;

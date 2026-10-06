@@ -117,6 +117,9 @@ contextBridge.exposeInMainWorld('kokpit', {
   },
   adaGorev: (gorev) => ipcRenderer.send('ada:gorev', gorev),
   adaLimitTazele: () => ipcRenderer.send('ada:limit-tazele'),
+  // v2.7: kenara cekil / geri gel; hapi ust kenar boyunca tasi (asama: basla | surukle | bit).
+  adaSakla: (istek) => ipcRenderer.send('ada:sakla', istek === true),
+  adaTasi: (asama) => ipcRenderer.send('ada:tasi', asama),
   gorevAcDinle: (cb) => {
     const d = (_e, g) => cb(g);
     ipcRenderer.on('gorev:ac', d);

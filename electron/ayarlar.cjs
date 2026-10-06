@@ -16,6 +16,9 @@ const VARSAYILAN = Object.freeze({
   arsivAcik: false, // proje listelerinde arsiv grubu (olduğu gibi / donduruldu / birakildi)
   ada: true, // ust ortadaki ada
   adaHep: true, // v2.6: ada Kokpit ondeyken ve oturum yokken de gorunur
+  adaSakli: false, // v2.7: ada ust kenara cekilmis, yalniz cenesi gorunur
+  adaTamEkran: true, // v2.7: tam ekran uygulama ondeyken ada cekilir
+  adaKonum: null, // v2.7: hapin merkezi, calisma alani genisliginin orani (null = orta)
   tepsi: true, // v2.6: pencerenin X'i tepsiye indirir, cikis tepsi menusunden
   tepsiBildirildi: false, // "tepside calisiyor" balonu bir kez
   // acilistaBaslat: bilerek varsayilansiz. Yoksa ilk calisma kaydi acar (main.cjs tepsiKur).

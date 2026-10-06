@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { Check, ChevronDown, CornerDownLeft, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
+import { ArrowDownFromLine, ArrowUpToLine, Check, ChevronDown, CornerDownLeft, RefreshCw } from 'lucide-react';
 import type {
+  AdaKipi,
   AdaOturumu,
   AdaProjesi,
   DisOturum,
@@ -32,6 +33,12 @@ import { AdaGoz, gozPozu, type GozHali } from './AdaGoz';
 // secenekleri, bittiyse son sozu + hizli komutlar + yanit kutusu. Gonderim main uzerinden ana
 // penceredeki PTY'ye gider; Kokpit one gelmez.
 //
+// v2.7, saklanma: kartin basliginda "Kenara sakla" -> Ada ust kenarin arkasina cekilir, yalniz cenesi
+// (AdaCene) gorunur; imlec ustunde SARKMA_MS durunca kart kenardan sarkar, ayrilinca geri cekilir.
+// Tam ekran uygulama ondeyken (main: kip 'sinema') pencere gizlidir; seni bekleyen varsa yalniz cene.
+// Saklanmisken "bitti/seni bekliyor" kendiliginden acmaz (5 sn bakis yok): cene amber yanar, o kadar.
+// Hap baslik satirindan suruklenir (main pencereyi imlecle tasir), merkeze yakinsa ortaya oturur.
+//
 // Pencere saydam, bu yuzden zemin kendi tonunu tasir (ada-zemin, ~%92 opak): arkada ne
 // olursa olsun metin okunur. backdrop-filter yok — saydam pencerede masaustunu bulaniklastiramaz.
 
@@ -52,6 +59,13 @@ const ALT_AJAN_MS = 15 * 60 * 1000;
 const SIRA: Record<OturumEtkinligi['durum'], number> = { bekliyor: 0, calisiyor: 1, bitti: 2, bosta: 3, kapandi: 4 };
 /** Gorev gonderildi bildirimi bu kadar kalir; oturum satiri zaten listede belirir. */
 const GOREV_BILDIRIM_MS = 6000;
+/**
+ * Saklanmis Ada'nin cenesi imlec bu kadar ustunde durunca sarkar. Cene ekranin ust kenarinda; tarayici
+ * sekmesine giderken imlec ondan gecer, gecmek acmasin (niyetli bakis).
+ */
+const SARKMA_MS = 380;
+/** Bu kadar (px) yatay kayan basma surukleme sayilir; altinda tiklamadir. */
+const SURUKLE_ESIK_PX = 5;
 
 /**
  * Sifirlanma ani gectiyse pencere yenilendi: kullanim sifirdan baslar. Sonraki olcum (oturumun
@@ -109,6 +123,12 @@ export default function Ada() {
   const disRef = useRef(dis);
   // Uyku saati oturum yokken Ada'nin acildigi andan sayar.
   const [acilis] = useState(() => Date.now());
+  // v2.7: normal | sakli | sinema (main belirler). Sakli/sinemada kapali Ada yalniz cenedir.
+  const [kip, setKip] = useState<AdaKipi>('normal');
+  const sarkmaZamani = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const surukleme = useRef<{ sx: number; aktif: boolean; kare: number } | null>(null);
+  const tiklamaYut = useRef(false);
+  const [surukleniyor, setSurukleniyor] = useState(false);
 
   const bak = useCallback(() => {
     setBakis(true);
@@ -123,6 +143,7 @@ export default function Ada() {
     const k2 = window.kokpit.adaListeDinle(setListe);
     const k3 = window.kokpit.sinyalDinle(bak);
     const k5 = window.kokpit.adaProjelerDinle(setProjeler);
+    const k7 = window.kokpit.adaAyarDinle((a) => setKip(a.kip ?? 'normal'));
     // Dis oturum seni beklemeye gecince Kokpit oturumundaki gibi 5 sn acilir.
     const k6 = window.kokpit.adaDisDinle((l) => {
       const once = new Map(disRef.current.map((d) => [d.pid, d.durum]));
@@ -153,7 +174,9 @@ export default function Ada() {
       k4();
       k5();
       k6();
+      k7();
       clearInterval(t);
+      if (sarkmaZamani.current) clearTimeout(sarkmaZamani.current);
     };
   }, [bak]);
 
@@ -172,6 +195,66 @@ export default function Ada() {
     if (icinde) void window.kokpit.komutlarGetir().then(setKomutlar);
     window.kokpit.adaFare(icinde);
   }, []);
+
+  /**
+   * Cene: imlec gelince tiklamalar hemen Ada'nin (cene tiklanir), kart ise SARKMA_MS sonra sarkar.
+   * Imlec once ayrilirsa hicbir sey acilmaz.
+   */
+  const ceneFare = useCallback(
+    (icinde: boolean) => {
+      if (sarkmaZamani.current) clearTimeout(sarkmaZamani.current);
+      sarkmaZamani.current = null;
+      if (!icinde) return fare(false);
+      window.kokpit.adaFare(true);
+      sarkmaZamani.current = setTimeout(() => fare(true), SARKMA_MS);
+    },
+    [fare]
+  );
+
+  /** Kenara sakla / geri getir. Kart hemen kapanir; imlec karttan ayrilmis sayilir. */
+  const saklaDegistir = useCallback(
+    (istek: boolean) => {
+      window.kokpit.adaSakla(istek);
+      if (sarkmaZamani.current) clearTimeout(sarkmaZamani.current);
+      setBakis(false);
+      (document.activeElement as HTMLElement | null)?.blur();
+      fare(false);
+    },
+    [fare]
+  );
+
+  // Surukleme: baslik satirinda basili tutup yatay kaydirinca main pencereyi imlecle tasir.
+  const surukleBasla = (ev: ReactPointerEvent<HTMLButtonElement>) => {
+    if (ev.button !== 0) return;
+    surukleme.current = { sx: ev.screenX, aktif: false, kare: 0 };
+  };
+  const surukleHareket = (ev: ReactPointerEvent<HTMLButtonElement>) => {
+    const s = surukleme.current;
+    if (!s) return;
+    if (!s.aktif) {
+      if (Math.abs(ev.screenX - s.sx) < SURUKLE_ESIK_PX) return;
+      s.aktif = true;
+      ev.currentTarget.setPointerCapture(ev.pointerId);
+      setSurukleniyor(true);
+      window.kokpit.adaTasi('basla');
+    }
+    if (s.kare) return;
+    s.kare = requestAnimationFrame(() => {
+      s.kare = 0;
+      window.kokpit.adaTasi('surukle');
+    });
+  };
+  const surukleBit = (ev: ReactPointerEvent<HTMLButtonElement>) => {
+    const s = surukleme.current;
+    surukleme.current = null;
+    if (!s?.aktif) return;
+    if (s.kare) cancelAnimationFrame(s.kare);
+    window.kokpit.adaTasi('surukle');
+    window.kokpit.adaTasi('bit');
+    tiklamaYut.current = true; // birakmanin ardindan gelen click Kokpit'i acmasin
+    setSurukleniyor(false);
+    if (ev.currentTarget.hasPointerCapture(ev.pointerId)) ev.currentTarget.releasePointerCapture(ev.pointerId);
+  };
 
   const gonder = useCallback((istek: GonderIstegi) => {
     window.kokpit.adaGonder(istek);
@@ -243,11 +326,39 @@ export default function Ada() {
   const l = anlik?.limitler;
   const bes = etkinYuzde(l?.besSaat, simdi);
   const haf = etkinYuzde(l?.hafta, simdi);
-  const genis = uzerinde || bakis || odakta;
+  const saklandi = kip !== 'normal';
+  // Saklanmisken kendiliginden bakis yok: Scryne gizledi, cene amber yanar ama kart acilmaz.
+  const genis = uzerinde || odakta || (bakis && !saklandi);
   const soruVar = bekleyen.some((x) => x.e?.soruAyrinti?.cevaplanabilir);
 
+  if (saklandi && !genis) {
+    const bekliyor = gozHali === 'bekliyor';
+    return (
+      <div className="flex justify-center">
+        <button
+          type="button"
+          className="ada-cene-alan cursor-pointer"
+          onMouseEnter={() => ceneFare(true)}
+          onMouseLeave={() => ceneFare(false)}
+          // Tik beklemeden sarkitir.
+          onClick={() => {
+            if (sarkmaZamani.current) clearTimeout(sarkmaZamani.current);
+            fare(true);
+          }}
+          aria-label={'Ada saklı: ' + ozet + '. Açmak için tıkla'}
+          title={ozet}
+        >
+          <span className="ada-cene" data-hal={bekliyor ? 'bekliyor' : gozHali === 'uyku' ? 'uyku' : undefined}>
+            <i />
+            <i />
+          </span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex justify-center pt-1.5">
+    <div className={'flex justify-center ' + (saklandi ? '' : 'pt-1.5') + (surukleniyor ? ' ada-surukleniyor' : '')}>
       <div
         ref={kart}
         onMouseEnter={() => fare(true)}
@@ -290,14 +401,28 @@ export default function Ada() {
         }}
         className={
           'ada-kart halka relative overflow-hidden text-metin ' +
-          (genis ? 'ada-acik w-[440px] rounded-2xl' : 'rounded-full')
+          (genis ? 'ada-acik w-[440px] rounded-2xl' : 'rounded-full') +
+          (saklandi ? ' ada-sarkan' : '')
         }
       >
+        <div className="flex items-center">
         <button
           type="button"
-          // Sirasi gelen oturum yoksa Kokpit'in kendisi one gelir (bos kimlik).
-          onClick={() => window.kokpit.adaGit(ilk ? ilk.o.id : '')}
-          className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2 text-left text-xs"
+          data-ada-ana
+          // Sirasi gelen oturum yoksa Kokpit'in kendisi one gelir (bos kimlik). Surukleme bittiyse yutulur.
+          onClick={() => {
+            if (tiklamaYut.current) {
+              tiklamaYut.current = false;
+              return;
+            }
+            window.kokpit.adaGit(ilk ? ilk.o.id : '');
+          }}
+          onPointerDown={surukleBasla}
+          onPointerMove={surukleHareket}
+          onPointerUp={surukleBit}
+          onPointerCancel={surukleBit}
+          title="Tıkla: Kokpit'e git · Sürükle: yerini değiştir"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 py-2 pl-3.5 pr-3.5 text-left text-xs"
         >
           <span ref={gozRef} className="-my-1 -ml-1 flex">
             <AdaGoz hal={gozHali} poz={gozPozu(calisan[0]?.e ?? null, simdi)} altSayisi={altSayisi} onay={onay} takip={takip} />
@@ -329,6 +454,24 @@ export default function Ada() {
             </span>
           )}
         </button>
+        {/* Kenara sakla / geri getir: yalniz acik kartta (kapali hap kompakt kalir). Sinemada yok:
+            orada Ada kendiliginden cekildi, tam ekran bitince yerine doner. */}
+        {genis && kip !== 'sinema' && (
+          <button
+            type="button"
+            onClick={() => saklaDegistir(kip === 'normal')}
+            aria-label={kip === 'normal' ? 'Kenara sakla' : 'Geri getir'}
+            title={(kip === 'normal' ? 'Kenara sakla' : 'Geri getir') + ' (Ctrl+Alt+Shift+G)'}
+            className="mr-2 shrink-0 cursor-pointer rounded-kontrol p-1 text-metin-soluk transition-colors duration-[120ms] hover:bg-yuzey-guclu hover:text-metin"
+          >
+            {kip === 'normal' ? (
+              <ArrowUpToLine className="size-3.5" aria-hidden="true" />
+            ) : (
+              <ArrowDownFromLine className="size-3.5" aria-hidden="true" />
+            )}
+          </button>
+        )}
+        </div>
 
         {!genis && bes !== null && <LimitKenari kart={kart} yuzde={bes} />}
         {genis && (
