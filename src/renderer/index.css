@@ -480,6 +480,76 @@ html.ada body {
   transition: stroke-dasharray 600ms ease;
 }
 
+/* ---- Saklanma (v2.7, Ada.tsx AdaCene) ----
+   Ada ekranin ust kenarinin arkasina cekilir: gorunen yalniz gumus govdenin alt kenari (cene) ve
+   gozlerin alt yarisi — kenardan bakiyor. Malzeme gozun govdesiyle ayni; yeni renk yok. Amber yine
+   yalniz "seni bekliyor". Durgun: sonsuz animasyon yok, giris tek seferlik 220 ms. */
+.ada-cene-alan {
+  /* Gorunen cene 30x8; tutulacak alan daha genis ve kenara yapisik (Fitts: ust kenar sonsuz yuksek). */
+  display: flex;
+  justify-content: center;
+  padding: 0 20px 7px;
+}
+.ada-cene {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 4.5px;
+  width: 30px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(180deg, #dce1e8 0%, #c9d0d9 50%, #b3bbc6 100%);
+  box-shadow:
+    inset 0 -1px 0 rgb(0 0 0 / 0.14),
+    0 2px 6px -2px rgb(0 0 0 / 0.7);
+  animation: ada-cene-gir 220ms cubic-bezier(0.2, 0.8, 0.2, 1) 1;
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+.ada-cene i {
+  display: block;
+  width: 3px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 1.5px;
+  background: #101216;
+}
+.ada-cene-alan:hover .ada-cene {
+  transform: translateY(1px);
+}
+.ada-cene[data-hal='uyku'] i {
+  height: 1.25px;
+  margin-top: 2px;
+  border-radius: 1px;
+}
+.ada-cene[data-hal='bekliyor'] {
+  box-shadow:
+    inset 0 -1px 0 rgb(0 0 0 / 0.14),
+    0 0 0 1.25px var(--color-dikkat),
+    0 2px 8px -1px rgb(201 154 62 / 0.55);
+}
+@keyframes ada-cene-gir {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+/* Saklanmisken acilan kart kenardan sarkar: ust koseler duz, kenara yapisik. */
+.ada-sarkan {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.ada-sarkan::before {
+  padding-top: 0;
+}
+/* Surukleme: imlec tutma eli; hapin icindeki gecisler surukleme sirasinda kapanir. */
+.ada-surukleniyor,
+.ada-surukleniyor * {
+  cursor: grabbing !important;
+}
+
 /* backdrop-filter ASLA anime edilmez (OsintLab kurali, burada da gecerli).
    Hareketi kapatan kullaniciya hicbir gecis birakilmaz. */
 @media (prefers-reduced-motion: reduce) {

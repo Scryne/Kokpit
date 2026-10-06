@@ -195,8 +195,42 @@ async function gorevTesti() {
   }
 }
 
+// v2.7: Ada tam ekranda cekilir, kenar boyunca tasinir. Karar ve yer saf; Win32 okumasi test:ui'da.
+function saklanmaTesti() {
+  console.log('\n--- tam-ekran.cjs + ada-yer.cjs (v2.7) ---');
+  const { tamEkranMi } = require(path.join(KOK, 'electron', 'tam-ekran.cjs'));
+  const ekran = { sol: 0, ust: 0, sag: 2560, alt: 1440 };
+  kontrol('tam ekran: ekrani tam kaplayan pencere', tamEkranMi({ sol: 0, ust: 0, sag: 2560, alt: 1440 }, ekran) === true);
+  kontrol('tam ekran degil: buyutulmus pencere (gorev cubugu ustunde)', tamEkranMi({ sol: -8, ust: -8, sag: 2568, alt: 1400 }, ekran) === false);
+  // Cercevesiz uygulama (Electron, VS Code) gorev cubugu otomatik gizliyken buyutulunce ekrani TAM kaplar, tasmaz:
+  // yalniz IsZoomed ayirir. (Ilk surumdeki ornek -8 tasiyordu; tasma kurali zaten yakaladigi icin IsZoomed'i
+  // silen mutasyon kacti, 2026-10-06.)
+  kontrol('tam ekran degil: buyutulmus cercevesiz pencere ekrani tam kaplasa da (IsZoomed)', tamEkranMi({ ...ekran }, ekran, { buyuk: true }) === false);
+  kontrol('tam ekran degil: kenarlari tasan cerceve (buyutulmus gibi), IsZoomed olmasa da', tamEkranMi({ sol: -8, ust: -8, sag: 2568, alt: 1448 }, ekran) === false);
+  kontrol('tam ekran degil: masaustu (Progman/WorkerW)', tamEkranMi({ ...ekran }, ekran, { sinif: 'WorkerW' }) === false && tamEkranMi({ ...ekran }, ekran, { sinif: 'Progman' }) === false);
+  kontrol('tam ekran degil: baska ekrandaki tam ekran', tamEkranMi({ ...ekran }, ekran, { ayniEkran: false }) === false);
+  kontrol('tam ekran: ikinci ekranin koordinatlarinda da', tamEkranMi({ sol: 2560, ust: -200, sag: 4480, alt: 880 }, { sol: 2560, ust: -200, sag: 4480, alt: 880 }) === true);
+  kontrol('tam ekran degil: okunamadi (null)', tamEkranMi(null, ekran) === false && tamEkranMi({ ...ekran }, null) === false);
+
+  const yer = require(path.join(KOK, 'electron', 'ada-yer.cjs'));
+  const alan = { x: 0, width: 2560 };
+  const G = 460;
+  kontrol('yer: oran 0.5 -> tam orta', yer.yatayKonum(alan, G, 0.5) === 1050);
+  kontrol('yer: gecersiz oran (null, NaN) -> orta', yer.yatayKonum(alan, G, null) === 1050 && yer.yatayKonum(alan, G, NaN) === 1050);
+  kontrol('yer: kenarlarda calisma alaninin icinde kalir', yer.yatayKonum(alan, G, 0) === 0 && yer.yatayKonum(alan, G, 1) === 2100 && yer.yatayKonum(alan, G, 7) === 2100);
+  kontrol('yer: calisma alani kaymissa (sol gorev cubugu) ona gore', yer.yatayKonum({ x: 100, width: 1820 }, G, 0) === 100);
+  kontrol('surukle: imlecin yolu kadar', yer.surukluKonum(alan, G, 1050, -600) === 450);
+  kontrol('surukle: merkeze 28 px yakin -> tam orta (miknatis)', yer.surukluKonum(alan, G, 1000, 30) === 1050 && yer.surukluKonum(alan, G, 1100, -25) === 1050);
+  kontrol('surukle: miknatisin disi serbest', yer.surukluKonum(alan, G, 1000, 21) === 1021);
+  kontrol('surukle: ekrandan tasmaz', yer.surukluKonum(alan, G, 100, -900) === 0 && yer.surukluKonum(alan, G, 2000, 900) === 2100);
+  kontrol('oran: ortada tam 0.5', yer.oranBul(alan, G, 1050) === 0.5);
+  const o = yer.oranBul(alan, G, 450);
+  kontrol('oran: gidip donunce ayni yer (cozunurluk degisince goreli)', yer.yatayKonum(alan, G, o) === 450 && yer.yatayKonum({ x: 0, width: 1280 }, G, o) === Math.round(1280 * o - 230), o);
+}
+
 (async () => {
   try {
+    saklanmaTesti();
     await limitTesti();
     birlestirmeTesti();
     await disTesti();

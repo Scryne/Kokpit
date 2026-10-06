@@ -1,7 +1,7 @@
 ---
 proje: Kokpit
 created: 2026-09-10
-modified: 2026-10-04
+modified: 2026-10-06
 type: roadmap
 status: aktif
 ---
@@ -44,6 +44,9 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 26 | Ada hep açık + tepsi | ✅ Tamamlandı | Ada oturum yokken ve Kokpit öndeyken görünür; X tepsiye indirir, oturumlar yaşar; gerçek çıkış tepsi/paletten; Windows açılışında `--arka` ile gizli başlar |
 | 27 | Kokpit dışındaki oturumlar | ✅ Tamamlandı | Terminal/VS Code'da açılan claude oturumları `~/.claude/sessions`'tan Ada'da (durum + süre); Kokpit'in kendi oturumları kimlikten ayrılıyor |
 | 28 | Ada'dan görev | ✅ Tamamlandı | Ada'da proje + metin → arka planda yeni oturum, metin claude'un ilk mesajı; metin kabuğa ortam değişkeniyle gidiyor (tırnak/`$`/`;` gerçek pwsh'ta birebir) |
+| 29 | Ada: kenara sakla | ✅ Tamamlandı | Karttan / tepsiden / Ctrl+Alt+Shift+G ile Ada üst kenara çekilir, yalnız çenesi görünür; imleç durunca sarkar, geçince açılmaz; saklıyken kendiliğinden açılmaz; kalıcı |
+| 30 | Ada: sinema (tam ekran) | ✅ Tamamlandı | Gerçek tam ekran pencere öndeyken Ada OS'ta gizli; bekleyen varsa yalnız çene; tam ekran bitince önceki hal; büyütülmüş pencere ve ikinci ekran sayılmaz |
+| 31 | Ada: yer | ✅ Tamamlandı | Hap üst kenar boyunca sürüklenir, ortaya yakınsa ortaya oturur, oran olarak kalıcı; sürüklemeden sonra tık Kokpit'i açmaz |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -623,3 +626,45 @@ isteğimi daha iyi benimsesin. Ekstra şeyler de ekleyebilirsin."
 - **Kontrol edilemeyen:** gerçek claude'a Ada'dan görev (haftalık limit %96'da, tur harcanmadı; argüman geçişi
   gerçek pwsh + yerel exe ile ölçüldü); bilgisayar yeniden başlayınca kaydın gerçekten çalışması (kayıt + aynı
   komut elle ölçüldü); tepsi balonunun görünmesi (ayar yazıldı, balon gözle görülmedi).
+
+### v2.7 — Ada: saklanma (Faz 29–31, 2026-10-06)
+
+**Neden:** Scryne: "Ada sürekli ekranda duruyor, YouTube izlerken orada kalıyor. Kalsın ama gizlemek için bir şey
+ekle; en profesyonel ve eşsiz tasarımı yap, iyileştireceğin şeyler varsa onları da yap."
+
+- **Spike (gerçek Win32, 2026-10-06):** Electron başka uygulamaların penceresini göremiyor; `user32` koffi ile
+  (N-API, ön derlenmiş `@koromix/koffi-win32-x64`, derleyici yok). Çerçevesiz WinForms penceresi birincil ekranı
+  kaplayınca `GetForegroundWindow` + `GetWindowRect` = `rcMonitor` → true, kapanınca false. Çağrı başına 7,6 µs
+  (600 ms aralıkla ~%0,001 çekirdek). `SHQueryUserNotificationState` alınmadı: sistem geneli, ikinci ekrandaki
+  tam ekranda da birincildeki Ada'yı gizlerdi.
+- **Faz 29, kenara sakla** (✅): Ada üst kenarın arkasına çekilir, yalnız gümüş çenesi + gözlerin alt yarısı (30×8,
+  tutma alanı kenara yapışık ve geniş). İmleç 380 ms durunca kart kenardan sarkar (üst köşeler düz), geçerse açılmaz;
+  tık beklemeden açar. Saklıyken "bitti/seni bekliyor" kartı kendiliğinden açmaz, çene amber yanar. Kartta ⤒/⤓,
+  tepside "Kenara sakla", Ctrl+Alt+Shift+G. `adaSakli` kalıcı.
+- **Faz 30, sinema** (✅): `electron/tam-ekran.cjs` (karar saf `tamEkranMi`, Win32 okuması ayrı). Tam ekran = ön plan
+  dikdörtgeni ekranı tam kaplar; büyütülmüş (`IsZoomed`; çerçevesiz uygulama otomatik gizli görev çubuğunda ekranı
+  tam kaplar), kenarı taşan çerçeve, masaüstü (`Progman`/`WorkerW`), başka ekran sayılmaz. Sinemada pencere OS'ta
+  gizli; bekleyen varsa (Kokpit ya da dış oturum) yalnız çene. Dış oturumlar sinemada da okunur (gizliyken de
+  bekleyeni görmek için). Ctrl+Alt+Shift+A sinemada da Ada'yı getirir. Tepside "Tam ekranda çekil" (`adaTamEkran`).
+- **Faz 31, yer** (✅): `electron/ada-yer.cjs` (saf). Hap başlıktan sürüklenir (5 px eşik), main pencereyi OS imleciyle
+  taşır (pencere imlecin altında kaydığı için renderer koordinatı işe yaramaz), merkeze 28 px'te mıknatıs, oran olarak
+  kalıcı (`adaKonum`, orta = null). Bırakmanın ürettiği tık yutulur. Tepside ortada değilse "Ada'yı ortala".
+- **Bulgular:** (1) ilk "saklıyken kendiliğinden açılmaz" testi dış oturumu doğrudan "bekliyor" doğuruyordu;
+  otomatik bakış yalnız *geçişte* tetiklendiği için bozuk kodu da geçirirdi → çalışıyor→bekliyor geçişi, kart geçiş
+  boyunca izleniyor. (2) Windows odak kilidi, Scryne başka pencerede çalışırken test formunun öne geçmesini
+  engelleyebiliyor → form kendini `AttachThreadInput` ile öne alır ve başardığını yazar; test bunu ve Kokpit'in
+  "sinema" log satırını ön koşul sayar. (3) Form erken kapanınca `exit` beklemesi sonsuza kalıyordu → dinleyici spawn
+  anında. (4) Sürükleme testi imlecin o anki yerinden 500 px sola gidiyordu; imleç soldayken 0'a kırpılıp düşüyordu →
+  sabit noktalar + "imleç gerçekten orada mı" denetimi. (5) IsZoomed'i silen mutasyon kaçtı: test örneği zaten taşma
+  kuralına takılıyordu → çerçevesiz büyütülmüş pencere örneği. (6) Mutasyon koşucusu: TaskStop arkadaki node'u
+  öldürmedi, iki koşucu aynı dosyaları bozdu; zaman aşımı npm'i öldürüp `test-ui`'yi yetim bırakıyordu → kilit, çıkışta
+  geri yükleme, süreç ağacı ölümü (sonuçlar bu düzeltmeden sonraki temiz koşulardan).
+- **Testler:** `test:ada` 53 (35'ten; tam ekran kararı 8, yer 10), `test:ui` tümü geçti (v2.7 bölümü: sakla, sarkma,
+  kalıcılık, saklıyken açılmama, gerçek tam ekranda sinema ± bekleyen, geri getir, normal kipte sinema, gerçek imleçle
+  sürükleme + mıknatıs, sürükleme sonrası tık yutma + pozitif kontrol), kanca 101. **Mutasyon 8/8:** saklıyken bakış,
+  sarkma gecikmesi, sinemada bekleyen, sinema yok, kalıcılık, tık yutma (UI); IsZoomed, mıknatıs (`test:ada`).
+  Gerçek `~/.kokpit` koşular boyunca değişmedi. `npm run ekran:sakli` → `kokpit-v27-*.png` (çene açık/koyu zemin,
+  bekleyen çene, sarkan kart, kartta sakla düğmesi).
+- **Kontrol edilemeyen:** gerçek YouTube tam ekranı (aynı Win32 yolu WinForms tam ekranıyla ölçüldü; Chrome tam ekranı
+  da ekranı kaplayan, büyütülmemiş pencere); gerçek fareyle sürüklemenin elde hissi; ikinci ekran (makinede tek ekran).
+  Çalışan Kokpit eski sürüm: yeni main kodu Kokpit yeniden başlayınca gelir.

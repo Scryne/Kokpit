@@ -201,9 +201,13 @@ export default function TerminalOturumu({
       console.warn('[terminal] webgl yuklenemedi, canvas renderer: ' + String(e));
     }
 
-    // Sag tik: yapistir (Windows Terminal davranisi).
+    // Sag tik: yapistir (Windows Terminal davranisi). Uygulama fareyi izliyorsa tik ona
+    // fare olayi olarak gider ve yapistirmayi kendisi yapar: claude oyle (olculdu 2026-10-05,
+    // ?1000h/1003h acik, sag tik olayi panoyu yazdi). Ustune biz de yapistirinca metin iki
+    // kez gidiyordu.
     const sagTik = (e: MouseEvent) => {
       e.preventDefault();
+      if (term.modes.mouseTrackingMode !== 'none') return;
       void navigator.clipboard.readText().then((metin) => {
         if (metin) term.paste(metin);
       });
