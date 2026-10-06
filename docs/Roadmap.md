@@ -47,6 +47,9 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 29 | Ada: kenara sakla | ✅ Tamamlandı | Karttan / tepsiden / Ctrl+Alt+Shift+G ile Ada üst kenara çekilir, yalnız çenesi görünür; imleç durunca sarkar, geçince açılmaz; saklıyken kendiliğinden açılmaz; kalıcı |
 | 30 | Ada: sinema (tam ekran) | ✅ Tamamlandı | Gerçek tam ekran pencere öndeyken Ada OS'ta gizli; bekleyen varsa yalnız çene; tam ekran bitince önceki hal; büyütülmüş pencere ve ikinci ekran sayılmaz |
 | 31 | Ada: yer | ✅ Tamamlandı | Hap üst kenar boyunca sürüklenir, ortaya yakınsa ortaya oturur, oran olarak kalıcı; sürüklemeden sonra tık Kokpit'i açmaz |
+| 32 | Ada: üst katman bekçisi | ✅ Tamamlandı | Dışarıdan normal pencerelerin altına düşürülen Ada (gerçek Win32 z-sırası) ≤ 0,6 sn'de odak çalmadan geri üstte; düşüş loglanıyor |
+| 33 | Sekme ağacı | ✅ Tamamlandı | claude sekmesi kapanınca konsoldan kopuk torun da ölüyor; node-pty "AttachConsole failed" yığın izi yok (`test:pty`) |
+| 34 | Sürüm bekçisi | ✅ Tamamlandı | Yeni commit fark ediliyor; "yeniden başlat" gerçek çıkış yolundan geçip çıkış bitince başlatıcıyı çağırıyor; yeni örnek kilidi bekleyebiliyor |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -668,3 +671,35 @@ ekle; en profesyonel ve eşsiz tasarımı yap, iyileştireceğin şeyler varsa o
 - **Kontrol edilemeyen:** gerçek YouTube tam ekranı (aynı Win32 yolu WinForms tam ekranıyla ölçüldü; Chrome tam ekranı
   da ekranı kaplayan, büyütülmemiş pencere); gerçek fareyle sürüklemenin elde hissi; ikinci ekran (makinede tek ekran).
   Çalışan Kokpit eski sürüm: yeni main kodu Kokpit yeniden başlayınca gelir.
+
+### v2.8 — Ada her yerde üstte, sekme ağacı, sürüm bekçisi (Faz 32–34, 2026-10-06)
+
+Scryne: "Ada sürekli en üstte olsun, her uygulamada görünsün; şu an yalnız masaüstünde görünüyor. Sonra Kokpit ve
+Ada'da iyileştirmek istediğin şeyleri profesyonelce yap."
+
+- **Teşhis (Faz 32):** çalışan Kokpit'te Ada'nın `WS_EX_TOPMOST` bayrağı açık ama Windows z-sırasında Kokpit'in ana
+  penceresi dahil normal pencerelerin altındaydı (EnumWindows sırası + ekran görüntüsü). `SetWindowPos(HWND_TOPMOST)`
+  elle basılınca hemen üstte. Electron'un kendi işlemleri (gizle/göster, küçült/geri, odak aç/kapa, `setBounds`,
+  başka pencerenin büyümesi) izole deneyde tek tek denendi, hiçbiri düşürmedi: düşüş dışarıdan. Sebep tahmin
+  edilmedi; sonuç yoklanıp düzeltiliyor, ilk düşüş ve sonrası dakikada bir loglanıyor (üstteki pencerenin sınıfı).
+- **Faz 32, üst katman bekçisi** (✅): `electron/ust-katman.cjs` (karar saf `dustuMu`, Win32 ayrı). Kural: topmost
+  pencerenin üstünde topmost olmayan görünür pencere olamaz; varsa Ada düşmüştür →
+  `SetWindowPos(HWND_TOPMOST, NOMOVE|NOSIZE|NOACTIVATE|NOOWNERZORDER)`. Başka bir topmost pencere (Görev Yöneticisi
+  "her zaman üstte") Ada'nın üstündeyse meşru, yarışılmaz. Yoklama tam ekran yoklamasıyla birleşti (600 ms, tek
+  zamanlayıcı); "Tam ekranda çekil" kapalıyken de çalışır. Gösterme anlarında (sinemadan çıkış, odak bırakma,
+  kısayol) hemen bir kez.
+- **Faz 33, sekme ağacı** (✅): her sekme kapanışı `taskkill /T` (eskiden yalnız Çalıştır bölmeleri). claude'un arka
+  plan Bash'i dev sunucusu başlatıp konsoldan kopabiliyor, yalnız kabuğu öldürmek onu yetim bırakıyordu. Canlı kabuğa
+  `p.kill()` node-pty'nin konsol listesi yardımcısını kabuğun ölümüyle yarıştırıyor, "AttachConsole failed" yığın izi
+  düşüyordu (10-06'da d9bcc3b'den sonra da). Vault'un ayrık `flush.py`'si etkilenmez: atası (hook süreci) ölü, ağaçta yok.
+- **Faz 34, sürüm bekçisi** (✅): `electron/surum.cjs`. İmza = git HEAD (dosyadan, süreç açmadan; gevşek ref,
+  packed-refs, ayrık HEAD), dakikada bir. Değişince tepside "Yeni sürüm hazır: yeniden başlat" + bildirim + ipucu;
+  paletten "Kokpit'i yeniden başlat" her zaman. Akış: gerçek çıkış (açık oturum sorusu, defter) → `will-quit`'te
+  `kokpit-sessiz.vbs --yeniden` (önce derler; `app.relaunch()` derlemeyi atlayıp eski dist'i açardı). Yeni örnek kilidi
+  alamazsa `--yeniden` ile 20 sn'ye kadar bekler (Electron'da yeniden denemenin işlediği izole ölçüldü: 2 sn'de aldı);
+  bekleme denemeleri eski örnekte `second-instance` tetiklediği için kapanırken yok sayılır. Vazgeçilirse istek düşer.
+- **Testler:** `test:ada` 63 (üst katman kararı 5, imza 5), `test:pty` 21 (oturum ağacı + yığın izi; düzeltmeden önce 2
+  kırmızı), `test:ui` 155 (gerçek Win32: Ada `HWND_BOTTOM`'a itilir, iki turda geri üstte + log; geçici depoda yeni
+  commit → algı → yeniden başlat → çıkış → başlatıcı), kanca 101. **Mutasyon:** bekçi kapalıyken `test:ui` 3 kırmızı.
+- **Kontrol edilemeyen:** gerçek düşüşün kaynağı (log ilk düşüşte söyleyecek); başlatıcının gerçek yeniden açılışı
+  (Scryne'ın açık oturumları kesilmesin diye çalışan Kokpit'te denenmedi; parçaları ayrı ölçüldü).

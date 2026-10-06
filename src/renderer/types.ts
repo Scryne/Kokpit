@@ -443,6 +443,7 @@ declare global {
       gorevAcDinle: (cb: (g: { ad: string; yol: string; metin: string }) => void) => () => void;
       adaAyarDegistiDinle: (cb: (acik: boolean) => void) => () => void;
       uygulamaCik: () => void;
+      uygulamaYenidenBaslat: () => void;
     };
   }
 }

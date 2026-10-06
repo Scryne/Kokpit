@@ -228,8 +228,40 @@ function saklanmaTesti() {
   kontrol('oran: gidip donunce ayni yer (cozunurluk degisince goreli)', yer.yatayKonum(alan, G, o) === 450 && yer.yatayKonum({ x: 0, width: 1280 }, G, o) === Math.round(1280 * o - 230), o);
 }
 
+// v2.8: ust katman bekcisi. Karar saf; gercek z-sirasi test:ui'da.
+function ustKatmanTesti() {
+  console.log('\n--- ust-katman.cjs (v2.8) ---');
+  const { dustuMu } = require(path.join(KOK, 'electron', 'ust-katman.cjs'));
+  const T = { gorunur: true, ustte: true };
+  const N = { gorunur: true, ustte: false };
+  const G = { gorunur: false, ustte: false };
+  kontrol('ustte: ustunde hic pencere yok', dustuMu([]) === -1);
+  kontrol('ustte: ustunde yalniz topmost pencereler (mesru, yarisilmaz)', dustuMu([T, T]) === -1);
+  kontrol('ustte: ustunde gizli normal pencere (gorunmuyor, saymaz)', dustuMu([G, T]) === -1);
+  kontrol('dustu: ustunde gorunur normal pencere', dustuMu([N]) === 0);
+  kontrol('dustu: topmost ve gizlilerden sonra gelen normal pencere bulunur', dustuMu([T, G, N, T]) === 2);
+
+  // Surum bekcisi: imza git'in kendi dosyalarindan (surec acilmaz). Uc hal: gevsek ref, packed-refs, ayrik HEAD.
+  const { imzaOku } = require(path.join(KOK, 'electron', 'surum.cjs'));
+  const d = fs.mkdtempSync(path.join(require('os').tmpdir(), 'kokpit-imza-'));
+  const h1 = 'a'.repeat(40);
+  const h2 = 'b'.repeat(40);
+  fs.mkdirSync(path.join(d, '.git', 'refs', 'heads'), { recursive: true });
+  fs.writeFileSync(path.join(d, '.git', 'HEAD'), 'ref: refs/heads/master\n');
+  kontrol('imza: ref hic yok -> null', imzaOku(d) === null);
+  fs.writeFileSync(path.join(d, '.git', 'packed-refs'), '# pack-refs with: peeled\n' + h2 + ' refs/heads/master\n');
+  kontrol('imza: packed-refs', imzaOku(d) === h2);
+  fs.writeFileSync(path.join(d, '.git', 'refs', 'heads', 'master'), h1 + '\n');
+  kontrol('imza: gevsek ref packed-refs\'ten once', imzaOku(d) === h1);
+  fs.writeFileSync(path.join(d, '.git', 'HEAD'), h2 + '\n');
+  kontrol('imza: ayrik HEAD', imzaOku(d) === h2);
+  kontrol('imza: depo degil -> null', imzaOku(path.join(d, 'yok')) === null);
+  fs.rmSync(d, { recursive: true, force: true });
+}
+
 (async () => {
   try {
+    ustKatmanTesti();
     saklanmaTesti();
     await limitTesti();
     birlestirmeTesti();

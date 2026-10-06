@@ -205,6 +205,29 @@ public static class Pencere {
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint c);
+  [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int cx, int cy, uint f);
+  public static IntPtr Ada(uint hedef) {
+    IntPtr r = IntPtr.Zero;
+    EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p != hedef) return true;
+      var s = new StringBuilder(64); GetWindowText(h, s, 64); if (s.ToString() == "Kokpit Ada") { r = h; return false; } return true; }, IntPtr.Zero);
+    return r;
+  }
+  // 1: Ada'nin ustunde topmost olmayan gorunur pencere yok ve kendisi topmost.
+  public static int Ustte(uint hedef) {
+    IntPtr a = Ada(hedef); if (a == IntPtr.Zero) return -1;
+    if ((GetWindowLong(a, -20) & 8) == 0) return 0;
+    for (IntPtr p = GetWindow(a, 3); p != IntPtr.Zero; p = GetWindow(p, 3))
+      if (IsWindowVisible(p) && (GetWindowLong(p, -20) & 8) == 0) return 0;
+    return 1;
+  }
+  // Ada'yi z-sirasinin dibine iter (HWND_BOTTOM, odak calmadan): Windows'un dusurmesinin taklidi.
+  public static int Dusur(uint hedef) {
+    IntPtr a = Ada(hedef); if (a == IntPtr.Zero) return -1;
+    SetWindowPos(a, new IntPtr(1), 0, 0, 0, 0, 0x13);
+    return Ustte(hedef) == 0 ? 1 : 0;
+  }
   public static int Kapat(uint hedef) {
     int n = 0;
     EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p != hedef) return true;
@@ -246,6 +269,35 @@ function osGorunur(pid, ana) {
  * icin cercevesiz bir WinForms penceresi birincil ekrani kaplar (birkac saniye); surukleme icin imlec
  * gercekten kaydirilir (main imleci OS'tan okur, CDP fare olayi imleci oynatmaz) ve sonra geri konur.
  */
+/**
+ * v2.8 ust katman bekcisi: Ada dusurulunce (Windows'un yaptigi gibi normal pencerelerin altina) kendi
+ * yoklamasi onu geri koymali. Dusurme gercek Win32 ile (HWND_BOTTOM); kontrol yine Win32 z-sirasindan.
+ */
+async function adaUstKatmanTesti(app) {
+  console.log('Ada v2.8: ust katman bekcisi (gercek z-sirasi)');
+  kontrol('on kosul: Ada gorunur ve ustte', osGorunur(app.pid, false) && pwshPencere(`[Pencere]::Ustte(${app.pid})`) === '1');
+  const logSay = () => {
+    try {
+      return fs.readFileSync(LOG('kokpit.log'), 'utf8').split('\n').filter((x) => x.includes('ada: ust katmandan dusmus')).length;
+    } catch {
+      return 0;
+    }
+  };
+  for (let tur = 1; tur <= 2; tur++) {
+    const once = logSay();
+    const dustu = pwshPencere(`[Pencere]::Dusur(${app.pid})`);
+    kontrol(`tur ${tur}: Ada gercekten dusuruldu (on kosul)`, dustu === '1', dustu);
+    let ustte = false;
+    for (let son = Date.now() + 6000; Date.now() < son && !ustte; ) {
+      ustte = pwshPencere(`[Pencere]::Ustte(${app.pid})`) === '1';
+      if (!ustte) await uyu(200);
+    }
+    kontrol(`tur ${tur}: bekci Ada'yi ust katmana geri koydu`, ustte);
+    if (tur === 1) kontrol('tur 1: dusus loglandi (ustteki pencerenin sinifiyla)', logSay() === once + 1, { once, simdi: logSay() });
+  }
+  kontrol('geri koyarken Ada gorunur kaldi', osGorunur(app.pid, false));
+}
+
 async function adaSaklanmaTesti(app, adaCdp, disYaz, disSil) {
   console.log('Ada v2.7: kenara sakla, sarkma, sinema (gercek tam ekran), surukleme');
   const ayarOku = () => {
@@ -553,6 +605,7 @@ async function main() {
     kontrol('dis oturum kaydi silinince Ada\'dan dustu', true);
 
     await adaSaklanmaTesti(app, adaCdp, disYaz, disSil);
+    await adaUstKatmanTesti(app);
 
     console.log('Terminal ac');
     await cdp.js(AC_DUGMESI);
@@ -1083,6 +1136,46 @@ async function main() {
     kontrol('tepsi senaryosu', false, e.message);
     try { app.kill(); } catch { /* */ }
   }
+
+  // v2.8 surum bekcisi: gecici depoda yeni commit -> Kokpit fark eder; "yeniden baslat" gercek cikis
+  // yolundan gecer ve cikis tamamlaninca baslaticiyi cagirir (testte baslatici yerine dosya yazilir).
+  console.log('Surum bekcisi (v2.8): yeni commit -> yeniden baslat');
+  const depo = fs.mkdtempSync(path.join(require('os').tmpdir(), 'kokpit-surum-'));
+  const git = (...a) => spawnSync('git', ['-C', depo, '-c', 'user.name=test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', ...a], { encoding: 'utf8', windowsHide: true });
+  git('init', '-q');
+  fs.writeFileSync(path.join(depo, 'a.txt'), '1');
+  git('add', '.');
+  git('commit', '-qm', 'bir');
+  const baslatici = path.join(TEST_DIZIN, 'baslatici.json');
+  fs.rmSync(baslatici, { force: true });
+  const surumLogu = () => {
+    try {
+      return fs.readFileSync(LOG('kokpit.log'), 'utf8').split('\n').filter((s) => s.includes('surum bekcisi: yeni surum')).length;
+    } catch {
+      return 0;
+    }
+  };
+  const surumOnce = surumLogu();
+  ({ app, cdp, adaCdp } = await baslat({ KOKPIT_TEST_SURUM: '1', KOKPIT_TEST_SURUM_KOK: depo, KOKPIT_TEST_SURUM_MS: '300', KOKPIT_TEST_BASLATICI: baslatici }));
+  try {
+    await cdp.bekle(`document.querySelectorAll('table tbody tr').length > 0`, 20000, 'proje tablosu');
+    await uyu(1000);
+    kontrol('surum: commit yokken yeni surum denmedi', surumLogu() === surumOnce);
+    fs.writeFileSync(path.join(depo, 'a.txt'), '2');
+    git('commit', '-qam', 'iki');
+    for (let i = 0; i < 30 && surumLogu() === surumOnce; i++) await uyu(200);
+    kontrol('surum: yeni commit fark edildi (log)', surumLogu() === surumOnce + 1);
+    const cikis = new Promise((r) => { const t = setTimeout(() => r('zaman-asimi'), 15000); app.on('exit', (k) => { clearTimeout(t); r(k); }); });
+    await cdp.js(`(() => { window.kokpit.uygulamaYenidenBaslat(); return true; })()`);
+    kontrol('yeniden baslat: Kokpit cikti', (await cikis) !== 'zaman-asimi');
+    let b = null;
+    try { b = JSON.parse(fs.readFileSync(baslatici, 'utf8')); } catch { /* yok */ }
+    kontrol('yeniden baslat: cikis bitince baslatici cagrildi (pencere gorunurdu -> --arka yok)', !!b && b.arka === false, b);
+  } catch (e) {
+    kontrol('surum senaryosu', false, e.message);
+    try { app.kill(); } catch { /* */ }
+  }
+  try { fs.rmSync(depo, { recursive: true, force: true }); } catch { /* */ }
   try { bekleyenCocuk.kill(); } catch { /* */ }
   limitSunucusu.close();
 

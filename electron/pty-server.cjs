@@ -181,11 +181,12 @@ function agaciOldur(pid) {
  * Bolme kapanisi icin ASENKRON surum: taskkill ~1 sn surer ve senkron hali sunucunun olay
  * dongusunu durdurup o arada TUM terminallerin ciktisini donduruyordu. Basarisizsa `yedek`
  * (p.kill) calisir. Cikis yolunda senkron olan kalir: surec cikmadan bitmeli.
+ * `tur`: log etiketi (servis | oturum).
  */
-function agaciOldurAsenkron(pid, yedek) {
+function agaciOldurAsenkron(pid, yedek, tur = 'servis') {
   execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 8000 }, (hata) => {
     servisler.delete(pid);
-    log('servis agaci olduruldu pid=' + pid + ' kod=' + (hata ? hata.code ?? 'hata' : 0));
+    log(tur + ' agaci olduruldu pid=' + pid + ' kod=' + (hata ? hata.code ?? 'hata' : 0));
     if (hata) yedek();
   });
 }
@@ -390,21 +391,23 @@ wss.on('connection', (ws, istek) => {
   ws.on('close', () => {
     if (p) {
       log('ws kapandi -> pty oldurulyor pid=' + p.pid);
-      // Servis: agac taskkill ile olunce kabuk da olmus olur. Ardindan p.kill() olu kabugun
-      // konsolunu listelemeye calisiyor ve node-pty'nin yardimci sureci "AttachConsole failed"
-      // ile cokuyordu (zararsiz ama gurultu; test:pty'de goruldu). Yalniz taskkill tutmazsa.
-      // Kabuk kendiliginden cikmissa da (Guvenli kapat, claude'dan cikis) ayni cokme oluyordu:
-      // 10-04'te logda 129 yigin izi. Once surec yasiyor mu bakilir.
+      // Her sekme (servis ya da claude oturumu) AGACIYLA olur: claude'un arka plan Bash'i bir dev
+      // sunucusu baslatip konsoldan kopabiliyor, yalniz kabugu oldurmek onu yetim ve portu dolu
+      // birakiyordu (v2.8; v2.3'te yalniz servis bolmeleri icin yapilmisti). Agac olunce kabuk da
+      // olmus olur; p.kill() yalniz taskkill tutmazsa. Canli kabuga p.kill() node-pty'nin konsol listesi
+      // yardimcisini kabugun olumuyle yarisa sokuyor, yardimci "AttachConsole failed" ile cokuyordu
+      // (10-04'te 129, 10-06'da yine yigin izi; test:pty'de olculdu). Once surec yasiyor mu bakilir.
       const hedef = p;
       const oldur = () => {
         try { process.kill(hedef.pid, 0); } catch { return; /* zaten olmus */ }
         try { hedef.kill(); } catch { /* zaten olmus */ }
       };
-      if (servis) {
-        // Kume'den taskkill bitince cikar: o arada sunucu kapanirsa cikis yolu da oldursun.
-        agaciOldurAsenkron(hedef.pid, oldur);
-      } else {
-        oldur();
+      try {
+        process.kill(hedef.pid, 0);
+        // Servis kumeden taskkill bitince cikar: o arada sunucu kapanirsa cikis yolu da oldursun.
+        agaciOldurAsenkron(hedef.pid, oldur, servis ? 'servis' : 'oturum');
+      } catch {
+        servisler.delete(hedef.pid); // kabuk zaten cikmis (Guvenli kapat, claude'dan cikis)
       }
       p = null;
     }

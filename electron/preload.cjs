@@ -131,4 +131,5 @@ contextBridge.exposeInMainWorld('kokpit', {
     return () => ipcRenderer.removeListener('ada:ayar-degisti', d);
   },
   uygulamaCik: () => ipcRenderer.send('uygulama:cik'),
+  uygulamaYenidenBaslat: () => ipcRenderer.send('uygulama:yeniden'),
 });
