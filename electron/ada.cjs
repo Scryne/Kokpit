@@ -299,6 +299,8 @@ ipcMain.on('ada:sakla', (e, istek) => {
 });
 // Surukleme: renderer yalniz asamayi soyler; yer imlecin ekran konumundan (DIP) okunur. Pencere
 // imlecin altinda kaydigi icin renderer'in kendi koordinatlari burada ise yaramaz.
+// setPosition DEGIL setBounds: %125 olcekte her setPosition pencereyi 1 DIP genisletiyor (olculdu
+// 2026-10-06: 200 adimda 460 -> 660). Genisleyen pencerede hap ortada kaldigi icin sola gidemiyordu.
 ipcMain.on('ada:tasi', (e, asama) => {
   if (!ada || ada.isDestroyed() || e.sender !== ada.webContents) return;
   const alan = screen.getPrimaryDisplay().workArea;
@@ -306,7 +308,8 @@ ipcMain.on('ada:tasi', (e, asama) => {
   if (asama === 'basla') {
     surukleme = { x0: ada.getBounds().x, imlec0: imlec };
   } else if (asama === 'surukle' && surukleme) {
-    ada.setPosition(yer.surukluKonum(alan, GENISLIK, surukleme.x0, imlec - surukleme.imlec0), alan.y);
+    const x = yer.surukluKonum(alan, GENISLIK, surukleme.x0, imlec - surukleme.imlec0);
+    ada.setBounds({ x, y: alan.y, width: GENISLIK, height: YUKSEKLIK });
   } else if (asama === 'bit' && surukleme) {
     surukleme = null;
     oran = yer.oranBul(alan, GENISLIK, ada.getBounds().x);

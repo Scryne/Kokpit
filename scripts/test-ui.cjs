@@ -436,11 +436,16 @@ async function adaSaklanmaTesti(app, adaCdp, disYaz, disSil) {
     return false;
   };
   const x0 = await adaCdp.js('window.screenX');
+  const w0 = await adaCdp.js('window.outerWidth');
   try {
-    const t1 = (await imlecleTasi(orta.x, ['basla'])) && (await imlecleTasi(orta.x - 500, ['surukle', 'bit']));
+    // Gercek surukleme kare basina bir 'surukle' yollar: 60 adim. %125 olcekte setPosition her adimda
+    // pencereyi 1 DIP genisletiyordu (2026-10-06, Scryne: "sola suruklenmiyor"); tek adim bunu gormez.
+    const t1 = (await imlecleTasi(orta.x, ['basla'])) && (await imlecleTasi(orta.x - 500, [...Array(60).fill('surukle'), 'bit']));
     await uyu(300);
     const x1 = await adaCdp.js('window.screenX');
     kontrol('surukle: pencere sola tasindi', t1 && x1 < x0 - 100, JSON.stringify({ imlecTuttu: t1, x0, x1, orta }));
+    const w1 = await adaCdp.js('window.outerWidth');
+    kontrol('surukle: pencere genisligi degismedi (60 adim)', w1 === w0, JSON.stringify({ w0, w1 }));
     for (let i = 0; i < 20 && typeof ayarOku().adaKonum !== 'number'; i++) await uyu(100);
     const k = ayarOku().adaKonum;
     kontrol('surukle: yer kalici, oran olarak (adaKonum < 0.5)', typeof k === 'number' && k < 0.5, k);
