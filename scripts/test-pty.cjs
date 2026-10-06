@@ -186,6 +186,47 @@ cocuk.stdout.on('data', async (d) => {
     try { fs.rmSync(gecici, { recursive: true, force: true }); } catch { /* */ }
   }
 
+  // 4c) claude sekmesi (servis degil) kapaninca da AGAC olur (v2.8). claude'un arka plan Bash'i bir dev
+  // sunucusu baslatip konsoldan kopabilir; yalniz kabugu oldurmek onu yetim, portu dolu birakiyordu. Ayrica
+  // canli kabuga p.kill() node-pty'nin konsol listesi yardimcisini yarisa sokup loga "AttachConsole failed"
+  // yigin izi basiyordu (gercek logda 10-06'da da, d9bcc3b'den sonra).
+  {
+    const fs = require('fs');
+    const os = require('os');
+    const gecici = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-oturum-'));
+    const pidDosyasi = path.join(gecici, 'torun.json');
+    const betik = path.join(gecici, 'arka.js');
+    fs.writeFileSync(
+      betik,
+      [
+        "const { spawn } = require('child_process'); const fs = require('fs');",
+        "const t = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true, windowsHide: true }); t.unref();",
+        'fs.writeFileSync(' + JSON.stringify(pidDosyasi) + ', JSON.stringify({ torun: t.pid }));',
+        'setInterval(() => {}, 1000);',
+      ].join('\n')
+    );
+    let stderr = '';
+    const dinle = (d) => { stderr += d; };
+    cocuk.stderr.on('data', dinle);
+    const ws3 = new WebSocket(`ws://127.0.0.1:${port}/?token=${TOKEN}`);
+    await new Promise((r) => ws3.on('open', r));
+    ws3.send(JSON.stringify({ t: 'ac', cwd: gecici, cols: 100, rows: 30 }));
+    await bekle(2000);
+    ws3.send(JSON.stringify({ t: 'veri', d: 'node "' + betik + '"\r' }));
+    for (let i = 0; i < 40 && !fs.existsSync(pidDosyasi); i++) await bekle(250);
+    const torun = fs.existsSync(pidDosyasi) ? JSON.parse(fs.readFileSync(pidDosyasi, 'utf8')).torun : null;
+    const yasiyor = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    kontrol('oturum: konsoldan kopuk torun calisiyor (on kosul)', !!torun && yasiyor(torun));
+    ws3.close();
+    for (let i = 0; i < 20 && torun && yasiyor(torun); i++) await bekle(250);
+    kontrol('oturum sekmesi kapaninca konsoldan kopuk torun da oldu', !!torun && !yasiyor(torun));
+    await bekle(1500); // node-pty yardimcisi cokecekse bu surede coker
+    kontrol('oturum kapanisinda node-pty yigin izi yok (AttachConsole)', !stderr.includes('AttachConsole'), stderr.slice(-200));
+    cocuk.stderr.off('data', dinle);
+    if (torun && yasiyor(torun)) try { process.kill(torun); } catch { /* */ }
+    try { fs.rmSync(gecici, { recursive: true, force: true }); } catch { /* */ }
+  }
+
   // 5) Yetim kontrolu
   cocuk.stdin.end();
   await bekle(1500);

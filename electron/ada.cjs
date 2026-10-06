@@ -26,11 +26,16 @@
 //   video, oyun, sunum) Ada pencereyi tamamen gizler; seni bekleyen bir sey varsa yalniz cenesi gorunur.
 // - Yer (`adaKonum`): hap ust kenar boyunca suruklenir, ortaya yaklasinca ortaya oturur.
 //   Calisma alani genisliginin orani olarak saklanir (cozunurluk degisince de ayni yerde).
+//
+// v2.8, ust katman bekcisi (Scryne 2026-10-06: "sadece masaustunde gorunuyor"): Windows Ada'yi
+// topmost bayragi acikken normal pencerelerin altina dusurebiliyor (olculdu). Yoklama her turda
+// z-sirasini okur, dusmusse odak calmadan geri koyar (ust-katman.cjs).
 
 const { BrowserWindow, ipcMain, screen } = require('electron');
 const { log } = require('./log.cjs');
 const disOturumlar = require('./dis-oturumlar.cjs');
 const tamEkran = require('./tam-ekran.cjs');
+const ustKatman = require('./ust-katman.cjs');
 const yer = require('./ada-yer.cjs');
 
 const GENISLIK = 460;
@@ -61,8 +66,9 @@ let tamEkranAyar = true; // ayarlar.adaTamEkran: tam ekran uygulamada cekil
 let tamEkranda = false; // son okuma: on plan pencere Ada'nin ekranini kapliyor
 let oran = 0.5; // ayarlar.adaKonum: hapin merkezi, calisma alani genisliginin orani
 let ayarDinleyici = (_yama) => {};
-let tamEkranZamanlayici = null;
-const TAM_EKRAN_MS = 600;
+let yoklamaZamanlayici = null;
+const YOKLAMA_MS = 600; // tam ekran + ust katman; ikisi de birkac user32 cagrisi (~10 µs)
+let dusus = { sayi: 0, sonLog: 0 }; // ust katman dususleri: ilk her zaman, sonra dakikada en fazla bir log
 let surukleme = null; // { x0, imlec0 }
 
 function konum() {
@@ -99,22 +105,26 @@ function gorunurlukGuncelle() {
   if (goster && !ada.isVisible()) {
     ada.setBounds(konum());
     ada.showInactive();
+    ustteTut();
   } else if (!goster && ada.isVisible()) {
     ada.hide();
   }
   // Sinemada gizliyken dis oturumlar yine okunur: disaridaki "seni bekliyor" cenesini gostermeli.
   disYoklamaAyarla(goster || (acik && k === 'sinema'));
-  tamEkranYoklamaAyarla();
+  yoklamaAyarla();
 }
 
-/** Tam ekran yoklamasi: Ada acik ve ayar aciksa; gizliyken de (sinemadan cikisi gormek icin). */
-function tamEkranYoklamaAyarla() {
-  const gerek = !!ada && acik && tamEkranAyar && (hep || oturumSayisi > 0);
-  if (gerek && !tamEkranZamanlayici) {
-    tamEkranZamanlayici = setInterval(tamEkranOku, TAM_EKRAN_MS);
-  } else if (!gerek && tamEkranZamanlayici) {
-    clearInterval(tamEkranZamanlayici);
-    tamEkranZamanlayici = null;
+/**
+ * Yoklama: Ada acik oldugu surece (gizliyken de, sinemadan cikisi gormek icin). Her tur: tam ekran
+ * (ayar aciksa) ve gorunurken ust katman.
+ */
+function yoklamaAyarla() {
+  const gerek = !!ada && acik && (hep || oturumSayisi > 0);
+  if (gerek && !yoklamaZamanlayici) {
+    yoklamaZamanlayici = setInterval(yokla, YOKLAMA_MS);
+  } else if (!gerek && yoklamaZamanlayici) {
+    clearInterval(yoklamaZamanlayici);
+    yoklamaZamanlayici = null;
     if (tamEkranda) {
       tamEkranda = false;
       gorunurlukGuncelle();
@@ -122,8 +132,26 @@ function tamEkranYoklamaAyarla() {
   }
 }
 
-function tamEkranOku() {
+function yokla() {
   if (!ada || ada.isDestroyed()) return;
+  if (tamEkranAyar) tamEkranOku();
+  if (ada.isVisible()) ustteTut();
+}
+
+/** Ada dusmusse topmost bandinin tepesine geri; ustteki pencerenin sinifi teshis icin loglanir. */
+function ustteTut() {
+  if (!ada || ada.isDestroyed()) return;
+  const s = ustKatman.kontrolEt(ada.getNativeWindowHandle());
+  if (!s || !s.dustu) return;
+  dusus.sayi++;
+  const simdi = Date.now();
+  if (dusus.sayi === 1 || simdi - dusus.sonLog > 60000) {
+    log('ada: ust katmandan dusmus, ustundeki ' + s.ustteki + (s.duzeldi ? ', geri alindi' : ', GERI ALINAMADI') + ' (toplam ' + dusus.sayi + ')');
+    dusus.sonLog = simdi;
+  }
+}
+
+function tamEkranOku() {
   const t = tamEkran.oku(ada.getNativeWindowHandle());
   if (t === tamEkranda) return;
   tamEkranda = t;
@@ -223,7 +251,7 @@ function kur(s) {
   ada.webContents.on('render-process-gone', (_e, d) => log('FAIL ada renderer coktu: ' + JSON.stringify(d)));
   ada.on('closed', () => {
     ada = null;
-    tamEkranYoklamaAyarla();
+    yoklamaAyarla();
   });
   ada.loadURL(s.url).catch((e) => log('FAIL ada yuklenemedi: ' + e.message));
   log('ada kuruldu' + (hep ? ' (hep gorunur)' : '') + (sakli ? ' (sakli)' : ''));
@@ -262,6 +290,7 @@ function odakla(istek) {
         ada.showInactive();
         ada.setBounds(konum());
         ada.setOpacity(1);
+        ustteTut();
         gorunurlukGuncelle();
       }, 60);
     }
@@ -340,6 +369,7 @@ module.exports = {
   saklaDegistir: () => sakla(!sakli),
   tamEkranAyarla(acikMi) {
     tamEkranAyar = acikMi !== false;
+    if (!tamEkranAyar) tamEkranda = false;
     gorunurlukGuncelle();
   },
   /** Ust ortaya geri (tepsi "Ada'yı ortala"). */
@@ -389,6 +419,7 @@ module.exports = {
       if (!ada.isVisible()) {
         ada.setBounds(konum());
         ada.showInactive();
+        ustteTut();
       }
       odakla(true);
     }
@@ -397,8 +428,8 @@ module.exports = {
   },
   kapat() {
     disYoklamaAyarla(false);
-    if (tamEkranZamanlayici) clearInterval(tamEkranZamanlayici);
-    tamEkranZamanlayici = null;
+    if (yoklamaZamanlayici) clearInterval(yoklamaZamanlayici);
+    yoklamaZamanlayici = null;
     if (ada && !ada.isDestroyed()) ada.destroy();
     ada = null;
   },

@@ -18,6 +18,7 @@ const komutlar = require('./komutlar.cjs');
 const calistir = require('./calistir.cjs');
 const limit = require('./limit.cjs');
 const { gonderIstegi } = require('./gonder-istegi.cjs');
+const surum = require('./surum.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
@@ -37,7 +38,19 @@ if (process.env.KOKPIT_DIZIN) app.setPath('userData', path.join(require('./confi
 // "onceki calismadan kalan" sanip geri yukleme teklif eder (ayni klasorde ikinci
 // `claude --continue`), ayarlar da yarisir. Ikinci acilis mevcut pencereyi one getirir.
 // Test/ekran kosuculari (KOKPIT_TEST_KABUK=1) gercek Kokpit acikken de calisabilmeli.
-if (process.env.KOKPIT_TEST_KABUK !== '1' && !app.requestSingleInstanceLock()) {
+// `--yeniden` (surum bekcisi, v2.8): onceki Kokpit cikisini bitirirken (PTY sunucusu servisleri
+// oldururken, en fazla ~6 sn) kilit hala onda olabilir; yeni ornek vazgecmeden bir sure bekler.
+function kilitAl() {
+  if (app.requestSingleInstanceLock()) return true;
+  if (!process.argv.includes('--yeniden')) return false;
+  const bekleme = new Int32Array(new SharedArrayBuffer(4));
+  for (let i = 0; i < 40; i++) {
+    Atomics.wait(bekleme, 0, 0, 500);
+    if (app.requestSingleInstanceLock()) return true;
+  }
+  return false;
+}
+if (process.env.KOKPIT_TEST_KABUK !== '1' && !kilitAl()) {
   app.quit();
   process.exit(0);
 }
@@ -65,6 +78,11 @@ let ptyBeklendi = false;
 let tepsi = null;
 let cikisIstendi = false;
 const tepsiAktif = () => tepsi !== null && ayarlar.oku().tepsi !== false;
+// Surum bekcisi (v2.8): yeni commit gelince tepside "yeniden baslat". Yalniz uretimde: dev'de Vite
+// zaten sicak yukluyor, test kosuculari yeniden baslamamali.
+const KOK = path.join(__dirname, '..');
+let yeniSurum = null; // yeni commit'in kisa hali
+let yenidenBaslatIstendi = null; // { arka } — cikis tamamlaninca baslatici calisir
 
 /** Onceki calismadan kalan pencere konumu; ekran disinda kaldiysa yok sayilir. */
 function pencereKonumu() {
@@ -329,7 +347,10 @@ function pencereyiOneGetir() {
 }
 ipcMain.handle('pencere:odakla', pencereyiOneGetir);
 // Ikinci `kokpit` calistirildi (tek ornek kilidi): mevcut pencere one gelir.
-app.on('second-instance', pencereyiOneGetir);
+// Kapanirken gelen istek yeniden baslayan ornegin kilit denemesidir (`--yeniden`): yok sayilir.
+app.on('second-instance', () => {
+  if (!uygulamaKapaniyor && !yenidenBaslatIstendi) pencereyiOneGetir();
+});
 // Yerel onay diyalogu. Renderer window.confirm kullanmaz: Electron'da odak ve
 // erisilebilirlik acisindan sistem diyalogu daha dogru.
 ipcMain.handle('onay:sor', async (_e, secenek) => {
@@ -384,6 +405,7 @@ ipcMain.on('kapanis:iptal', () => {
   log('kapanis: kullanici vazgecti');
   kapanisSoruluyor = false;
   cikisIstendi = false;
+  yenidenBaslatIstendi = null;
 });
 ipcMain.on('kapanis:onay', () => {
   kapanisOnaylandi = true;
@@ -526,6 +548,7 @@ ipcMain.handle('ayar:getir', () => {
 });
 // Paletten "Kokpit'ten cik": tepsiye inmeden gercek cikis (acik oturum sorusu yine calisir).
 ipcMain.on('uygulama:cik', () => cik());
+ipcMain.on('uygulama:yeniden', () => yenidenBaslat());
 
 /** Gercek cikis: pencere gorunur olmali, kapatma korumasinin diyalogu ona bagli. */
 function cik() {
@@ -536,6 +559,17 @@ function cik() {
   }
   pencereyiOneGetir();
   pencere.close();
+}
+
+/**
+ * Yeni surume gec: gercek cikis (acik oturum sorusu, guvenli kapat, defter) + cikis bitince baslatici.
+ * Oturumlar yeni ornekte geri yukleme teklifiyle doner (defter, `--resume`). Pencere gizliyse yeni
+ * ornek de gizli (`--arka`) acilir.
+ */
+function yenidenBaslat() {
+  yenidenBaslatIstendi = { arka: !pencere || !pencere.isVisible() };
+  log('yeniden baslatma istendi (' + (yeniSurum ?? '?') + ')');
+  cik();
 }
 
 // --- Tepsi ve Windows acilisi (v2.6) ---
@@ -583,13 +617,40 @@ function tepsiBildir() {
 function limitIpucu() {
   const l = kanca.anlik().limitler;
   const p = (x) => (x ? '%' + Math.round(x.yuzde) : '—');
-  return 'Kokpit' + (l ? ' · 5 saat ' + p(l.besSaat) + ' · hafta ' + p(l.hafta) : '');
+  return 'Kokpit' + (l ? ' · 5 saat ' + p(l.besSaat) + ' · hafta ' + p(l.hafta) : '') + (yeniSurum ? ' · yeni sürüm hazır' : '');
+}
+
+function surumBekcisiKur() {
+  if (DEV || (TEST && process.env.KOKPIT_TEST_SURUM !== '1')) return;
+  const aralik = Number(process.env.KOKPIT_TEST_SURUM_MS) || undefined;
+  surum.izle({
+    // Test kosucusu gercek depoya commit atmaz: gecici bir depo verir.
+    kok: (TEST && process.env.KOKPIT_TEST_SURUM_KOK) || KOK,
+    aralikMs: TEST ? aralik : undefined,
+    degisti: (imza) => {
+      yeniSurum = imza.slice(0, 7);
+      tepsiMenusu();
+      if (tepsi) {
+        tepsi.setToolTip(limitIpucu());
+        try {
+          tepsi.displayBalloon({
+            iconType: 'info',
+            title: 'Kokpit güncellendi',
+            content: 'Yeni sürüm hazır. Tepsi menüsünden "yeniden başlat"; açık oturumlar geri yüklenir.',
+          });
+        } catch {
+          /* balon desteklenmiyor */
+        }
+      }
+    },
+  });
 }
 
 function tepsiMenusu() {
   if (!tepsi) return;
   const a = ada.durum();
   const sablon = [
+    ...(yeniSurum ? [{ label: 'Yeni sürüm hazır: yeniden başlat', click: yenidenBaslat }, { type: 'separator' }] : []),
     { label: "Kokpit'i aç", click: pencereyiOneGetir },
     { type: 'separator' },
     {
@@ -722,6 +783,7 @@ app.whenReady().then(() => {
   pencereKur();
   adaKur();
   tepsiKur();
+  surumBekcisiKur();
   // Genel kisayol: Kokpit arka plandayken de Inbox notu. Ctrl+Alt+Shift+N secildi:
   // Turkce klavyede Ctrl+Alt = AltGr, AltGr+harf karakter yazar; uc degistirici cakismaz.
   // Baska bir uygulama aldiysa kayit basarisiz olur, Kokpit yine calisir.
@@ -791,7 +853,16 @@ app.on('before-quit', (olay) => {
     tepsi = null;
   }
 });
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  // Cikis buraya kadar geldiyse iptal edilmedi; PTY sunucusu da beklendi. Baslatici once derler
+  // (birkac sn), yeni ornek kilidi alamazsa `--yeniden` ile bekler.
+  if (yenidenBaslatIstendi) {
+    const testBaslatici = TEST ? process.env.KOKPIT_TEST_BASLATICI : null;
+    if (testBaslatici) fs.writeFileSync(testBaslatici, JSON.stringify(yenidenBaslatIstendi));
+    else surum.yenidenBaslat(KOK, yenidenBaslatIstendi.arka, ['--yeniden']);
+  }
+});
 app.on('window-all-closed', () => { log('tum pencereler kapandi, cikiliyor'); app.quit(); });
 process.on('uncaughtException', (e) => logHata('uncaughtException', e));
 process.on('unhandledRejection', (e) => logHata('unhandledRejection', e));

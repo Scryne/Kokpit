@@ -1032,7 +1032,9 @@ export default function App() {
         },
       },
       // v2.6: pencerenin X'i tepsiye indirir; gercek cikis burada ve tepsi menusunde.
-      { id: 'e-cik', grup: 'Eylem', baslik: "Kokpit'ten çık", ipucu: 'tepsiye inmeden', calistir: () => window.kokpit.uygulamaCik() }
+      { id: 'e-cik', grup: 'Eylem', baslik: "Kokpit'ten çık", ipucu: 'tepsiye inmeden', calistir: () => window.kokpit.uygulamaCik() },
+      // v2.8: yeni surume gecis (tepside de). Derleyip acar; acik oturumlar geri yukleme teklifiyle doner.
+      { id: 'e-yeniden', grup: 'Eylem', baslik: "Kokpit'i yeniden başlat", ipucu: 'yeni sürüm, oturumlar geri gelir', calistir: () => window.kokpit.uygulamaYenidenBaslat() }
     );
     for (const p of siraliProjeler) {
       k.push({ id: 'k-' + p.ad, grup: 'Klasör', baslik: p.ad, ipucu: 'Gezgin', calistir: () => void window.kokpit.klasorAc(p.yol) });

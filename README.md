@@ -53,6 +53,16 @@ araç. Kenarın altında **limit** (5 saat, hafta). Statusline Kokpit oturumlar�
 gelince oturum listesi açılır; bir oturum bitince ya da soru sorunca 5 sn kendiliğinden açılır.
 Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
 
+**v2.8, her yerde üstte + yeni sürüm:**
+- **Ada her uygulamanın üstünde.** Windows bazen Ada'yı, "her zaman üstte" bayrağı açıkken normal pencerelerin altına
+  düşürüyordu (ölçüldü: yalnız masaüstünde görünüyordu). Ada artık 0,6 sn'de bir z-sırasını okur, düşmüşse odak
+  çalmadan geri çıkar ve logda üstüne çıkan pencerenin sınıfını yazar (`ada: ust katmandan dusmus`).
+- **Yeni sürüm hazır.** Kokpit açıldığı commit'i hatırlar; depoya yeni commit gelince tepside "Yeni sürüm hazır:
+  yeniden başlat" ve bir bildirim çıkar. Tıklayınca (ya da paletten "Kokpit'i yeniden başlat") normal çıkış akışı
+  çalışır (açık oturum sorusu dahil), sonra Kokpit derlenip yeniden açılır; oturumlar geri yükleme teklifiyle döner.
+- **Sekme kapanınca süreç ağacı ölür.** claude'un arka planda başlattığı bir dev sunucusu sekmeyle birlikte kapanır,
+  portu tutan yetim kalmaz (eskiden yalnız Çalıştır bölmelerinde böyleydi).
+
 **Ada v2.7, saklanma:**
 - **Kenara sakla:** açık kartın sağ üstündeki ⤒ (ya da tepsi menüsü, ya da **Ctrl+Alt+Shift+G**). Ada ekranın üst
   kenarının arkasına çekilir, yalnız gümüş çenesi ve gözlerinin alt yarısı görünür. İmleci çenenin üstünde bir an
@@ -170,10 +180,10 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 ## Test
 
 ```bash
-npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ağacı dahil (18 kontrol)
+npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ve oturum ağacı dahil (21 kontrol)
 npm run test:kanca   # kanca köprüsü, soru/son söz/istek/komut/tarif/adres/kimlik (101 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada penceresi, gözü ve tepsi dahil (110 kontrol, önce build)
-npm run test:ada     # v2.6: oturumsuz limit (sahte uç), dış oturumlar, görevin gerçek pwsh'tan geçişi (35 kontrol)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada, gerçek z-sırası, tepsi, sürüm bekçisi dahil (155 kontrol, önce build)
+npm run test:ada     # limit (sahte uç), dış oturumlar, görev geçişi, tam ekran/yer, üst katman, sürüm imzası (63 kontrol)
 npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontrol; elle, plan kullanır)
 npm run ekran:ada    # v2.3–v2.4 yüzeylerinin ekran görüntüsü (ada, ada-klavye, ada-bitti, terminal, Pano)
 npm run ekran:ajan   # v2.6: oturumsuz hap, dış oturum, açık kart, proje listesi
