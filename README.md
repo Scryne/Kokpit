@@ -258,8 +258,9 @@ ELECTRON_MIRROR=https://registry.npmmirror.com/-/binary/electron/ node node_modu
 **(1) npm 11.19+ install script'lerini varsayılan olarak bloklar.** `node-pty` ve `electron`
 sessizce yarım kurulur — hata vermez, sadece çalışmaz. Onay verilmezse `node-pty`'nin native
 modülü ve Electron binary'si hiç inmez. `package.json` `allowScripts` onayı **sürüme bağlıdır**
-(`electron@44.4.5`): Electron yükseltilince bu satır da değişmeli, binary yine (2) ile iner.
-Son yükseltme 2026-09-29: 44.3.0 → 44.4.5, `test:ui` 37/37.
+(`electron@44.9.3`, `koffi@3.3.3`): Electron ya da koffi yükseltilince bu satır da değişmeli, binary yine (2) ile iner.
+Son yükseltme 2026-10-21: 44.4.5 → 44.9.3 (koffi 3.3.3; koffi için `npm rebuild koffi`), `test:ui` 174/174.
+Yükseltme Kokpit kapalıyken yapılır: açıkken `electron.exe` ve koffi'nin yerel modülü kilitli.
 
 **(2) Electron binary'si `github.com`'dan inmiyor** (bu makinede Node'un `fetch`'i
 `UND_ERR_CONNECT_TIMEOUT` veriyor, `curl` aynı adrese 200 dönüyor). Mirror üzerinden iniyor.

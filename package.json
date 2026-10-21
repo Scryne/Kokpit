@@ -55,8 +55,8 @@
     "vite": "^8.3.5"
   },
   "allowScripts": {
-    "electron@44.4.5": true,
+    "electron@44.9.3": true,
     "node-pty@1.1.0": true,
-    "koffi@3.3.2": true
+    "koffi@3.3.3": true
   }
 }

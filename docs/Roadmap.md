@@ -752,8 +752,11 @@ Scryne: "Projeyi en baştan en sona incele, denetle; eksik ve hataların tamamı
 - **Olay:** denetim sırasında test penceresini kapatmak için kullanılan başlık filtreli `taskkill` Scryne'ın çalışan
   Kokpit'ini de kapattı; açık oturum yoktu (son oturum 09:47'de güvenli kapanmış), `kokpit-sessiz.vbs --arka` ile
   geri açıldı. Ders hafızada: test süreci yalnız PID ile öldürülür.
-- **Kontrol edilemeyen / bilerek yapılmayan:** Electron 44.4.5 → 44.9.3 ve koffi 3.3.3 yaması: çalışan Kokpit
-  `electron.exe` ve koffi'nin yerel modülünü kilitli tutuyor; Kokpit kapalıyken `npm update electron koffi` +
-  `allowScripts` sürüm satırı + mirror ile binary (README Kurulum). Electron 45 ana sürüm: ayrı iş. Test kabuğuna
+- **Electron yaması (aynı gün, Scryne Kokpit'i kapattıktan sonra):** Electron 44.4.5 → 44.9.3, koffi 3.3.2 → 3.3.3.
+  Açıkken yapılamıyordu (çalışan Kokpit `electron.exe` ve koffi'nin yerel modülünü kilitli tutuyor). npm yeni sürümlerin
+  kurulum betiklerini çalıştırmadı (`allowScripts` sürüme bağlı): satırlar güncellendi, koffi `npm rebuild`, Electron
+  binary mirror'dan. koffi düz Node'da ve Electron 44.9.3 içinde yüklendi; typecheck, build, kanca 101, ada 70, pty 21,
+  `test:ui` 174/174 yeni Electron'la. Electron 45 ana sürüm: ayrı iş.
+- **Kontrol edilemeyen:** Test kabuğuna
   yazılan `exit`'in ara sıra ulaşmamasının sebebi bulunmadı (teşhis noktası PTY sunucusunu canlı gösterdi); ürün
   tarafında karşılığı görülmedi.
