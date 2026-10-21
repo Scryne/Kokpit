@@ -53,6 +53,22 @@ araç. Kenarın altında **limit** (5 saat, hafta). Statusline Kokpit oturumlar�
 gelince oturum listesi açılır; bir oturum bitince ya da soru sorunca 5 sn kendiliğinden açılır.
 Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
 
+**v2.9, denetim + süreklilik:**
+- **Biten bölme yerinde açılır.** claude'dan çıkınca ya da terminal bağlantısı kopunca bölme artık yalnız "kapandı"
+  demez: konuşma diskteyse **Sürdür** (aynı bölmede `claude --resume`, tam o konuşma), değilse **Yeniden aç** (aynı
+  klasörde yeni oturum). Sekme ve bölme düzeni yerinde kalır.
+- **Ctrl+Shift+T:** son kapatılan oturum geri açılır (konuşması diskteyse kaldığı yerden). Paletten de.
+- **Push durumu Pano'da.** Git sütununda `↑3` (push edilmemiş commit), `↓1` (geride), uzak dalı olmayan depoda
+  "yerel"; ölçüm şeridinde "N commit push bekliyor". Sayılar yerel izleme dalına göre, ağa çıkılmaz.
+- **Okuma hatasında Pano boşalmaz.** `durum.py` bir kez düşerse son ölçüm ekranda kalır, üstte "Durum tazelenemedi ·
+  gösterilen HH:MM ölçümü". `durum.py` 60 sn'de bitmezse zaman aşımı (eskiden "Okunuyor"da sonsuza dek kalabiliyordu).
+- **Daha hızlı tazeleme:** `durum.py` 23 deponun git durumunu paralel okuyor: 2,1 sn → 0,8 sn (çıktı birebir aynı).
+- **Ada artık Alt+Tab'da titremiyor.** Tam ekranda çekilme, tam ekran 2 sn kesintisiz sürerse devreye girer; Alt+Tab,
+  Görev görünümü, Başlat/Arama gibi kabuk katmanları hiç sayılmaz (gerçek logda "sinema"ların %62'si 2,5 sn'den kısaydı).
+  Çözünürlük ya da ekran değişince Ada yeniden yerleşir.
+- **Terminal araması sonuç sayar:** `3/12`, eşleşme yoksa `yok`.
+- Windows açılışında (`--arka`) başlayan Kokpit ilk açılışta kayıtlı büyütülmüş haliyle açılır.
+
 **v2.8, her yerde üstte + yeni sürüm:**
 - **Ada her uygulamanın üstünde.** Windows bazen Ada'yı, "her zaman üstte" bayrağı açıkken normal pencerelerin altına
   düşürüyordu (ölçüldü: yalnız masaüstünde görünüyordu). Ada artık 0,6 sn'de bir z-sırasını okur, düşmüşse odak
@@ -144,7 +160,8 @@ reddeder; Kokpit'te o klasörde açık oturum varken düğme kapalı. `--doldur`
 o, dizindeki açık oturumları da erken doldururdu.
 
 **Klavye:** Ctrl+Shift+P komut paleti (sayfa, proje aç/git, klasör, eylemler) · Ctrl+B kenar
-çubuğu · Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü · Ctrl+Shift+W bölmeyi kapat · Ctrl+Shift+N
+çubuğu · Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü · Ctrl+Shift+W bölmeyi kapat · **Ctrl+Shift+T son kapatılan
+oturumu geri aç** · Ctrl+Shift+N
 Inbox'a not · **Ctrl+Alt+Shift+K her yerden Kokpit'i çağır / küçült** · **Ctrl+Alt+Shift+A klavyeyle Ada** · **Ctrl+Alt+Shift+G Ada'yı kenara sakla / geri getir** · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
 Türkçe klavyede AltGr olduğu için üç değiştirici) · sekme şeridinde ← →, bölme ayırıcısında ← →
 (%5). **Terminalde:** Ctrl+Shift+F ara (Enter / Shift+Enter / Esc) · Ctrl+C seçim varken
@@ -170,8 +187,9 @@ kapatılan oturumlar yerinde kalır; bir sonraki açılışta geri yükleme tekl
 
 **Süreklilik:** pencere konumu, kenar çubuğu ve yazı boyutu `~/.kokpit/ayarlar.json`'da;
 açılan her oturum `~/.kokpit/oturumlar.jsonl` defterinde. Uygulama açık oturumlarla
-kapatılırsa bir sonraki açılışta "N oturum açıktı — Geri yükle" (her klasörde
-`claude --continue`). Pano satırında "son oturum: dün · 42 dk · beyne düştü ✓".
+kapatılırsa bir sonraki açılışta "N oturum açıktı — Geri yükle" (her oturum kendi konuşmasından,
+`claude --resume <kimlik>`; kimliği olmayan eski kayıtta `--continue`). Pano satırında "son oturum: dün · 42 dk ·
+beyne düştü ✓".
 
 Üretimde arayüz `app://kokpit/` özel şemasından servis edilir — gerçek bir origin olduğu
 için CSP uygulanabiliyor. `file://` kullanılmaz: `onHeadersReceived` o istekler için
@@ -182,8 +200,8 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 ```bash
 npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ve oturum ağacı dahil (21 kontrol)
 npm run test:kanca   # kanca köprüsü, soru/son söz/istek/komut/tarif/adres/kimlik (101 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada, gerçek z-sırası, tepsi, sürüm bekçisi dahil (155 kontrol, önce build)
-npm run test:ada     # limit (sahte uç), dış oturumlar, görev geçişi, tam ekran/yer, üst katman, sürüm imzası (63 kontrol)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada, gerçek z-sırası, tepsi, sürüm bekçisi dahil (174 kontrol, önce build)
+npm run test:ada     # limit (sahte uç), dış oturumlar, görev geçişi, tam ekran/yer, üst katman, sürüm imzası, sinema giriş gecikmesi (70 kontrol)
 npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontrol; elle, plan kullanır)
 npm run ekran:ada    # v2.3–v2.4 yüzeylerinin ekran görüntüsü (ada, ada-klavye, ada-bitti, terminal, Pano)
 npm run ekran:ajan   # v2.6: oturumsuz hap, dış oturum, açık kart, proje listesi
@@ -226,7 +244,7 @@ bırakmama**.
 `test:ui` gibi `~/.kokpit/ayarlar.json` ve oturum defterini sonra geri koyar (kapanış bekleyen
 "geri yükle" teklifini tüketmesin diye).
 
-**CI** (`windows-latest`): typecheck + build + `test:pty` + `test:kanca`. `test:ui` CI'da koşmaz — vault ve
+**CI** (`windows-latest`): typecheck + build + `test:pty` + `test:kanca` + `test:ada`. `test:ui` CI'da koşmaz — vault ve
 `durum.py` ister; yerelde çalıştırılır.
 
 ## Kurulum (temiz makinede)
@@ -260,6 +278,8 @@ Son yükseltme 2026-09-29: 44.3.0 → 44.4.5, `test:ui` 37/37.
 | `KOKPIT_KIMLIK` | `~/.claude/.credentials.json` | Test: limit tokeninin okunduğu dosya |
 | `KOKPIT_CLAUDE_OTURUMLAR` | `~/.claude/sessions` | Test: dış oturum kaydının okunduğu dizin |
 | `KOKPIT_TEST_TEPSI` | — | Test koşucusunda tepsiyi de kur (X tepsiye indirir) |
+| `KOKPIT_DURUM_SCRIPT` | vault'taki `durum.py` | Test: `durum.py`'yi saran betik (okuma hatası, push bekleyen commit taklidi) |
+| `KOKPIT_CLAUDE_PROJELER` | `~/.claude/projects` | Test: transcript'lerin okunduğu dizin (sürdürülebilir mi, beyin durumu, bağlam) |
 
 `~/.kokpit/ayarlar.json`: `seffaf: false` pencereyi opak yapar, `ada: false` adayı kapatır, `adaHep: false`
 eski davranış (yalnız Kokpit arka plandayken), `tepsi: false` X'i yine kapatma yapar.
@@ -269,7 +289,9 @@ eski davranış (yalnız Kokpit arka plandayken), `tepsi: false` X'i yine kapatm
 Main süreç `~/.kokpit/kokpit.log` dosyasına yazar: renderer konsolu, sayfa yükleme hataları,
 renderer çökmesi, preload hatası, `durum.py` çalışma süresi ve hataları, kapatma kararları
 (güvenli/zorla). PTY sunucusu `~/.kokpit/pty-server.log`'a yazar (güvenli çıkışın süresi
-dahil). İki dosya da açılışta 2 MB'ı geçerse `.1`'e devredilir.
+dahil). İki dosya da 2 MB'ı geçerse `.1`'e devredilir: açılışta ve çalışırken her 500 satırda bir bakılır
+(Kokpit Windows açılışında başlayıp günlerce açık kalıyor). Derleme düşerse (`kokpit`, Windows açılışı, yeniden
+başlat) Kokpit önceki paketle açılır ve derleme hatası `kokpit.log`'a `FAIL derleme basarisiz` olarak düşer.
 
 **Tek örnek:** ikinci `kokpit` yeni pencere açmaz, açık olanı öne getirir (iki örnek aynı
 oturum defterini paylaşıp birbirinin açık oturumlarına geri yükleme teklif ediyordu).

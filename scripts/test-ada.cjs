@@ -211,6 +211,26 @@ function saklanmaTesti() {
   kontrol('tam ekran degil: baska ekrandaki tam ekran', tamEkranMi({ ...ekran }, ekran, { ayniEkran: false }) === false);
   kontrol('tam ekran: ikinci ekranin koordinatlarinda da', tamEkranMi({ sol: 2560, ust: -200, sag: 4480, alt: 880 }, { sol: 2560, ust: -200, sag: 4480, alt: 880 }) === true);
   kontrol('tam ekran degil: okunamadi (null)', tamEkranMi(null, ekran) === false && tamEkranMi({ ...ekran }, null) === false);
+  // Kabuk katmanlari ekrani kaplar ama uygulama degil (Alt+Tab, Gorev gorunumu, Baslat/Arama).
+  kontrol(
+    'tam ekran degil: kabuk katmanlari (Alt+Tab XAML adasi, Baslat/Arama CoreWindow)',
+    ['XamlExplorerHostIslandWindow', 'MultitaskingViewFrame', 'Windows.UI.Core.CoreWindow'].every((sinif) => tamEkranMi({ ...ekran }, ekran, { sinif }) === false)
+  );
+  kontrol('tam ekran: siradan bir uygulama sinifi (Chrome) kaplarsa sayilir', tamEkranMi({ ...ekran }, ekran, { sinif: 'Chrome_WidgetWin_1' }) === true);
+
+  // Giris gecikmesi (v2.9): gercek logda sinemalarin %62'si 2,5 sn'den kisaydi, Ada titriyordu.
+  const { sinemaAdimi, SINEMA_GIRIS_MS } = require(path.join(KOK, 'electron', 'tam-ekran.cjs'));
+  const yokla = (okumalar, adim = 600) => {
+    let d = { sinema: false, aday: null };
+    return okumalar.map((tam, i) => (d = sinemaAdimi(d, tam, 1000 + i * adim)).sinema);
+  };
+  kontrol('sinema: tek yoklamalik tam ekran (Alt+Tab) sinemaya sokmaz', yokla([false, true, false, false]).every((s) => !s));
+  kontrol('sinema: 1,8 sn suren tam ekran da sokmaz', yokla([true, true, true, true, false]).every((s) => !s), yokla([true, true, true, true, false]));
+  const surekli = yokla([true, true, true, true, true, true]);
+  kontrol('sinema: kesintisiz ' + SINEMA_GIRIS_MS + ' ms sonra girer (600 ms yoklamada 5. okuma)', surekli.indexOf(true) === 4, surekli);
+  kontrol('sinema: araya giren tek "degil" sayaci sifirlar', yokla([true, true, true, false, true, true, true, true]).indexOf(true) === -1);
+  const cikis = yokla([true, true, true, true, true, false]);
+  kontrol('sinema: cikis gecikmesiz (tam ekran biter bitmez)', cikis[4] === true && cikis[5] === false, cikis);
 
   const yer = require(path.join(KOK, 'electron', 'ada-yer.cjs'));
   const alan = { x: 0, width: 2560 };

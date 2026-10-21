@@ -83,6 +83,7 @@ const tepsiAktif = () => tepsi !== null && ayarlar.oku().tepsi !== false;
 const KOK = path.join(__dirname, '..');
 let yeniSurum = null; // yeni commit'in kisa hali
 let yenidenBaslatIstendi = null; // { arka } — cikis tamamlaninca baslatici calisir
+let ilkGosterimYapildi = false; // pencere bir kez gosterildi mi (`--arka` acilista hayir)
 
 /** Onceki calismadan kalan pencere konumu; ekran disinda kaldiysa yok sayilir. */
 function pencereKonumu() {
@@ -158,6 +159,7 @@ function pencereKur() {
       ada.anaOdak(false);
       return;
     }
+    ilkGosterimYapildi = true;
     if (ayarlar.oku().pencere?.maksimize) pencere.maximize();
     pencere.show();
   });
@@ -342,6 +344,12 @@ ipcMain.handle('link:ac', async (_e, url) => {
 function pencereyiOneGetir() {
   if (!pencere) return;
   if (pencere.isMinimized()) pencere.restore();
+  // `--arka` acilista pencere hic gosterilmedi: ilk gosterimde kayitli "buyutulmus" hali uygulanir
+  // (yoksa Windows acilisindan sonra Kokpit her gun kucuk pencerede aciliyordu).
+  if (!ilkGosterimYapildi) {
+    ilkGosterimYapildi = true;
+    if (ayarlar.oku().pencere?.maksimize) pencere.maximize();
+  }
   pencere.show();
   pencere.focus();
 }
@@ -457,6 +465,16 @@ ipcMain.handle('defter:sonlar', () => {
     }
   }
   return sonlar;
+});
+// Biten bolmeyi yerinde surdurme (v2.9): o kimligin transcript'i diskte mi. Yalniz stat; yol ve kimlik
+// beyin.cjs'te bicim denetiminden gecer (uuid degilse false).
+ipcMain.handle('oturum:surdurulebilir', (_e, yol, claude) => {
+  if (typeof yol !== 'string' || typeof claude !== 'string') return false;
+  try {
+    return beyin.transcriptVar(yol, claude);
+  } catch {
+    return false;
+  }
 });
 // Kanca koprusu: oturum etkinligi, limitler, statusline baglami. Ilk yukleme icin anlik.
 ipcMain.handle('etkinlik:anlik', async () => {

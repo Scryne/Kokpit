@@ -34,3 +34,8 @@ jobs:
 
       - name: Hook bridge (kanca)
         run: npm run test:kanca
+
+      # Ada'nin saf kararlari (tam ekran/sinema, yer, ust katman), oturumsuz limit (sahte uc), dis
+      # oturumlar ve gorevin gercek pwsh'ta tek arguman gecisi. Gercek ~/.claude'a dokunmaz.
+      - name: Ada (limit, dis oturumlar, gorev, tam ekran)
+        run: npm run test:ada

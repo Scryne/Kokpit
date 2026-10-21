@@ -25,7 +25,11 @@ const KOKPIT_DIZIN = process.env.KOKPIT_DIZIN
 module.exports = {
   VAULT,
   KOKPIT_DIZIN,
-  DURUM_SCRIPT: path.join(VAULT, '.claude', 'scripts', 'durum.py'),
+  // KOKPIT_DURUM_SCRIPT yalniz test icindir: test:ui gercek durum.py'yi saran bir betik verir
+  // (okuma hatasini ve push bekleyen commit'i taklit etmek icin; bkz. scripts/test-ui.cjs).
+  DURUM_SCRIPT: process.env.KOKPIT_DURUM_SCRIPT
+    ? path.resolve(process.env.KOKPIT_DURUM_SCRIPT)
+    : path.join(VAULT, '.claude', 'scripts', 'durum.py'),
   PYTHON: process.env.KOKPIT_PYTHON || 'python',
   DEV_PORT,
   DEV_URL: 'http://localhost:' + DEV_PORT,

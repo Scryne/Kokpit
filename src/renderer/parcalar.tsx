@@ -140,7 +140,12 @@ export function AsamaRozeti({ asama, yedek }: { asama: Proje['asama']; yedek?: s
   );
 }
 
-/** Git durumu. "Temiz"in rengi yoktur; sadece mudahale gerektiren sey isaretlenir. */
+/**
+ * Git durumu. "Temiz"in rengi yoktur; sadece mudahale gerektiren sey isaretlenir.
+ * v2.9: push durumu da (durum.py zaten veriyordu, Pano gostermiyordu). "Bitti" demeden once push
+ * edildi mi sorusu Kurallar'da; Pano'da ↑N (push edilmedi) ve ↓N (geride) olarak gorunur. Sayilar
+ * yerel izleme dalina gore: fetch yapilmaz, ag yok.
+ */
 export function GitDurumu({ p }: { p: Proje }) {
   const g = p.git;
   if (!g) return null;
@@ -149,7 +154,24 @@ export function GitDurumu({ p }: { p: Proje }) {
       <span className="inline-flex items-center gap-1.5 text-metin-ikincil">
         <GitBranch className="size-3.5 shrink-0 text-metin-soluk" aria-hidden="true" />
         <span className="enstruman">{g.branch ?? '—'}</span>
+        {g.upstream === null && g.branch && (
+          <span className="text-metin-soluk" title="Dalın uzak karşılığı yok: hiç push edilmedi ya da yalnız yerel depo">
+            yerel
+          </span>
+        )}
       </span>
+      {(g.ahead ?? 0) > 0 && (
+        <span className="enstruman text-dikkat-metin" title={g.ahead + ' commit push edilmedi (' + g.upstream + ')'}>
+          ↑{g.ahead}
+          <span className="sr-only"> commit push edilmedi</span>
+        </span>
+      )}
+      {(g.behind ?? 0) > 0 && (
+        <span className="enstruman text-metin-ikincil" title={g.behind + ' commit geride (' + g.upstream + ')'}>
+          ↓{g.behind}
+          <span className="sr-only"> commit geride</span>
+        </span>
+      )}
       {g.kirli > 0 ? (
         <span className="inline-flex items-center gap-1.5 text-dikkat-metin">
           <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />

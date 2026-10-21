@@ -49,6 +49,9 @@ export default function Pano({
   const gruplar = projeGruplari(durum.projeler);
   const projeler = durum.projeler;
   const kirliToplam = projeler.reduce((t, p) => t + (p.git?.kirli ?? 0), 0);
+  // Push edilmemis commit: "commit atildi ama push edilmedi" Kurallar'da ayri bir bayatlik sebebi.
+  const pushToplam = projeler.reduce((t, p) => t + (p.git?.ahead ?? 0), 0);
+  const pushProjesi = projeler.filter((p) => (p.git?.ahead ?? 0) > 0).length;
   // Servis bolmeleri (Calistir) claude oturumu sayilmaz; ayri gosterilir.
   const acikOturum = oturumlar.filter((o) => o.durumu === 'acik' && !o.servis);
   const sayi = (g: string) => gruplar.find((x) => x.grup === g)?.projeler.length ?? 0;
@@ -93,7 +96,14 @@ export default function Pano({
         <Olcum
           etiket="Kirli dosya"
           deger={kirliToplam}
-          alt={kirliToplam > 0 ? 'commit bekliyor' : 'tüm repolar temiz'}
+          alt={
+            [
+              kirliToplam > 0 ? 'commit bekliyor' : pushToplam > 0 ? null : 'tüm repolar temiz',
+              pushToplam > 0 ? pushToplam + ' commit push bekliyor' + (pushProjesi > 1 ? ' (' + pushProjesi + ' repo)' : '') : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')
+          }
           vurgu={kirliToplam > 0}
         />
         <Olcum

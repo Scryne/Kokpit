@@ -94,8 +94,8 @@ function GeriYuklemeSeridi({
         Önceki çalışmada {oncekiler.length} oturum açıktı:{' '}
         <span className="enstruman text-metin-ikincil">{oncekiler.map((o) => o.ad).join(', ')}</span>
         <span className="block text-xs text-metin-soluk">
-          Geri yüklemek her klasörde <span className="enstruman">claude --continue</span> ile son
-          konuşmayı sürdürür.
+          Geri yüklemek her oturumu kaldığı konuşmadan sürdürür (
+          <span className="enstruman">claude --resume</span>).
         </span>
       </p>
       <button
@@ -271,8 +271,10 @@ export default function App() {
         setDurum(sonuc.veri);
         setHata(null);
       } else {
+        // Son iyi olcum KORUNUR: gecici bir hata (kilitli git, zaman asimi) Pano'yu, Saglik'i,
+        // Envanter'i ve kenar cubugundaki proje listesini bosaltiyordu. Hata seridi olcumun eski
+        // oldugunu soyler.
         setHata(sonuc.hata + (sonuc.stderr ? '\n' + sonuc.stderr : ''));
-        setDurum(null);
       }
       sonOkuma.current = Date.now();
     } finally {
@@ -311,6 +313,8 @@ export default function App() {
   }, [sonlariYenile]);
   // Ayni oturum icin iki 'kapandi' yazilmasin (kullanici kapatti + kabuk bitti).
   const defterKapananlar = useRef(new Set<string>());
+  // Son kapatilan claude oturumlari (Ctrl+Shift+T, tarayicidaki "kapatilan sekmeyi geri ac"). Bellekte.
+  const sonKapananlar = useRef<{ ad: string; yol: string; claude?: string }[]>([]);
   const defterKapandi = useCallback(
     (id: string, sebep: 'kullanici' | 'kabuk', kod?: number | null) => {
       if (defterKapananlar.current.has(id)) return;
@@ -502,6 +506,9 @@ export default function App() {
       const etkilenenGruplar = new Set(kapanan.map((x) => x.grupId));
       // Servis bolmeleri claude oturumu degil: deftere girmezler (geri yukleme claude acardi).
       for (const x of kapanan) if (!x.servis) defterKapandi(x.id, 'kullanici');
+      // Ctrl+Shift+T icin: kapanan claude oturumlari, en yenisi sonda (en fazla 10).
+      for (const x of kapanan) if (!x.servis) sonKapananlar.current.push({ ad: x.ad, yol: x.yol, claude: x.claude });
+      sonKapananlar.current.splice(0, Math.max(0, sonKapananlar.current.length - 10));
 
       // Etkilenen gruplarda kalan bolmeler bosalan payi paylasir.
       const cikar = (liste: Oturum[]) => {
@@ -541,13 +548,51 @@ export default function App() {
   const oturumDurumu = useCallback(
     (id: string, durumu: OturumDurumu, mesaj?: string) => {
       setOturumlar((o) => o.map((x) => (x.id === id ? { ...x, durumu, mesaj } : x)));
-      if (durumu === 'bitti' && !oturumlarRef.current.find((x) => x.id === id)?.servis) {
+      const o = oturumlarRef.current.find((x) => x.id === id);
+      if (durumu === 'bitti' && !o?.servis) {
         const kod = mesaj ? Number(/çıkış kodu (-?\d+)/.exec(mesaj)?.[1]) : NaN;
         defterKapandi(id, 'kabuk', Number.isInteger(kod) ? kod : null);
+      }
+      // Biten claude bolmesi yerinde yeniden acilabilir (yerindeAc): konusmasi diskteyse surdurulur.
+      if ((durumu === 'bitti' || durumu === 'hata') && o && !o.servis && o.claude) {
+        void window.kokpit.surdurulebilir(o.yol, o.claude).then((vardir) =>
+          setOturumlar((l) => l.map((x) => (x.id === id ? { ...x, surdurulebilir: vardir } : x)))
+        );
       }
     },
     [defterKapandi]
   );
+
+  /**
+   * Biten bolmeyi YERINDE yeniden acar (v2.9). claude'dan cikilinca ya da PTY sunucusu kopunca bolme
+   * "kapandı" yazip oylece kaliyordu; devam etmek icin kapatip Pano'da "Sürdür" aramak gerekiyordu.
+   * Konusma diskteyse `--resume` ile tam o konusma, degilse ayni klasorde yeni oturum. Sekme, bolme
+   * sirasi ve genislik ayni kalir; kimlik yenilenir (TerminalOturumu yeniden kurulur).
+   */
+  const yerindeAc = useCallback((id: string) => {
+    const o = oturumlarRef.current.find((x) => x.id === id);
+    if (!o || o.servis || (o.durumu !== 'bitti' && o.durumu !== 'hata')) return;
+    const surdur = o.surdurulebilir === true && !!o.claude;
+    // Ayni konusma baska bir bolmede aciksa ikinci kez acilmaz (iki claude ayni dosyaya yazardi).
+    const ayni = surdur ? oturumlarRef.current.find((x) => x.id !== id && x.claude === o.claude && x.durumu === 'acik') : undefined;
+    if (ayni) {
+      grubaGit(ayni.grupId, ayni.id);
+      return;
+    }
+    const yeni = yeniId(o);
+    const claude = surdur ? o.claude! : crypto.randomUUID();
+    window.kokpit.defterOlay({ olay: 'acildi', id: yeni, ad: o.ad, yol: o.yol, claude });
+    console.info('[yerinde] ' + o.ad + ': ' + (surdur ? 'sürdür (--resume)' : 'yeni oturum'));
+    setOturumlar((l) =>
+      l.map((x) =>
+        x.id === id
+          ? { ...x, id: yeni, durumu: 'baglaniyor', mesaj: undefined, dikkat: false, kapaniyor: false, baslangic: Date.now(), devam: surdur, claude, gorev: undefined, surdurulebilir: undefined }
+          : x
+      )
+    );
+    setAktifOturumId((a) => (a === id ? yeni : a));
+    // grubaGit asagida tanimli ve kararli (bagimliliksiz useCallback); cagri aninda hazir.
+  }, []);
 
   const geriYukle = useCallback(() => {
     const liste = oncekiler;
@@ -576,6 +621,24 @@ export default function App() {
     setGorunum('terminal');
     setKenarAcik(false);
   }, []);
+
+  /**
+   * Ctrl+Shift+T (v2.9): son kapatilan claude oturumunu geri acar. Konusmasi diskteyse `--resume` ile
+   * tam o konusma (yanlislikla kapatilan sekme geri gelir), degilse ayni klasorde yeni oturum. O
+   * konusma zaten aciksa atlanir, bir oncekine bakilir.
+   */
+  const sonKapananiAc = useCallback(async () => {
+    const yigin = sonKapananlar.current;
+    while (yigin.length > 0) {
+      const k = yigin.pop()!;
+      if (k.claude && oturumlarRef.current.some((o) => o.claude === k.claude && o.durumu === 'acik')) continue;
+      const surdurulur = !!k.claude && (await window.kokpit.surdurulebilir(k.yol, k.claude));
+      console.info('[geri-ac] ' + k.ad + ': ' + (surdurulur ? 'sürdür (--resume)' : 'yeni oturum'));
+      sekmeAc({ ad: k.ad, yol: k.yol }, surdurulur, surdurulur ? k.claude : null);
+      return;
+    }
+    setNotBildirimi('Geri açılacak kapalı oturum yok');
+  }, [sekmeAc]);
 
   /**
    * Zil: claude bitti ya da soru soruyor. Kullanici o an o bolmeye bakiyorsa hicbir sey
@@ -1015,6 +1078,7 @@ export default function App() {
     if (oncekiler.length > 0) {
       k.push({ id: 'e-geri', grup: 'Eylem', baslik: 'Önceki oturumları geri yükle', ipucu: oncekiler.length + ' oturum', calistir: () => geriYukle() });
     }
+    k.push({ id: 'e-geri-ac', grup: 'Eylem', baslik: 'Son kapatılan oturumu geri aç', ipucu: 'Ctrl+Shift+T', calistir: () => void sonKapananiAc() });
     k.push(
       { id: 'e-not', grup: 'Eylem', baslik: "Inbox'a not", ipucu: 'Ctrl+Shift+N', calistir: () => setNotAcik(true) },
       { id: 'e-tazele', grup: 'Eylem', baslik: 'Durumu tazele', calistir: () => void tazele('elle') },
@@ -1074,7 +1138,7 @@ export default function App() {
     }
     k.push({ id: 'e-komutlar', grup: 'Eylem', baslik: 'Hızlı komutları düzenle', ipucu: 'komutlar.json', calistir: () => void window.kokpit.komutlarDuzenle() });
     return k;
-  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur]);
+  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur, sonKapananiAc]);
 
   // Bağlam: statusline'dan (kesin, her turda) varsa o; yoksa transcript yoklamasi (20 sn).
   const baglamOku = (id: string) => {
@@ -1123,6 +1187,10 @@ export default function App() {
         // Ctrl+Shift+N: Inbox'a not. Kutu acikken tekrar basmak kapatmaz.
         e.preventDefault();
         setNotAcik(true);
+      } else if (e.shiftKey && (e.key === 'T' || e.key === 't')) {
+        // Ctrl+Shift+T: son kapatilan oturumu geri ac (tarayici aliskanligi).
+        e.preventDefault();
+        void sonKapananiAc();
       } else if (e.shiftKey && (e.key === 'W' || e.key === 'w') && aktifOturumId) {
         // Ctrl+Shift+W bolmeyi kapatir. Ctrl+W terminalin kendisine ait, ona dokunulmaz.
         e.preventDefault();
@@ -1145,7 +1213,7 @@ export default function App() {
     };
     window.addEventListener('keydown', tus);
     return () => window.removeEventListener('keydown', tus);
-  }, [aktifOturumId, oturumKapat, gruplar, aktifGrupId, grubaGit, yaziBoyutuDegistir]);
+  }, [aktifOturumId, oturumKapat, gruplar, aktifGrupId, grubaGit, yaziBoyutuDegistir, sonKapananiAc]);
 
   // --- Bolme ayiricisi surukleme ---
   const surukleRef = useRef<{ solId: string; sagId: string; x: number; genislik: number } | null>(
@@ -1545,9 +1613,12 @@ export default function App() {
             <div role="alert" className="mb-5 rounded-base border border-hata/40 bg-hata/10 p-4">
               <p className="flex items-center gap-2 text-sm font-medium text-hata-metin">
                 <AlertTriangle className="size-4" aria-hidden="true" />
-                Durum okunamadı
+                {durum ? 'Durum tazelenemedi' : 'Durum okunamadı'}
               </p>
               <p className="mt-1 text-xs text-metin-ikincil">
+                {durum
+                  ? 'Gösterilen, ' + new Date(durum.olculdu).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) + ' ölçümü. '
+                  : ''}
                 durum.py çalıştırılamadı. Ayrıntı için ~/.kokpit/kokpit.log dosyasına bak.
               </p>
               <pre className="enstruman mt-2 whitespace-pre-wrap text-xs text-metin-soluk">
@@ -1897,13 +1968,32 @@ export default function App() {
                                 : 'border-kenar bg-yuzey text-metin-ikincil')
                             }
                           >
-                            {o.mesaj}
-                            {o.durumu === 'bitti' && sonOturumlar[o.yol] && (
-                              <>
-                                {' · '}
-                                <BeyinKaydiRozeti kaydi={sonOturumlar[o.yol].beyin} />
-                              </>
-                            )}
+                            <span className="flex items-center gap-2">
+                              <span className="min-w-0 flex-1">
+                                {o.mesaj}
+                                {o.durumu === 'bitti' && sonOturumlar[o.yol] && (
+                                  <>
+                                    {' · '}
+                                    <BeyinKaydiRozeti kaydi={sonOturumlar[o.yol].beyin} />
+                                  </>
+                                )}
+                              </span>
+                              {!o.servis && (o.durumu === 'bitti' || o.durumu === 'hata') && (
+                                <button
+                                  type="button"
+                                  onClick={() => yerindeAc(o.id)}
+                                  title={
+                                    o.surdurulebilir
+                                      ? 'Aynı konuşmaya bu bölmede devam et (claude --resume)'
+                                      : 'Bu bölmede, aynı klasörde yeni bir claude oturumu aç'
+                                  }
+                                  className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-kontrol border border-kenar px-2 py-0.5 text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
+                                >
+                                  <RotateCcw className="size-3" aria-hidden="true" />
+                                  {o.surdurulebilir ? 'Sürdür' : 'Yeniden aç'}
+                                </button>
+                              )}
+                            </span>
                           </p>
                         )}
                         {o.durumu === 'acik' && etkinlik.oturumlar[o.id] && (

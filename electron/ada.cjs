@@ -64,12 +64,15 @@ let anaPencere = () => null;
 let sakli = false; // ayarlar.adaSakli: kenara cekilmis (yalniz cene)
 let tamEkranAyar = true; // ayarlar.adaTamEkran: tam ekran uygulamada cekil
 let tamEkranda = false; // son okuma: on plan pencere Ada'nin ekranini kapliyor
+// Sinema girisi gecikmeli (tam-ekran.cjs sinemaAdimi): Alt+Tab gibi gecici katmanlar Ada'yi titretmez.
+let sinemaDurumu = { sinema: false, aday: null };
 let oran = 0.5; // ayarlar.adaKonum: hapin merkezi, calisma alani genisliginin orani
 let ayarDinleyici = (_yama) => {};
 let yoklamaZamanlayici = null;
 const YOKLAMA_MS = 600; // tam ekran + ust katman; ikisi de birkac user32 cagrisi (~10 µs)
 let dusus = { sayi: 0, sonLog: 0 }; // ust katman dususleri: ilk her zaman, sonra dakikada en fazla bir log
 let surukleme = null; // { x0, imlec0 }
+let ekranDinleniyor = false;
 
 function konum() {
   const alan = screen.getPrimaryDisplay().workArea;
@@ -125,6 +128,7 @@ function yoklamaAyarla() {
   } else if (!gerek && yoklamaZamanlayici) {
     clearInterval(yoklamaZamanlayici);
     yoklamaZamanlayici = null;
+    sinemaDurumu = { sinema: false, aday: null };
     if (tamEkranda) {
       tamEkranda = false;
       gorunurlukGuncelle();
@@ -152,10 +156,12 @@ function ustteTut() {
 }
 
 function tamEkranOku() {
-  const t = tamEkran.oku(ada.getNativeWindowHandle());
+  const okuma = tamEkran.oku(ada.getNativeWindowHandle());
+  sinemaDurumu = tamEkran.sinemaAdimi(sinemaDurumu, okuma.tam, Date.now());
+  const t = sinemaDurumu.sinema;
   if (t === tamEkranda) return;
   tamEkranda = t;
-  log('ada: ' + (t ? 'tam ekran uygulama onde, sinema' : 'tam ekran bitti'));
+  log('ada: ' + (t ? 'tam ekran uygulama onde (' + (okuma.sinif || '?') + '), sinema' : 'tam ekran bitti'));
   gorunurlukGuncelle();
 }
 
@@ -254,6 +260,21 @@ function kur(s) {
     yoklamaAyarla();
   });
   ada.loadURL(s.url).catch((e) => log('FAIL ada yuklenemedi: ' + e.message));
+  // Cozunurluk / olcek degisince, ekran takilip cikinca Ada eski koordinatlarda kaliyordu (konum
+  // yalniz gorunur olurken hesaplaniyor): ust kenardan kayik ya da ekran disinda. Oran kalici, yer
+  // yeniden hesaplanir. Surukleme surerken dokunulmaz.
+  if (!ekranDinleniyor) {
+    ekranDinleniyor = true;
+    const yerlestir = () => {
+      if (!ada || ada.isDestroyed() || surukleme) return;
+      const yeni = konum();
+      const eski = ada.getBounds();
+      if (eski.x === yeni.x && eski.y === yeni.y && eski.width === yeni.width && eski.height === yeni.height) return;
+      ada.setBounds(yeni);
+      log('ada: ekran degisti, yeniden yerlestirildi (' + eski.x + ',' + eski.y + ' -> ' + yeni.x + ',' + yeni.y + ')');
+    };
+    for (const olay of ['display-metrics-changed', 'display-added', 'display-removed']) screen.on(olay, yerlestir);
+  }
   log('ada kuruldu' + (hep ? ' (hep gorunur)' : '') + (sakli ? ' (sakli)' : ''));
   // Oturumsuz da gorunur: yuklenir yuklenmez.
   ada.once('ready-to-show', gorunurlukGuncelle);
@@ -369,7 +390,10 @@ module.exports = {
   saklaDegistir: () => sakla(!sakli),
   tamEkranAyarla(acikMi) {
     tamEkranAyar = acikMi !== false;
-    if (!tamEkranAyar) tamEkranda = false;
+    if (!tamEkranAyar) {
+      tamEkranda = false;
+      sinemaDurumu = { sinema: false, aday: null };
+    }
     gorunurlukGuncelle();
   },
   /** Ust ortaya geri (tepsi "Ada'yı ortala"). */

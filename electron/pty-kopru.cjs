@@ -54,16 +54,23 @@ function baslat(ekOrtam = {}) {
     cocuk.stderr.setEncoding('utf8');
     cocuk.stderr.on('data', (d) => log('pty sunucusu stderr: ' + d.trim()));
 
+    const bu = cocuk;
     cocuk.on('exit', (kod, sinyal) => {
       log(`pty sunucusu cikti kod=${kod} sinyal=${sinyal}`);
-      cocuk = null;
-      bilgi = null;
-      baslatmaSozu = null;
+      // durdur() ardindan yeni bir sunucu baslamis olabilir: eski surecin cikisi yenisinin
+      // kaydini silmesin (sonraki ptyBilgi ikinci bir sunucu acar, ilki yetim kalirdi).
+      if (cocuk === bu) {
+        cocuk = null;
+        bilgi = null;
+        baslatmaSozu = null;
+      }
       if (!cozuldu) { cozuldu = true; reject(new Error('pty sunucusu hazir olmadan cikti')); }
     });
 
     cocuk.on('error', (e) => {
       logHata('pty sunucusu spawn', e);
+      // Surec hic dogmadiysa (node PATH'te yok) 'exit' gelmeyebilir: kayit burada temizlenir.
+      if (cocuk === bu) { cocuk = null; bilgi = null; }
       if (!cozuldu) { cozuldu = true; reject(e); }
     });
 
@@ -71,7 +78,7 @@ function baslat(ekOrtam = {}) {
       if (cozuldu) return;
       cozuldu = true;
       // Hazir olmayan sureci birakmak yetim demek; bir sonraki baslat() ikincisini acardi.
-      const asili = cocuk;
+      const asili = bu;
       if (asili) {
         log('pty sunucusu zaman asimi, oldurluyor pid=' + asili.pid);
         try { asili.kill(); } catch { /* zaten olmus */ }

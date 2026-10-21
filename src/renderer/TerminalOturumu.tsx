@@ -33,7 +33,7 @@ interface Props {
   id: string;
   yol: string;
   gorunur: boolean;
-  /** Geri yukleme: claude --continue. */
+  /** Geri yukleme / surdurme: claude --resume <claudeId> (kimlik yoksa --continue). */
   devam?: boolean;
   /** claude oturum kimligi (uuid): yeni oturumda --session-id, devamda --resume. */
   claudeId?: string;
@@ -60,7 +60,7 @@ interface Props {
 function uygulamaninKisayolu(e: KeyboardEvent) {
   if (!e.ctrlKey || e.altKey) return false;
   if (e.key === 'Tab') return true;
-  if (e.shiftKey) return ['W', 'w', 'N', 'n', 'P', 'p'].includes(e.key);
+  if (e.shiftKey) return ['W', 'w', 'N', 'n', 'P', 'p', 'T', 't'].includes(e.key);
   return ['1', '2', '3', '4', '=', '+', '-', '0'].includes(e.key);
 }
 
@@ -123,6 +123,8 @@ export default function TerminalOturumu({
   const [birakiliyor, setBirakiliyor] = useState(false);
   const [aramaAcik, setAramaAcik] = useState(false);
   const [arama, setArama] = useState('');
+  // Arama sonucu (xterm SearchAddon, susleme acikken): "3/12" ya da "yok". resultIndex -1: secili yok.
+  const [aramaSonucu, setAramaSonucu] = useState<{ sira: number; toplam: number } | null>(null);
   const aramaKutuRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -155,6 +157,9 @@ export default function TerminalOturumu({
     const aramaEklentisi = new SearchAddon();
     term.loadAddon(aramaEklentisi);
     aramaRef.current = aramaEklentisi;
+    aramaEklentisi.onDidChangeResults(({ resultIndex, resultCount }) =>
+      setAramaSonucu({ sira: resultIndex, toplam: resultCount })
+    );
     // Link tiklamasi renderer'dan disari cikmaz; main http(s) dogrulayip tarayiciya verir.
     term.loadAddon(new WebLinksAddon((_e, uri) => void window.kokpit.linkAc(uri)));
 
@@ -464,10 +469,14 @@ export default function TerminalOturumu({
     if (!a) return;
     if (!aramaAcik) {
       a.clearDecorations();
+      setAramaSonucu(null);
       return;
     }
     if (arama) a.findNext(arama, { incremental: true, decorations: ARAMA_SUSLEME });
-    else a.clearDecorations();
+    else {
+      a.clearDecorations();
+      setAramaSonucu(null);
+    }
   }, [arama, aramaAcik]);
 
   const aramaKapat = () => {
@@ -540,6 +549,17 @@ export default function TerminalOturumu({
             spellCheck={false}
             className="enstruman w-48 bg-transparent px-1.5 text-xs text-metin outline-none placeholder:text-metin-soluk"
           />
+          {arama && aramaSonucu && (
+            <span
+              role="status"
+              aria-label={aramaSonucu.toplam === 0 ? 'Eşleşme yok' : aramaSonucu.toplam + ' eşleşme'}
+              className={'enstruman shrink-0 px-1 text-xs ' + (aramaSonucu.toplam === 0 ? 'text-dikkat-metin' : 'text-metin-soluk')}
+            >
+              {aramaSonucu.toplam === 0
+                ? 'yok'
+                : (aramaSonucu.sira >= 0 ? aramaSonucu.sira + 1 : '?') + '/' + aramaSonucu.toplam}
+            </span>
+          )}
           <button
             type="button"
             onClick={onceki}

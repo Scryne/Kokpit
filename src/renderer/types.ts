@@ -170,6 +170,11 @@ export interface Oturum {
   claude?: string;
   /** Guvenli cikis suruyor: claude'a cikis tuslari gitti, SessionEnd bekleniyor. */
   kapaniyor?: boolean;
+  /**
+   * Bolme bittikten sonra (claude cikti, PTY sunucusu koptu): konusmasi diskte mi. true ise bolme
+   * yerinde `--resume` ile surdurulur, false ise ayni klasorde yeni oturum acilir (v2.9).
+   */
+  surdurulebilir?: boolean;
   /** Ada'dan gorev (v2.6): claude bu metinle acilir (ilk mesaj). */
   gorev?: string;
   /**
@@ -406,6 +411,8 @@ declare global {
       defterOlay: (olay: DefterOlayi) => void;
       defterOncekiler: () => Promise<OncekiOturum[]>;
       defterSonlar: () => Promise<Record<string, SonOturum>>;
+      /** Bu klasorde bu kimligin konusmasi diskte mi (claude --resume acabilir mi). Salt okuma. */
+      surdurulebilir: (yol: string, claude: string) => Promise<boolean>;
       notEkle: (metin: string, kaynak: string | null) => Promise<{ dosya?: string; hata?: string }>;
       notAcSorulunca: (cb: () => void) => () => void;
       oturumBaglami: (
