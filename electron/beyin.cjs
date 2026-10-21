@@ -16,7 +16,11 @@ const os = require('os');
 const crypto = require('crypto');
 const { VAULT } = require('./config.cjs');
 
-const PROJELER = path.join(os.homedir(), '.claude', 'projects');
+// KOKPIT_CLAUDE_PROJELER yalniz test icindir (test:ui sahte transcript'i gecici dizine koyar; gercek
+// ~/.claude/projects'e yazilsaydi durum.py butce/kapsama sayimina sahte oturum girerdi).
+const PROJELER = process.env.KOKPIT_CLAUDE_PROJELER
+  ? path.resolve(process.env.KOKPIT_CLAUDE_PROJELER)
+  : path.join(os.homedir(), '.claude', 'projects');
 const FLUSH_STATE = path.join(VAULT, '.claude', 'scripts', '.state');
 const TAZE_MS = 4 * 60 * 1000;
 

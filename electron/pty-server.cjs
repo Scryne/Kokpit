@@ -23,10 +23,17 @@ const TOKEN = process.env.KOKPIT_PTY_TOKEN || '';
 const LOG_DOSYA = path.join(require('./config.cjs').KOKPIT_DIZIN, 'pty-server.log');
 
 fs.mkdirSync(path.dirname(LOG_DOSYA), { recursive: true });
+// Acilistaki devir log.cjs'te; sunucu da gunlerce yasadigi icin her 500 satirda bir yine bakilir.
+let yazim = 0;
 function log(mesaj) {
   try {
     fs.appendFileSync(LOG_DOSYA, `[${new Date().toISOString()}] [pty ${process.pid}] ${mesaj}\n`);
   } catch { /* log yazamamak sunucuyu durdurmaz */ }
+  if (++yazim % 500 === 0) {
+    try {
+      if (fs.statSync(LOG_DOSYA).size > 2 * 1024 * 1024) fs.renameSync(LOG_DOSYA, LOG_DOSYA + '.1');
+    } catch { /* kilitli: sonraki turda */ }
+  }
 }
 
 if (!TOKEN) {

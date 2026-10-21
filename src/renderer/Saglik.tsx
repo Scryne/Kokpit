@@ -79,9 +79,9 @@ function tk(n: number) {
   return String(n);
 }
 
-/** Kapsayicinin piksel genisligi; grafik viewBox esnetmek yerine gercek olcuyle cizilir. */
 /**
- * Kabin genisligi. Callback ref: eleman SONRADAN ortaya cikarsa (grafik once "kayit yok"
+ * Kapsayicinin piksel genisligi; grafik viewBox esnetmek yerine gercek olcuyle cizilir.
+ * Callback ref: eleman SONRADAN ortaya cikarsa (grafik once "kayit yok"
  * dalindan donup sonra veriyle cizilirse) gozlemci o an kurulur; eski hali ref'i yalniz ilk
  * render'da okuyordu. Not (2026-10-03): test:ui'daki aralikli "butce grafigi yok" hatasinin
  * nedeni bu degil, pencerenin ustu kapaliyken Chromium'un kare uretmemesiydi (rAF ve

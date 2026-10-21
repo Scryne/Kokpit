@@ -1,7 +1,7 @@
 ---
 proje: Kokpit
 created: 2026-09-10
-modified: 2026-10-06
+modified: 2026-10-21
 type: roadmap
 status: aktif
 ---
@@ -50,6 +50,9 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 32 | Ada: üst katman bekçisi | ✅ Tamamlandı | Dışarıdan normal pencerelerin altına düşürülen Ada (gerçek Win32 z-sırası) ≤ 0,6 sn'de odak çalmadan geri üstte; düşüş loglanıyor |
 | 33 | Sekme ağacı | ✅ Tamamlandı | claude sekmesi kapanınca konsoldan kopuk torun da ölüyor; node-pty "AttachConsole failed" yığın izi yok (`test:pty`) |
 | 34 | Sürüm bekçisi | ✅ Tamamlandı | Yeni commit fark ediliyor; "yeniden başlat" gerçek çıkış yolundan geçip çıkış bitince başlatıcıyı çağırıyor; yeni örnek kilidi bekleyebiliyor |
+| 35 | Denetim 2026-10-21: dayanıklılık | ✅ Tamamlandı | Sinema geçici tam ekranda titremiyor (giriş gecikmesi + kabuk katmanları); `durum.py` hatasında son ölçüm kalıyor, zaman aşımı var; derleme düşerse eski paketle açılıyor; açık bağımlılık 0 |
+| 36 | Biten bölme yerinde + Ctrl+Shift+T | ✅ Tamamlandı | Biten claude bölmesi aynı yerde Sürdür (`--resume`, aynı kimlik) / Yeniden aç (yeni kimlik); Ctrl+Shift+T son kapatılanı geri açıyor; kimlik zinciri defterde doğrulandı |
+| 37 | Push durumu + hızlı tazeleme | ✅ Tamamlandı | Pano'da ↑N/↓N/"yerel" ve "N commit push bekliyor"; `durum.py` git'i paralel okuyor (2,1 → 0,8 sn, çıktı birebir aynı) |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -703,3 +706,54 @@ Ada'da iyileştirmek istediğin şeyleri profesyonelce yap."
   commit → algı → yeniden başlat → çıkış → başlatıcı), kanca 101. **Mutasyon:** bekçi kapalıyken `test:ui` 3 kırmızı.
 - **Kontrol edilemeyen:** gerçek düşüşün kaynağı (log ilk düşüşte söyleyecek); başlatıcının gerçek yeniden açılışı
   (Scryne'ın açık oturumları kesilmesin diye çalışan Kokpit'te denenmedi; parçaları ayrı ölçüldü).
+
+### v2.9 — Denetim, yerinde sürdürme, push durumu (Faz 35–37, 2026-10-21)
+
+Scryne: "Projeyi en baştan en sona incele, denetle; eksik ve hataların tamamını çöz, gerekli yerleri iyileştir, en
+üst hale çıkarmak için yeni şeyler ekle. İş tamamen sende." Denetim kodun tamamı + gerçek kullanım logu (6 hafta,
+`~/.kokpit/kokpit.log` 8.900 satır) üzerinden yapıldı; bulgular ölçümden.
+
+- **Faz 35, dayanıklılık** (✅):
+  - **Sinema titremesi (gerçek hata).** Logdaki 149 "sinema"nın 93'ü 2,5 sn'den kısaydı, 46'sı tek yoklama (0,6 sn):
+    Alt+Tab, Görev görünümü, Başlat/Arama gibi kabuk katmanları ekranı bir an kaplıyor, Ada kaybolup geri geliyordu.
+    `tam-ekran.cjs`: kabuk sınıfları (`XamlExplorerHostIslandWindow`, `MultitaskingViewFrame`,
+    `Windows.UI.Core.CoreWindow`, `ForegroundStaging`) sayılmaz; sinemaya giriş 2 sn kesintisiz tam ekran ister
+    (`sinemaAdimi`, saf, test:ada), çıkış gecikmesiz. Log artık ön plan sınıfını yazar. Baseline `test:ui` bu yüzden
+    düştü (test sırasında öndeki pencere sinemayı tetikledi); test başına ön koşul kontrolü eklendi.
+  - **`durum.py` dayanıklılığı.** Okuma hatası Pano'yu, Sağlık'ı, Envanter'i ve kenar listesini boşaltıyordu
+    (`setDurum(null)`): son ölçüm artık kalır, şerit "Durum tazelenemedi · gösterilen HH:MM ölçümü" der. Çağrıda zaman
+    aşımı yoktu (takılan git Pano'yu sonsuza dek "Okunuyor"da bırakırdı): 60 sn. Eşzamanlı çağrılar tek sürece iner;
+    hata yolunda `PYTHONIOENCODING=utf-8`.
+  - **Derleme düşerse açılış.** `uretim.cjs` derleme hatasında hiçbir şey açmıyor, sebebi de yazmıyordu (Windows
+    açılışı ve yeniden başlatma gizli pencerede). Vite çıktıyı yalnız grafik kurulduktan sonra boşalttığı için
+    (`renderStart`) önceki `dist` yerinde kalıyor: onunla açılır, hata `kokpit.log`'a `FAIL derleme basarisiz`.
+    Kaynağa sözdizimi hatası konup denendi: eski paketle açıldı, log satırı düştü.
+  - **Küçükler:** PTY köprüsünde eski sürecin `exit`'i yenisinin kaydını silebiliyordu (koruma); log devri artık
+    çalışırken de (her 500 satır; Kokpit günlerce açık kalıyor); Ada çözünürlük/ekran değişince yeniden yerleşir;
+    `--arka` açılışta ilk gösterim kayıtlı büyütülmüş hali uygular; üst katman düşüş logu süreç adını da yazar
+    (v2.8'in açık sorusu: 68 düşüş `WinUIDesktopWin32WindowClass`, hangi uygulama olduğu artık görülecek); bayat
+    `claude --continue` metinleri; Vite 8.3.1 → 8.3.5 (high: launch-editor, 3 advisory), React 19.3.1, lucide 1.61,
+    plugin-react 6.1.2, `npm audit` 0. CI'a `test:ada` eklendi.
+- **Faz 36, biten bölme yerinde + Ctrl+Shift+T** (✅): claude'dan çıkınca ya da bağlantı kopunca bölme "kapandı"
+  yazıp kalıyordu. Artık mesaj satırında **Sürdür** (transcript diskteyse; aynı bölmede `--resume`, aynı kimlik) ya da
+  **Yeniden aç** (yeni kimlikle aynı klasörde). Ctrl+Shift+T ve palet: son kapatılan claude oturumu (bellekte son 10)
+  aynı kuralla geri açılır; o konuşma zaten açıksa atlanır. "Diskte mi" sorusu dar bir IPC'den (`oturum:surdurulebilir`,
+  yalnız stat). Terminal araması sonuç sayar (`3/12`, `yok`).
+- **Faz 37, push durumu + hızlı tazeleme** (✅): `durum.py` ahead/behind/upstream veriyordu, Pano göstermiyordu.
+  Git sütununda `↑N` (push edilmemiş), `↓N` (geride), uzak dalı yoksa "yerel"; ölçüm şeridinde "N commit push
+  bekliyor". `durum.py` 22 depoyu sırayla okuyordu (Kokpit logunda p50 4,5 sn, en kötü 12,7 sn; cProfile: sürenin %85'i
+  113 git süreci): git durumları paralel (8 iş parçacığı), 2,1 → 0,8 sn, JSON çıktısı eskisiyle birebir aynı (karşılaştırıldı).
+- **Testler:** `test:ada` 70 (+7: kabuk katmanları, giriş gecikmesi, sayaç sıfırlama, gecikmesiz çıkış), `test:ui` 174
+  (+19: push işareti, hata şeridi + korunan tablo, sinema ön koşulu, arama sayacı, Sürdür/Yeniden aç kimlik zinciri,
+  Ctrl+Shift+T iki yol, servis kapanınca PTY sunucusu canlı), üst üste iki koşu yeşil — test sahte transcript'i ve `durum.py` sarmalayıcısını geçici dizinde tutar
+  (`KOKPIT_CLAUDE_PROJELER`, `KOKPIT_DURUM_SCRIPT`), gerçek `~/.claude`'a dokunmaz. kanca 101, pty 21. **Mutasyon:** hata anında veriyi silen eski
+  davranış 3, kimliği yenileyen "Sürdür" 1 kontrolü kırmızı yaktı. Biten bölme testte kabuk PID'iyle sonlandırılır
+  (yazılan `exit` üç koşunun ikisinde kabuğa ulaşmadı; yalıtılmış 18 turluk denemede PTY sunucusu hiç donmadı).
+- **Olay:** denetim sırasında test penceresini kapatmak için kullanılan başlık filtreli `taskkill` Scryne'ın çalışan
+  Kokpit'ini de kapattı; açık oturum yoktu (son oturum 09:47'de güvenli kapanmış), `kokpit-sessiz.vbs --arka` ile
+  geri açıldı. Ders hafızada: test süreci yalnız PID ile öldürülür.
+- **Kontrol edilemeyen / bilerek yapılmayan:** Electron 44.4.5 → 44.9.3 ve koffi 3.3.3 yaması: çalışan Kokpit
+  `electron.exe` ve koffi'nin yerel modülünü kilitli tutuyor; Kokpit kapalıyken `npm update electron koffi` +
+  `allowScripts` sürüm satırı + mirror ile binary (README Kurulum). Electron 45 ana sürüm: ayrı iş. Test kabuğuna
+  yazılan `exit`'in ara sıra ulaşmamasının sebebi bulunmadı (teşhis noktası PTY sunucusunu canlı gösterdi); ürün
+  tarafında karşılığı görülmedi.

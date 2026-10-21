@@ -40,12 +40,19 @@ function yukle() {
   try {
     const koffi = require('koffi');
     const u = koffi.load('user32.dll');
+    const k = koffi.load('kernel32.dll');
     win32 = {
       onceki: u.func('void* __stdcall GetWindow(void* hWnd, uint32 uCmd)'),
       stil: u.func('int32 __stdcall GetWindowLongW(void* hWnd, int nIndex)'),
       gorunur: u.func('bool __stdcall IsWindowVisible(void* hWnd)'),
       sinif: u.func('int __stdcall GetClassNameW(void* hWnd, _Out_ uint16_t* lpClassName, int nMaxCount)'),
       yerlestir: u.func('bool __stdcall SetWindowPos(void* hWnd, intptr_t after, int X, int Y, int cx, int cy, uint32 uFlags)'),
+      // Teshis: ustteki pencerenin sureci (sinif adi tek basina uygulamayi soylemiyordu: 10-06..21
+      // arasi 68 dusus "WinUIDesktopWin32WindowClass", hangi WinUI uygulamasi oldugu belirsiz).
+      surecNo: u.func('uint32 __stdcall GetWindowThreadProcessId(void* hWnd, _Out_ uint32_t* lpdwProcessId)'),
+      surecAc: k.func('void* __stdcall OpenProcess(uint32 dwDesiredAccess, bool bInheritHandle, uint32 dwProcessId)'),
+      surecYolu: k.func('bool __stdcall QueryFullProcessImageNameW(void* hProcess, uint32 dwFlags, _Out_ uint16_t* lpExeName, _Inout_ uint32_t* lpdwSize)'),
+      kapat: k.func('bool __stdcall CloseHandle(void* hObject)'),
     };
   } catch (e) {
     yuklenemedi = true;
@@ -58,6 +65,29 @@ function sinifAdi(w, h) {
   const ad = new Uint16Array(64);
   const n = w.sinif(h, ad, 64);
   return n > 0 ? String.fromCharCode(...ad.subarray(0, n)) : '?';
+}
+
+/** Pencerenin surecinin exe adi (ornek "PowerToys.Settings.exe"); okunamazsa ''. Yalniz log aninda. */
+function surecAdi(w, h) {
+  try {
+    const no = [0];
+    w.surecNo(h, no);
+    if (!no[0]) return '';
+    const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    const s = w.surecAc(PROCESS_QUERY_LIMITED_INFORMATION, false, no[0]);
+    if (!s) return '';
+    try {
+      const yol = new Uint16Array(260);
+      const boy = [260];
+      if (!w.surecYolu(s, 0, yol, boy)) return '';
+      const tam = String.fromCharCode(...yol.subarray(0, boy[0]));
+      return tam.slice(tam.lastIndexOf('\\') + 1);
+    } finally {
+      w.kapat(s);
+    }
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -85,7 +115,8 @@ function kontrolEt(adaTutamaci) {
     }
     const i = dustuMu(ustundekiler);
     if (i < 0) return { dustu: false };
-    const ustteki = sinifAdi(w, tutamaclar[i]);
+    const surec = surecAdi(w, tutamaclar[i]);
+    const ustteki = sinifAdi(w, tutamaclar[i]) + (surec ? ' (' + surec + ')' : '');
     const duzeldi = w.yerlestir(ada, HWND_TOPMOST, 0, 0, 0, 0, SWP_BAYRAK);
     return { dustu: true, duzeldi, ustteki };
   } catch (e) {
