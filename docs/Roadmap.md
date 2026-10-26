@@ -1,7 +1,7 @@
 ---
 proje: Kokpit
 created: 2026-09-10
-modified: 2026-10-04
+modified: 2026-10-16
 type: roadmap
 status: aktif
 ---
@@ -42,6 +42,10 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 24 | Hareket bütçesi | ✅ Tamamlandı | Ada görünürken süreç başına CPU/GPU ölçüldü; göz canlı/durgun farkı gürültü düzeyinde (üç dönüşümlü tur); arka plandaki ana pencerede animasyon yok |
 | 25 | Yapıştırma | ✅ Tamamlandı | Ctrl+V metni yapıştırıyor, panoda yalnız resim varken ^V gidiyor; claude fareyi izlerken sağ tık bir kez yapıştırıyor (çift yapışmanın kök nedeni ölçüldü); `test:ui`'da PTY'ye giden baytlardan doğrulandı |
 | 26 | Ada'yı ekranlar arasında taşı | ✅ Tamamlandı | Hap sürüklenince Ada imleçle gidiyor, bırakılan ekranın üst ortasına oturuyor, ekran `ayarlar.json`'da hatırlanıyor; palette "sonraki ekran"; iki gerçek ekranda `test:ui` ile doğrulandı |
+| 27 | Gece görevi | ✅ Tamamlandı | İşaretli sekme bitti mi diye soruluyor, onaylayan güvenli kapanıyor, hepsi kapanınca bilgisayar kapanıyor; durum makinesi `test:night`, bekçi `test:night-guard` (v2.7) |
+| 28 | Ada istenen yerde | ✅ Tamamlandı | Ada bırakıldığı yerde kalıyor, hap yeri kaydediliyor, altta kart yukarı açılıyor; `test:ui` iki ekranda (v2.8) |
+| 29 | Okuma sayfası + okuma teması | ✅ Tamamlandı | Vault'un Companion/daily/knowledge/proje kesimi Kokpit'te okunuyor; okunmamış işareti; proje başına "en son ne oldu"; alan dışı yol reddediliyor; aydınlık "Kâğıt" teması Okuma'da kalıcı; `test:okuyucu` + `test:okuma-ui` (v2.9) |
+| 30 | Kokpit aydınlık mod (tüm yüzeyler) | ⏳ Bekliyor | `data-tema` `<html>`'de; Pano/Sağlık/Envanter/Ada ham renkleri token'a çevrildi; `nativeTheme` ayara bağlı; aydınlıkta akrilik kontrastı yeniden ölçüldü; terminal koyu kalıyor |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -608,3 +612,125 @@ sürükle-bırakı seçti (serbest konum ve otomatik takip yerine).
   Shift+sağ tık (PTY'ye giden baytlar sayılarak; fare modu sunucudan gelmiş gibi enjekte); Ada sürüklerken
   imleçle gidiyor, bırakınca üst ortaya oturuyor, ayara yazılıyor, sonraki ekran komutu iki gerçek ekranda
   doğru yere taşıyıp başa dönüyor; hap ikinci ekrana sürüklenince pencere oraya geçiyor, bırakınca o ekranın üst ortasına oturup o ekranı kaydediyor. Gate (Opus): bulgu — sürükleme bayrağını yalnız renderer temizliyordu (çökme/yeniden yükleme/gizlenmede ada kilitli kalırdı) → `suruklemeyiKes`; ekranlar arası sürükleme testi eklendi. Ölçülmedi: karışık DPI (iki ekranın ölçeği de 1).
+
+### v2.7 (2026-10-05): Gece görevi
+
+**Neden:** 4 Ekim gecesi iki ajan 02:37 ve 02:57'de bitirdi, bilgisayar kapanmadı; ayrı bekçi transcript
+mtime'ına bakıyordu ve boşta kuralı hiç tetiklenmedi (`docs/Devir-2026-10-05-Oturum-ve-Gece.md`). Kaan'ın
+kararı: işaretli sekmeye Kokpit "bitti mi" diye sorar, ajan onaylayınca güvenli kapatır, hepsi kapanınca
+bilgisayar kapanır; hiçbir iş kesilmez.
+
+- **Durum makinesi** `electron/night.cjs` (saf): sekme başına `working → asked → confirmed → closed`. Tur
+  bitmiş, canlı alt ajan yok, 60 sn sessiz ve son sorudan 10 dk geçmişse soru gider. Cevapta son
+  `GECE: BITTI|DEVAM` satırı karar verir (Stop'un ham `last_assistant_message`'ı; kırpılmış `sonSoz` değil).
+  Olay üreten ajana dokunulmaz: sessizlikle kapatma yalnız alt ajan yokken, tur bitmişse 60 dk, ajan
+  `calisiyor` görünüyorsa 180 dk hiç olay gelmezse (limitte takılan ajan). Esc + dürtme yalnız `bekliyor`
+  + 20 dk hiç olay + alt ajan yok (20 dk'da en fazla bir). Soru ya da devam mesajından sonra olay gelmezse
+  teslim edilmemiş sayılır, 2 dk'da bir yeniden (açılamayan sekme 15 denemede kapalı sayılır).
+  `GECE: BITTI` deyip arkada alt ajan bırakan sekmenin kapanışı alt ajanlar bitene kadar bekler.
+  SessionEnd yalnız onaydan sonra kapanış sayılır (`/clear` da SessionEnd üretir); pty çıkışı ve elle kapatma
+  her durumda sayılır.
+- **Ana süreç** `electron/night-host.cjs`: kanca köprüsünün yeni `hook` dinleyicisinden beslenir, eylemleri
+  renderer'a `night:action` ile yollar. Yazma `oturumaGonder` yolundan (metin, 350 ms, Enter), kapatma
+  `guvenliKapat`; 90 sn'de kapanmazsa zorla (ajan onay vermiş, gece bitmeli). `~/.kokpit/night.json`
+  atomik yazılır (tmp + rename), en az dakikada bir kalp. İlk gece sekmesinde bekçi
+  (`scripts/night_guard.py`, pythonw, detached) başlar; 5 dk'da bir kalbi 3 dk'dan eskiyse yeniden başlar.
+  Gece boyunca `powerSaveBlocker` ve oturum açılışında başlama (`--night-resume`, yalnız gece sürerken).
+- **İptal:** sekme şeridinde ve palette "Gece modunu iptal et" `night-cancel` yazar (bekçi bekleyen
+  kapanmayı `shutdown /a` ile durdurup çıkar) ve `night.json`'ı siler. Son canlı sekmenin işaretini
+  kaldırmak da iptaldir.
+- **Yeniden başlama:** açılışta `night.json` bitmemiş ve 12 saatten yeni ise kapanmamış gece sekmeleri
+  defterdeki yol ve son kimlikle (`/clear` düzeltmesi) `--resume` ile açılır, yeniden işaretlenir; ilk hook
+  olayında ya da 30 sn sonra bir kez devam mesajı gider. Bu sekmeler geri yükleme şeridinde teklif edilmez.
+  `kokpit-sessiz.vbs` ve `uretim.cjs` argümanları Electron'a geçirir.
+- **Arayüz:** etkinlik şeridinin sağında "Gece görevi" düğmesi (`aria-pressed`), sekmede ay rozeti ve tek
+  kelime durum (çalışıyor / soruldu / onayladı / kapandı), palette işaretle / kaldır. README kural 8'e
+  gece istisnası eklendi.
+- **Denetim (gate, 2026-10-05):** üç engelleyici bulgu düzeltildi: (B1) izin onaylanınca etkinlik tur boyu
+  `bekliyor` kalıyor, çalışan ajana 20 dk sonra Esc gidiyordu; (B2) soruldu durumunda 60 dk sessizlik
+  çalışan ajanı kapatabiliyordu; (B3) bekçi kapatma çağrısından sonra `night.json`'ı okumuyordu, done sonrası
+  açılan yeni gecede 10 dk sonra zorla kapatırdı (artık karar dönerse `shutdown /a` ile geri alır). Ayrıca
+  (D1) arka plan alt ajanı, (D2) yeniden başlatmada onaylı sekmenin devam ettirilmemesi (hepsi onaylıysa
+  açılışta done), (D3) devam mesajının teslim edilmeme durumu. İkinci gate iki engelleyici daha buldu,
+  ikisi de düzeltildi: (F1) kaçan SubagentStop alt ajan sayısını takılı bırakıp geceyi hiç bitirmiyordu (15 dk
+  hiç olay yoksa sayılmaz, etkinlik'le aynı süre); (F2) Kokpit `night.json`'ı silip `night-cancel` yazmıyordu,
+  yaşayan bekçi önbellekteki kopyayla kullanılan makineyi kapatabilirdi (artık her silişte iptal yazılır; bekçi
+  okuduğu dosya silinirse iptal sayar). Her biri için gerileme testi var; bu son tur ayrıca gate'ten geçmedi.
+- **Testler:** `test:night` 75 (yeni; her geçiş, sessizlik ve alt ajan engeli, soru aralığı, işaret
+  ayrıştırma, boşta kapatma, dürtme kısıtı, SessionEnd ve elle kapatma, `done` yalnız hepsi kapanınca,
+  açılış planı; sonda Kokpit'in yazıcısıyla yazılan `night.json`'ı gerçek bekçi `--dry-run --once` ile
+  okuyor: açıkken `waiting`, hepsi kapanınca `shutdown`), `test:night-guard` 16 (kapatma döngüsü: zorla tekrar, yeni gecede geri alma, iptal, silinen night.json), `test:kanca` 115,
+  `test:pty` 18, `test:ui` 98 (denetim öncesi koşu; 93'ten; paletten işaret, rozet, `night.json`, iptal, elle kapatınca `done`;
+  üç koşu üst üste temiz); typecheck ve build temiz.
+- **Yolda çıkan iki hata:** (1) libuv her çocuğu `bInheritHandles=TRUE` ile açıyor; doğrudan açılan bekçi
+  Electron'un tutamaçlarını miras alıp gece boyu tutuyordu (testte eski CDP bağlantıları ikinci açılışın
+  portunu kilitledi; gerçekte PTY sunucusu boruları da olabilirdi). Bekçi artık kısa ömürlü bir pythonw
+  üzerinden `Popen(close_fds=True)` ile açılıyor. (2) Komut paleti açılışta sorguyu sıfırlarken hızlı
+  yazılan harflerle yarışıyor, eski sorgu kalıyordu (`test:ui`'daki aralıklı "arama süzüyor" hatası);
+  sorgu artık kapanışta da sıfırlanıyor.
+- **Gerçek sistemde ölçülmedi:** gerçek kapanma (`shutdown /s`, `/f` yeniden denemesi), oturum açılışı
+  kaydı (`setLoginItemSettings` + wscript), gerçek yeniden başlatma sonrası dirilme, `powerSaveBlocker`'ın
+  gece boyu etkisi, gerçek claude'un soruya `GECE:` satırıyla cevabı ve dürtmenin izin istemindeki etkisi.
+  UI testi kabukla açıldığı için (hook yok) etkinlik şeridindeki düğme orada görünmez; işaret orada paletten
+  sınandı, düğmenin kendisi yalnız typecheck ve derlemeyle doğrulandı.
+
+### v2.8 (2026-10-13): Ada istenen yerde
+
+Scryne: "Bu adayı sağa sola istediğim yere hareket ettirebilmek istiyorum." v2.6'da sürüklenen ada,
+bırakıldığı ekranın üst ortasına geri yapışıyordu; artık bırakıldığı yerde kalır.
+
+- **Kayıt:** `ayarlar.json`'daki `adaEkran` artık hapın o ekranın çalışma alanına göre yerini de tutar
+  (`hap: { cx, ust, alt }`, px). Çözünürlük değişir ya da ekran küçülürse hap çalışma alanının içine çekilir;
+  ekran çıkarılırsa ada birincil ekrana düşer, kayıt silinmez.
+- **Yerleşim:** ada penceresi (460×520, saydam) hapın yerine göre kurulur. Hap ekranın alt kısmındaysa (kart
+  aşağı sığmıyorsa) kart **yukarı** açılır: hap altta, liste üstte. Pencere ekrandan taşacaksa ekran kenarına
+  dayanır, hap o kenara yaslanır (mıknatıs gibi kısa bir kayma). Kararı main verir, renderer'a
+  `ada:yerlesim` ile gider.
+- **Sıfırlama:** komut paletindeki "Ada'yı sonraki ekrana taşı" ada'yı o ekranın üst ortasına koyar; tek
+  ekranda ada üst ortaya döner (kaybolan ada'nın klavye yolu).
+- **Testler:** `test:ui` Ada bölümü güncellendi: bırakılan yerde kalıyor, hap yeri kaydediliyor, ekranlar
+  arası bırakınca orada kalıyor, ekranın altına bırakınca kart yukarı açılıyor, hap bırakılan yerde (±2 px),
+  pencere ekranda; palet komutu üst ortaya geri koyuyor. İki ekranlı makinede geçti; typecheck ve build temiz.
+- **Ölçülmedi:** kenara yaslanma (yatay) testte yok, mantığı basit; gerçek fareyle elle denenmedi.
+
+### v2.9 (2026-10-16): Okuma
+
+Kaan: "vault'a yazılanları özet dahi olsa açıp okumuyorum ... kolay erişilebilir olmadığını fark
+ettim." Claude her oturumda Last-Session'a, daily'ye ve gece derlenen bilgi notlarına yazıyor; okumak
+için Obsidian'ı açmak gerekiyordu ve neyin yeni olduğu görünmüyordu. Kararlar (Kaan): Kokpit içinde
+sayfa (ayrı pencere değil); kapsam Companion, daily, knowledge ve projeler (projeler "en son ne
+yapıldı" özeti olarak); aydınlık tema önce yalnız bu sayfada, sonra bütün Kokpit'te (Faz 30).
+
+- **Okuyucu** `electron/vault-okuyucu.cjs`: vault'un dört kökünü **salt okur** (`🔮 850-Companion`,
+  `daily`, `knowledge`, `🏰 300-Projects`). Her yol izinli kökün içinde mi, `.md` mi, nokta klasörü
+  (`.claude`, `.obsidian`) değil mi, junction/symlink çözülmüş gerçek yolu da içeride mi diye bakılır;
+  1 MB üstü okunmaz. Başlık frontmatter `title` → ilk `#` → dosya adı (ilk 2 KB). Dosya izleyici yok
+  (A-04): sayfa görününce, pencere odağa gelince ve elle okunur. Gerçek vault'ta akış 37 ms, proje
+  özetleri 20 ms (658 not).
+- **Okunmamış:** `~/.kokpit/okuma.json` (`esik` + not başına okunan mtime); vault'a yazılmaz. İlk
+  açılışta yalnız son 2 günün notları okunmamış sayılır; not değişince yeniden okunmamış olur. Nav
+  rozeti, Akış sekmesi ve Pano'nun Beyin bloğunda "N okunmamış not · Oku". "Hepsini okundu say" eşiği
+  şimdiye çeker.
+- **Proje özeti:** `kokpit-projeler.json` sırasıyla proje listesi; son 30 daily'de `### Oturum (SS:DD) —
+  <proje>` blokları taranır, en yeni bloğun Bağlam/Alınan Kararlar/Yapılacaklar maddeleri; proje
+  klasöründe en son değişen 5 not; aşama ve roadmap `durum.py`'den. En yeni hareket en üstte; tıklayınca
+  daily o başlığa kayarak açılır.
+- **Renderer** `src/renderer/Okuma.tsx` + `okuma-md.ts`: `react-markdown` + `remark-gfm`; ham HTML metin
+  olarak kalır (`rehype-raw` yok). Wikilink (`[[ad]]`, `[[ad|etiket]]`, `[[ad#başlık]]`) ve göreli `.md`
+  linki önceden çözülür; okuma alanında olmayan hedef soluk noktalı metin. Kod içindeki `[[...]]`
+  dokunulmaz. Geri yığını (Alt+Sol), 1600 px üstünde sağda başlık listesi, başlıkta arama. Resim yer
+  tutucu, mermaid kod bloğu (kapsam dışı).
+- **Tema "Kâğıt":** DESIGN.md `acik-*` token'ları, index.css `[data-tema="acik"]` aynı adlı değişkenleri
+  ezer; yalnız Okuma sayfasının altı aydınlanır, nav ve terminal koyu kalır. Kontrastlar ölçüldü
+  (DESIGN.md "Okuma"). Okuma gövdesi IBM Plex Sans 17/1.7. Ayar `okumaTema` (`ayarlar.json`).
+- **Kısayol ve palet:** Ctrl+5; palette "Okuma", "Okuma: projelerde en son ne oldu", "Okuma: Last-Session
+  ve Threads", "Okuma: aydınlık/koyu temaya geç".
+- **Testler:** `test:okuyucu` 61 (sahte vault: yol kaçışı, junction, başlık, okundu, wikilink/göreli link,
+  proje blokları; CI'da koşar). `test:okuma-ui` 26 (gerçek Electron, sahte vault: Ctrl+5, akış, tablo,
+  ham HTML'in çalışmadığı, kırık link, okunmamış noktası, wikilink + Alt+Sol, göreli link, proje özeti ve
+  daily'ye kaydırma, renderer ucundan alan dışı yol reddi, tema ve yeniden açılışta korunması). Gerçek
+  vault'la iki temada ekran görüntüsü alındı; bilgi indeksindeki tablonun hücreleri harf harf kırılıyordu,
+  düzeltildi.
+- **Ölçülmedi:** Ada ve Pano'nun aydınlık hali (Faz 30); 1600 px üstündeki başlık listesi ekranda
+  görülmedi; projelerin çoğunun daily'de `— <proje>` başlıklı oturumu yok (yalnız project_flush'tan
+  geçenler), onlarda yalnız son notlar görünür.

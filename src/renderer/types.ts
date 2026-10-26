@@ -227,6 +227,47 @@ export interface Ayarlar {
   yaziBoyutu: number;
   arsivAcik: boolean;
   ada?: boolean;
+  /** Okuma sayfasinin temasi (v2.9); geri kalan Kokpit simdilik hep koyu. */
+  okumaTema?: OkumaTema;
+}
+
+// --- Okuma sayfasi (electron/vault-okuyucu.cjs ile ayni sekil) ---
+
+export type OkumaTema = 'koyu' | 'acik';
+export type OkumaBolumu = 'akis' | 'companion' | 'gunluk' | 'bilgi' | 'projeler';
+
+export interface VaultNotu {
+  /** Vault'a goreli, ileri egik cizgili yol. */
+  yol: string;
+  baslik: string;
+  mtime: number;
+  boyut: number;
+  grup: string;
+  okunmamis: boolean;
+}
+
+export type VaultOkuSonuc =
+  | { yol: string; ham: string; mtime: number; baslik: string; okunmamis: boolean; hata?: undefined }
+  | { hata: string };
+
+export interface ProjeOturumu {
+  tarih: string;
+  saat: string;
+  /** Oturumun yazildigi daily notu. */
+  yol: string;
+  /** Daily'deki baslik ("Oturum (11:15) — Kokpit"); okuyucu buna kaydirir. */
+  baslik: string;
+  baglam: string[];
+  kararlar: string[];
+  yapilacaklar: string[];
+}
+
+export interface ProjeOzeti {
+  ad: string;
+  envanter: string | null;
+  klasor: string | null;
+  sonOturum: ProjeOturumu | null;
+  notlar: VaultNotu[];
 }
 
 // --- Kanca koprusu (electron/etkinlik.cjs ile ayni sekil) ---
@@ -333,12 +374,37 @@ export interface EtkinlikAnlik {
 
 export type EtkinlikSinyali = { id: string; sinyal: 'bitti' | 'bekliyor'; durum?: OturumEtkinligi };
 
+/** Ada'nin pencere icindeki yeri (v2.8, electron/ada.cjs konum): hap hangi kenarda, kart ne yone acilir. */
+export interface AdaYerlesim {
+  yatay: 'orta' | 'sol' | 'sag';
+  dikey: 'asagi' | 'yukari';
+}
+
 /** Adaya giden oturum satiri (adlar ana pencerede yasar). */
 export interface AdaOturumu {
   id: string;
   ad: string;
   baslangic: number | null;
   dikkat: boolean;
+}
+
+/** Gece gorevi (electron/night.cjs): sekme basina durum, main yollar. */
+export type NightTabState = 'working' | 'asked' | 'confirmed' | 'closed';
+export interface NightView {
+  /** Gece suruyor (bitmis ve kapanma bekleyen dahil): iptal dugmesi gorunur. */
+  active: boolean;
+  done: boolean;
+  tabs: Record<string, NightTabState>;
+}
+export interface NightAction {
+  type: 'ask' | 'nudge' | 'resume' | 'close';
+  id: string;
+  text?: string;
+}
+export interface NightResumeTab {
+  ad: string;
+  yol: string;
+  claude: string | null;
 }
 
 declare global {
@@ -375,6 +441,15 @@ declare global {
       defterSonlar: () => Promise<Record<string, SonOturum>>;
       notEkle: (metin: string, kaynak: string | null) => Promise<{ dosya?: string; hata?: string }>;
       notAcSorulunca: (cb: () => void) => () => void;
+      vaultListe: (bolum: Exclude<OkumaBolumu, 'akis' | 'projeler'>) => Promise<VaultNotu[]>;
+      vaultAkis: (n?: number) => Promise<VaultNotu[]>;
+      vaultOku: (yol: string) => Promise<VaultOkuSonuc>;
+      vaultCozumle: (hedef: string, kaynak: string | null) => Promise<{ yol: string; cipa: string | null } | null>;
+      vaultProjeler: () => Promise<ProjeOzeti[]>;
+      vaultOkundu: (yol: string, mtime: number) => Promise<boolean>;
+      vaultHepsiOkundu: () => Promise<boolean>;
+      vaultOkunmamis: () => Promise<number>;
+      vaultTazele: () => Promise<void>;
       oturumBaglami: (
         liste: { id: string; yol: string; baslangic: number; claude?: string }[]
       ) => Promise<Record<string, OturumBaglami | null>>;
@@ -382,6 +457,7 @@ declare global {
       etkinlikAnlik: () => Promise<EtkinlikAnlik>;
       etkinlikDinle: (cb: (a: EtkinlikAnlik) => void) => () => void;
       sinyalDinle: (cb: (s: EtkinlikSinyali) => void) => () => void;
+      kimlikDinle: (cb: (k: { id: string; claude: string }) => void) => () => void;
       adaListe: (liste: AdaOturumu[]) => void;
       adaAyar: (acik: boolean) => void;
       adaListeDinle: (cb: (l: AdaOturumu[]) => void) => () => void;
@@ -394,13 +470,24 @@ declare global {
       komutlarDuzenle: () => Promise<boolean>;
       adaGonder: (istek: GonderIstegi) => void;
       adaOdak: (istek: boolean) => void;
-      adaSurukle: (asama: 'basla' | 'tasi' | 'bitir', x: number, y: number) => void;
+      adaSurukle: (
+        asama: 'basla' | 'tasi' | 'bitir',
+        x: number,
+        y: number,
+        hap?: { sol: number; ust: number; sag: number; alt: number }
+      ) => void;
+      adaYerlesimDinle: (cb: (y: AdaYerlesim) => void) => () => void;
       adaSonrakiEkran: () => Promise<{ toplam: number; sira: number; alan: { x: number; y: number; width: number; height: number } }>;
       oturumaGonderDinle: (cb: (istek: GonderIstegi) => void) => () => void;
       adaGordum: (id: string) => void;
       oturumGordumDinle: (cb: (id: string) => void) => () => void;
       adaKlavyeDinle: (cb: (k: { anaOdakta: boolean }) => void) => () => void;
       pencereOdakDinle: (cb: (odakta: boolean) => void) => () => void;
+      nightToggle: (x: { id: string; on: boolean; name: string; claude?: string | null; resume?: boolean }) => void;
+      nightCancel: () => void;
+      nightResume: () => Promise<NightResumeTab[]>;
+      nightStateListen: (cb: (v: NightView) => void) => () => void;
+      nightActionListen: (cb: (a: NightAction) => void) => () => void;
     };
   }
 }

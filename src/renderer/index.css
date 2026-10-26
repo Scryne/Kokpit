@@ -5,6 +5,10 @@
    acilirken aga cikmamalidir. */
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
+/* Okuma govdesi (v2.9, DESIGN.md "Okuma"): yalniz kullanilan agirliklar. */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/400-italic.css";
+@import "@fontsource/ibm-plex-sans/600.css";
 
 /* Degerlerin kaynagi kokteki DESIGN.md frontmatter'i. Ayni token iki yerde yasamaz:
    burasi o dosyanin Tailwind'e cevrilmis halidir, ikinci bir karar yeri degil. */
@@ -39,6 +43,7 @@
 
   --font-arayuz: 'Inter Variable', ui-sans-serif, 'Segoe UI', sans-serif;
   --font-enstruman: 'JetBrains Mono Variable', ui-monospace, Consolas, monospace;
+  --font-okuma: 'IBM Plex Sans', 'Inter Variable', ui-sans-serif, 'Segoe UI', sans-serif;
 
   --radius-base: 0.75rem;
   --radius-kontrol: 0.5rem;
@@ -123,6 +128,199 @@ body {
 }
 .bg-birincil:hover:not(:disabled) {
   background-image: linear-gradient(180deg, #e9edf2 0%, #c8cfd8 55%, #a9b1bc 100%);
+}
+
+/* ---- Okuma sayfasi (v2.9) ----
+   Tema "Kagit": DESIGN.md `acik-*` token'lari ayni adli koyu token'in yerine gecer. @theme
+   degiskenleri kaskadla aktigi icin yalniz bu ogenin altindaki yardimcilar aydinlanir; nav,
+   sekme seridi ve terminal koyu kalir. Butun Kokpit'e yayilmasi ayri faz (Roadmap 30). */
+[data-tema='acik'] {
+  --color-bg-base: #f6f5f2;
+  --color-zemin: #f6f5f2;
+  --color-yuzey: #edebe6;
+  --color-yuzey-guclu: #e4e1da;
+  --color-cam: #edebe6;
+  --color-kenar: rgb(40 38 34 / 0.12);
+  --color-kenar-guclu: rgb(40 38 34 / 0.26);
+  --color-metin: #1b1d21;
+  --color-metin-ikincil: #40444b;
+  --color-metin-soluk: #5c6169;
+  --color-aksan: #3e4c5e;
+  --color-aksan-metin: #34404f;
+  --color-aksan-uzeri: #f6f5f2;
+  --color-birincil: #2b2e34;
+  --color-birincil-uzeri: #f6f5f2;
+  --color-dikkat: #a47619;
+  --color-dikkat-metin: #855c0e;
+  --color-hata: #b8355f;
+  --color-hata-metin: #a12d57;
+  color: var(--color-metin);
+  color-scheme: light;
+}
+/* Kagit opaktir: akrilik zemin aydinlik metnin arkasinda kontrasti bozardi. Halka aydinlikta
+   beyaz parlama degil ince bir golge cizgisi. */
+.okuma-kagit {
+  background: var(--color-zemin);
+}
+[data-tema='acik'] .halka::before {
+  background: linear-gradient(160deg, rgb(40 38 34 / 0.16), rgb(40 38 34 / 0.08) 50%, rgb(40 38 34 / 0.14));
+}
+[data-tema='acik'] .bg-birincil {
+  background-image: none;
+}
+[data-tema='acik'] ::-webkit-scrollbar-thumb {
+  background: rgb(40 38 34 / 0.2);
+}
+
+/* Not govdesi. Typography eklentisi yok: birkac kural, hepsi token'dan. */
+.okuma-metin {
+  font-family: var(--font-okuma);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  color: var(--color-metin);
+  overflow-wrap: anywhere;
+}
+.okuma-metin > * + *,
+.okuma-metin section > * + * {
+  margin-top: 0.9em;
+}
+.okuma-metin h1,
+.okuma-metin h2,
+.okuma-metin h3,
+.okuma-metin h4 {
+  font-family: var(--font-arayuz);
+  font-weight: 600;
+  line-height: 1.3;
+  text-wrap: balance;
+  scroll-margin-top: 1rem;
+}
+.okuma-metin h1 {
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+}
+.okuma-metin h2 {
+  font-size: 1.2rem;
+  margin-top: 2em;
+}
+.okuma-metin h3 {
+  font-size: 1.05rem;
+  margin-top: 1.7em;
+}
+.okuma-metin h4 {
+  font-size: 0.95rem;
+  margin-top: 1.4em;
+  color: var(--color-metin-ikincil);
+}
+.okuma-metin p,
+.okuma-metin li {
+  text-wrap: pretty;
+}
+.okuma-metin strong {
+  font-weight: 600;
+}
+.okuma-metin ul,
+.okuma-metin ol {
+  padding-left: 1.4em;
+}
+.okuma-metin ul {
+  list-style: disc;
+}
+.okuma-metin ol {
+  list-style: decimal;
+}
+.okuma-metin li + li {
+  margin-top: 0.3em;
+}
+.okuma-metin li::marker {
+  color: var(--color-metin-soluk);
+}
+.okuma-metin li > ul,
+.okuma-metin li > ol {
+  margin-top: 0.3em;
+}
+.okuma-metin ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.2em;
+}
+.okuma-metin a {
+  color: var(--color-aksan-metin);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-aksan) 45%, transparent);
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+.okuma-metin a:hover {
+  text-decoration-color: currentColor;
+}
+.okuma-metin .kirik-link {
+  color: var(--color-metin-soluk);
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+  cursor: help;
+}
+.okuma-metin blockquote {
+  border-left: 2px solid var(--color-kenar-guclu);
+  padding-left: 1em;
+  color: var(--color-metin-ikincil);
+}
+.okuma-metin code {
+  font-family: var(--font-enstruman);
+  font-size: 0.85em;
+  background: var(--color-yuzey-guclu);
+  border-radius: var(--radius-rozet);
+  padding: 0.1em 0.35em;
+}
+.okuma-metin pre {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  background: var(--color-yuzey-guclu);
+  border: 1px solid var(--color-kenar);
+  border-radius: var(--radius-kontrol);
+  padding: 0.8em 1em;
+  overflow-x: auto;
+}
+.okuma-metin pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+.okuma-metin hr {
+  border: 0;
+  border-top: 1px solid var(--color-kenar);
+  margin: 2em 0;
+}
+/* Tablolar genis olabilir (knowledge/index.md): kendi kutusunda yatay kayar, sayfa kaymaz. */
+.okuma-tablo {
+  overflow-x: auto;
+  border: 1px solid var(--color-kenar);
+  border-radius: var(--radius-kontrol);
+}
+.okuma-metin table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.okuma-metin th,
+.okuma-metin td {
+  /* Govdedeki `anywhere` tabloda hucreyi harf genisligine indiriyordu (knowledge/index.md). */
+  overflow-wrap: normal;
+  min-width: 7rem;
+  padding: 0.45em 0.75em;
+  text-align: left;
+  vertical-align: top;
+  border-top: 1px solid var(--color-kenar);
+}
+.okuma-metin thead th {
+  border-top: 0;
+  font-family: var(--font-arayuz);
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--color-metin-ikincil);
+  background: var(--color-yuzey);
+}
+.okuma-metin img {
+  display: none;
 }
 
 /* Olculmus her deger mono yuzludur: sayilar hizali olsun. */
@@ -211,6 +409,10 @@ html.ada body {
     inset 0 1px 0 rgb(255 255 255 / 0.08),
     0 12px 32px -12px rgb(0 0 0 / 0.7);
   transform-origin: top center;
+}
+/* Ekranin altinda kart yukari acilir (v2.8): acilis hapin oldugu alt kenardan buyur. */
+.ada-yukari {
+  transform-origin: bottom center;
 }
 .ada-acik {
   animation: ada-ac 160ms cubic-bezier(0.2, 0.8, 0.2, 1);

@@ -14,6 +14,8 @@
     "typecheck": "tsc -b --noEmit",
     "test:pty": "node scripts/test-pty.cjs",
     "test:ui": "node scripts/test-ui.cjs",
+    "test:okuyucu": "node scripts/test-vault-okuyucu.cjs",
+    "test:okuma-ui": "node scripts/test-okuma-ui.cjs",
     "ikon": "electron scripts/ikon-uret.cjs",
     "ekran": "node scripts/ekran.cjs",
     "ekran:ada": "node scripts/ekran-ada.cjs",
@@ -21,6 +23,8 @@
     "kisayol": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/kisayol.ps1",
     "design:lint": "npx -p @google/design.md designmd lint DESIGN.md",
     "test:kanca": "node scripts/test-kanca.cjs",
+    "test:night": "node scripts/test-night.cjs",
+    "test:night-guard": "node scripts/test-night-guard.cjs",
     "e2e:kanca": "node scripts/e2e-kanca.cjs"
   },
   "dependencies": {
@@ -35,6 +39,8 @@
     "node-pty": "^1.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "ws": "^8.21.3"
   },
   "devDependencies": {

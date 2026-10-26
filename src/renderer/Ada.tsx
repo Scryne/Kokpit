@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { Check, CornerDownLeft } from 'lucide-react';
 import type {
   AdaOturumu,
+  AdaYerlesim,
   EtkinlikAnlik,
   GonderIstegi,
   HizliKomut,
@@ -23,6 +24,9 @@ import { AdaGoz, gozPozu, type GozHali } from './AdaGoz';
 // Sira sende olan oturumun (bitti / seni bekliyor) altinda: claude soru sorduysa sorular ve
 // secenekleri, bittiyse son sozu + hizli komutlar + yanit kutusu. Gonderim main uzerinden ana
 // penceredeki PTY'ye gider; Kokpit one gelmez.
+//
+// v2.8: ada her yere birakilabilir. Main hapin yerine gore yerlesimi yollar: ekranin altinda kart
+// yukari acilir (hap altta, liste ustte), kenara dayaninca hap o kenara yaslanir.
 //
 // Pencere saydam, bu yuzden zemin kendi tonunu tasir (ada-zemin, ~%92 opak): arkada ne
 // olursa olsun metin okunur. backdrop-filter yok — saydam pencerede masaustunu bulaniklastiramaz.
@@ -77,6 +81,8 @@ export default function Ada() {
   const [gonderilen, setGonderilen] = useState<Record<string, number>>({});
   // Klavye kisayolu: kart acildiktan SONRA ilk eylem odaklanir (kapaliyken eylemler cizilmez).
   const [klavyeIstegi, setKlavyeIstegi] = useState(0);
+  const [yerlesim, setYerlesim] = useState<AdaYerlesim>({ yatay: 'orta', dikey: 'asagi' });
+  const hapRef = useRef<HTMLButtonElement>(null);
   const bakisZamani = useRef<ReturnType<typeof setTimeout> | null>(null);
   const kart = useRef<HTMLDivElement>(null);
   const listeRef = useRef(liste);
@@ -114,12 +120,14 @@ export default function Ada() {
       setOdakta(true);
       setKlavyeIstegi((n) => n + 1);
     });
+    const k5 = window.kokpit.adaYerlesimDinle(setYerlesim);
     const t = setInterval(() => setSimdi(Date.now()), 1000);
     return () => {
       k1();
       k2();
       k3();
       k4();
+      k5();
       clearInterval(t);
     };
   }, []);
@@ -133,9 +141,10 @@ export default function Ada() {
     return () => cancelAnimationFrame(id);
   }, [klavyeIstegi]);
 
-  // Surukle-birak (v2.6): hapi tutup cekince ada pencereyle gider, birakinca o ekranin ust
-  // ortasina oturur (electron/ada.cjs). Koordinat screenX/Y: pencere imlecle birlikte kaydigi
-  // icin clientX sabit kalir, ekran koordinati kaymaz. Esik altinda kalan basis tiklamadir.
+  // Surukle-birak (v2.6): hapi tutup cekince ada pencereyle gider, birakinca orada kalir (v2.8;
+  // electron/ada.cjs). Koordinat screenX/Y: pencere imlecle birlikte kaydigi icin clientX sabit
+  // kalir, ekran koordinati kaymaz. Esik altinda kalan basis tiklamadir. Birakista hapin pencere
+  // icindeki yeri de gider: main ada'yi hap tam orada kalacak sekilde kurar.
   const surukleme = useRef<{ x: number; y: number; basladi: boolean; son: number } | null>(null);
   const surukledi = useRef(false);
   const [surukleniyor, setSurukleniyor] = useState(false);
@@ -145,7 +154,8 @@ export default function Ada() {
     if (!s?.basladi) return;
     surukledi.current = true;
     setSurukleniyor(false);
-    window.kokpit.adaSurukle('bitir', x, y);
+    const r = hapRef.current?.getBoundingClientRect();
+    window.kokpit.adaSurukle('bitir', x, y, r ? { sol: r.left, ust: r.top, sag: r.right, alt: r.bottom } : undefined);
   }, []);
 
   const fare = useCallback((icinde: boolean) => {
@@ -207,9 +217,17 @@ export default function Ada() {
   const l = anlik?.limitler;
   const genis = uzerinde || bakis || odakta;
   const soruVar = bekleyen.some((x) => x.e?.soruAyrinti?.cevaplanabilir);
+  const yukari = yerlesim.dikey === 'yukari';
 
   return (
-    <div className="flex justify-center pt-1.5">
+    // p-1.5: kart ile pencere kenari arasi (ada.cjs KENAR).
+    <div
+      className={
+        'flex h-screen p-1.5 ' +
+        (yukari ? 'items-end ' : 'items-start ') +
+        (yerlesim.yatay === 'sol' ? 'justify-start' : yerlesim.yatay === 'sag' ? 'justify-end' : 'justify-center')
+      }
+    >
       <div
         ref={kart}
         onMouseEnter={() => fare(true)}
@@ -252,10 +270,13 @@ export default function Ada() {
         }}
         className={
           'ada-kart halka relative overflow-hidden text-metin ' +
+          // Yukari acilan kart: hap altta, liste ustunde (DOM sirasi ayni, odak sirasi bozulmaz).
+          (yukari ? 'ada-yukari flex flex-col-reverse ' : '') +
           (genis ? 'ada-acik w-[440px] rounded-2xl' : 'rounded-full')
         }
       >
         <button
+          ref={hapRef}
           type="button"
           onPointerDown={(ev) => {
             if (ev.button !== 0) return;
@@ -313,7 +334,7 @@ export default function Ada() {
 
         {!genis && l?.besSaat && <LimitKenari kart={kart} yuzde={l.besSaat.yuzde} />}
         {genis && (
-          <div className="max-h-[440px] overflow-y-auto border-t border-kenar px-1.5 pb-1.5 pt-1">
+          <div className={'max-h-[440px] overflow-y-auto border-kenar px-1.5 pb-1.5 pt-1 ' + (yukari ? 'border-b' : 'border-t')}>
             <ul aria-label="Kokpit oturumları">
               {satirlar.map(({ o, e }) => (
                 <AdaSatiri
@@ -342,7 +363,7 @@ export default function Ada() {
         )}
         {/* Klavye ipucu kaydirma alaninin disinda: uzun listede de gorunsun. */}
         {genis && odakta && (
-          <p className="border-t border-kenar px-3.5 py-1 text-[0.6875rem] text-metin-soluk">
+          <p className={'border-kenar px-3.5 py-1 text-[0.6875rem] text-metin-soluk ' + (yukari ? 'border-b' : 'border-t')}>
             {soruVar && (
               <>
                 <span className="enstruman">1–4</span> seçer ·{' '}

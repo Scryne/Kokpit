@@ -39,6 +39,16 @@ contextBridge.exposeInMainWorld('kokpit', {
     return () => ipcRenderer.removeListener('not:ac', dinleyici);
   },
   oturumBaglami: (liste) => ipcRenderer.invoke('oturum:baglam', liste),
+  // Okuma sayfasi (v2.9): vault'un dar kesimini salt okur; yollar vault'a goreli.
+  vaultListe: (bolum) => ipcRenderer.invoke('vault:liste', bolum),
+  vaultAkis: (n) => ipcRenderer.invoke('vault:akis', n),
+  vaultOku: (yol) => ipcRenderer.invoke('vault:oku', yol),
+  vaultCozumle: (hedef, kaynak) => ipcRenderer.invoke('vault:cozumle', hedef, kaynak),
+  vaultProjeler: () => ipcRenderer.invoke('vault:projeler'),
+  vaultOkundu: (yol, mtime) => ipcRenderer.invoke('vault:okundu', yol, mtime),
+  vaultHepsiOkundu: () => ipcRenderer.invoke('vault:hepsi-okundu'),
+  vaultOkunmamis: () => ipcRenderer.invoke('vault:okunmamis'),
+  vaultTazele: () => ipcRenderer.invoke('vault:tazele'),
   // Beyne dusmemis tek oturumu vault'un betigiyle doldurur (yazan vault'tur, Kokpit degil).
   beyinDoldur: (session, proje) => ipcRenderer.invoke('beyin:doldur', session, proje),
   // Kanca koprusu: oturum etkinligi + limitler (main yayinlar, ana pencere ve ada dinler).
@@ -52,6 +62,12 @@ contextBridge.exposeInMainWorld('kokpit', {
     const d = (_e, s) => cb(s);
     ipcRenderer.on('etkinlik:sinyal', d);
     return () => ipcRenderer.removeListener('etkinlik:sinyal', d);
+  },
+  // Sekmenin claude kimligi degisti (/clear): Surdur ve baglam yeni konusmaya baksin.
+  kimlikDinle: (cb) => {
+    const d = (_e, k) => cb(k);
+    ipcRenderer.on('oturum:kimlik', d);
+    return () => ipcRenderer.removeListener('oturum:kimlik', d);
   },
   // Ada: oturum listesi ana pencereden gider; adadan tiklama ana pencereye "oturuma git" doner.
   adaListe: (liste) => ipcRenderer.send('ada:liste', liste),
@@ -77,7 +93,13 @@ contextBridge.exposeInMainWorld('kokpit', {
   adaGonder: (istek) => ipcRenderer.send('ada:gonder', istek),
   adaOdak: (istek) => ipcRenderer.send('ada:odak', istek),
   // v2.6: surukle-birak (asama: basla / tasi / bitir; x, y ekran koordinati) ve klavye yedegi.
-  adaSurukle: (asama, x, y) => ipcRenderer.send('ada:surukle', { asama, x, y }),
+  // v2.8: bitir'de hap = hapin pencere icindeki dikdortgeni; ada oraya birakilir.
+  adaSurukle: (asama, x, y, hap) => ipcRenderer.send('ada:surukle', { asama, x, y, hap }),
+  adaYerlesimDinle: (cb) => {
+    const d = (_e, y) => cb(y);
+    ipcRenderer.on('ada:yerlesim', d);
+    return () => ipcRenderer.removeListener('ada:yerlesim', d);
+  },
   adaSonrakiEkran: () => ipcRenderer.invoke('ada:sonraki-ekran'),
   oturumaGonderDinle: (cb) => {
     const d = (_e, istek) => cb(istek);
@@ -95,6 +117,20 @@ contextBridge.exposeInMainWorld('kokpit', {
     const d = (_e, odakta) => cb(odakta === true);
     ipcRenderer.on('pencere:odak', d);
     return () => ipcRenderer.removeListener('pencere:odak', d);
+  },
+  // Gece gorevi: isaret, iptal, yeniden baslatma sonrasi geri acilacaklar; main durum ve eylem yollar.
+  nightToggle: (x) => ipcRenderer.send('night:toggle', x),
+  nightCancel: () => ipcRenderer.send('night:cancel'),
+  nightResume: () => ipcRenderer.invoke('night:resume'),
+  nightStateListen: (cb) => {
+    const d = (_e, s) => cb(s);
+    ipcRenderer.on('night:state', d);
+    return () => ipcRenderer.removeListener('night:state', d);
+  },
+  nightActionListen: (cb) => {
+    const d = (_e, a) => cb(a);
+    ipcRenderer.on('night:action', d);
+    return () => ipcRenderer.removeListener('night:action', d);
   },
   adaKlavyeDinle: (cb) => {
     const d = (_e, k) => cb(k);

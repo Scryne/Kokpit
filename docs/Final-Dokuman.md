@@ -16,6 +16,11 @@ gösterdiği her şey `ScryneOS/.claude/scripts/durum.py --json` çıktısından
 takip ettiği dosyalardan türetilir. v1 hiçbir yere yazmaz. Uygulama silinirse hiçbir şey
 kaybolmaz — bu bir lens, depo değil.
 
+> **v2.9 eki (2026-10-16):** Okuma sayfası vault'un dar bir kesimini (Companion, daily, knowledge,
+> proje notları) belge olarak gösterir. Bu `durum.py` dışında ikinci bir okuma yoludur ama toplayıcı
+> değildir: durum üretmez, notu olduğu gibi okur, alan dışını reddeder, vault'a yazmaz. Ayrıntı
+> `docs/Roadmap.md` v2.9, kural README "Kurallar" 1.
+
 ## Teknoloji Stack
 
 | Katman | Seçim | Gerekçe |

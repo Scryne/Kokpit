@@ -27,11 +27,34 @@ colors:
   hata-metin: "#CD6284"
   grafik-1: "#5B8DEF"
   grafik-2: "#0D9488"
+  # Aydinlik tema "Kagit" (v2.9). Simdilik yalniz Okuma sayfasi; ayni adli koyu token'in
+  # yerine gecer (index.css `[data-tema="acik"]`). Kontrastlar asagida, "Okuma" bolumunde.
+  acik-zemin: "#F6F5F2"
+  acik-yuzey: "#EDEBE6"
+  acik-yuzey-guclu: "#E4E1DA"
+  acik-kenar: "rgb(40 38 34 / 0.12)"
+  acik-kenar-guclu: "rgb(40 38 34 / 0.26)"
+  acik-metin: "#1B1D21"
+  acik-metin-ikincil: "#40444B"
+  acik-metin-soluk: "#5C6169"
+  acik-aksan: "#3E4C5E"
+  acik-aksan-metin: "#34404F"
+  acik-aksan-uzeri: "#F6F5F2"
+  acik-birincil: "#2B2E34"
+  acik-birincil-uzeri: "#F6F5F2"
+  acik-dikkat: "#A47619"
+  acik-dikkat-metin: "#855C0E"
+  acik-hata: "#B8355F"
+  acik-hata-metin: "#A12D57"
 typography:
   sans:
     fontFamily: Inter
   mono:
     fontFamily: JetBrains Mono
+  okuma:
+    fontFamily: IBM Plex Sans
+    fontSize: 1.0625rem
+    lineHeight: 1.7
 rounded:
   base: "0.75rem"
   kontrol: "0.5rem"
@@ -261,6 +284,33 @@ Clawd kullanılmaz (Anthropic markası).
   değil). Sonuç: göz canlıyken %2,3–2,9, durgunken %2,1–2,5 tek çekirdek (üç dönüşümlü tur; fark gürültü
   düzeyinde). Ölçüm yeniden: Ada görünürken süreç başına CPU + `GPU Engine` sayaçları.
 - Hareket azaltmada zamanlayıcılar kurulmaz; tek seferlik animasyonlar son karede durur.
+
+## Okuma (2026-10-16, v2.9)
+
+Scryne vault'a yazilan ozetleri (Last-Session, daily, gece derlenen bilgi notlari) okumuyordu;
+sebep erisimdi. Okuma sayfasi bu notlari Kokpit'in icine getirir. **Mood burada degisir:**
+Pano bir enstruman, Okuma bir okuma odasi. Yogunluk dashboard-dense degil, nefesli.
+
+- **Yerlesim:** solda bolum rayi + not listesi (dar, 18rem), ortada tek okuma sutunu (en fazla
+  68ch), genis ekranda sagda basliklar (h2/h3). Kart izgarasi yok; liste satirdir.
+- **Tipografi:** okuma govdesi **IBM Plex Sans** 17 px / 1.7 (Inter arayuz yuzu olarak kalir:
+  liste, ray, dugmeler). Plex'in insancil formlari uzun Turkce metinde Inter'den daha az
+  yorar ve sayfayi enstrumandan ayirir. Kod ve olculmus degerler yine JetBrains Mono.
+- **Okunmamis isareti:** satirin solunda 6 px `aksan` nokta + `sr-only` "okunmamis". Renk
+  amber DEGIL: amber "seni bekliyor" demek, okunmamis not seni beklemez. Not acilinca soner.
+- **Proje ozeti:** proje basina satir blogu (kart degil): ad mono, son oturum tarihi mono,
+  "Kararlar" ve "Yapilacaklar" ikiser-dorder madde; tiklaninca o gunun daily notu ilgili
+  basliga kayarak acilir.
+- **Tema "Kagit" (aydinlik):** yalniz Okuma sayfasinda, `data-tema="acik"` ile ayni token
+  adlari ezilir. Sicak-notr kagit zemin, grafit metin; gumus aksan aydinlikta okunmadigi icin
+  karsiligi koyu arduvaz `acik-aksan` (yine akromatige yakin; dorduncu renk ailesi acilmaz).
+  Sayfa opak kagit yuzey tasir: akrilik zemin aydinlik metnin arkasinda kontrasti bozardi.
+  Olculen kontrast (WCAG): `acik-metin` 15.5, `acik-metin-ikincil` 9.0, `acik-metin-soluk`
+  5.7 (zeminde) / 4.8 (`acik-yuzey-guclu` ustunde), `acik-aksan` 8.0, `acik-dikkat-metin` 5.5,
+  `acik-hata-metin` 6.4; dekoratif `acik-dikkat` 3.1-3.7. Koyu temada okuma sutunu mevcut
+  `yuzey` + `halka` ile durur.
+- **Gecis:** tema degisimi ani (yalniz renk); kagit yuzey sayfa icinde kalir, nav ve sekme
+  seridi koyu kalir. Butun Kokpit'in aydinlik modu ayri faz (Roadmap 30).
 
 ## Components
 

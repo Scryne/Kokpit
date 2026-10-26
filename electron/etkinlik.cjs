@@ -174,6 +174,21 @@ function farkSayilari(ad, girdi, sonuc) {
   return null;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Sekmenin SU ANKI claude oturum kimligi bu govdeden okunabiliyorsa o, yoksa null.
+ * `/clear` ayni surecte yeni bir uuid'e gecer (olculdu 2026-10-05); Kokpit bunu yalniz hook
+ * govdesinden ogrenir. Iki govde kimlik soylemez: SessionEnd biten oturumun uuid'ini tasir
+ * (gec gelirse yeniyi eskiyle ezerdi) ve alt ajan govdeleri (agent_id) ana turun degil, kendi
+ * akislarinin sesi — arka planda suren ajan /clear'dan sonra eski kimlikle gelebilir.
+ */
+function oturumKimligi(govde) {
+  if (!govde || govde.agent_id || govde.hook_event_name === 'SessionEnd') return null;
+  const k = govde.session_id;
+  return typeof k === 'string' && UUID.test(k) ? k.toLowerCase() : null;
+}
+
 const BEKLETEN_BILDIRIMLER = new Set([
   'permission_prompt',
   'elicitation_dialog',
@@ -356,4 +371,4 @@ function durumSatiri(govde) {
   };
 }
 
-module.exports = { yeniDurum, isle, kaliciOzet, durumSatiri, hedefOzeti, farkSayilari, soruAyrintisi, sonSoz };
+module.exports = { yeniDurum, isle, kaliciOzet, durumSatiri, hedefOzeti, farkSayilari, soruAyrintisi, sonSoz, oturumKimligi };

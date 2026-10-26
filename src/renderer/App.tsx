@@ -2,12 +2,14 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import {
   Activity,
   AlertTriangle,
+  BookOpen,
   Boxes,
   ChevronRight,
   ExternalLink,
   History,
   Inbox,
   LayoutDashboard,
+  Moon,
   PanelLeft,
   Play,
   Plus,
@@ -22,6 +24,10 @@ import type {
   EtkinlikAnlik,
   GonderIstegi,
   HizliKomut,
+  NightTabState,
+  NightView,
+  OkumaBolumu,
+  OkumaTema,
   OturumEtkinligi,
   OncekiOturum,
   Oturum,
@@ -33,6 +39,7 @@ import type {
 import Pano from './Pano';
 import Saglik from './Saglik';
 import Envanter from './Envanter';
+import Okuma from './Okuma';
 import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
@@ -65,12 +72,21 @@ function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat' | 'kapaniyor'>) {
   return 'bg-metin-soluk';
 }
 
-type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter';
+/** Gece sekmesinin tek kelimelik durumu (sekme seridi). */
+const GECE_DURUMU: Record<NightTabState, string> = {
+  working: 'çalışıyor',
+  asked: 'soruldu',
+  confirmed: 'onayladı',
+  closed: 'kapandı',
+};
+
+type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter' | 'okuma';
 const GORUNUM_BASLIK: Record<Gorunum, string> = {
   pano: 'Pano',
   terminal: 'Terminaller',
   saglik: 'Sağlık',
   envanter: 'Envanter',
+  okuma: 'Okuma',
 };
 
 /** Onceki calismadan kalan oturumlar icin tek satirlik teklif. Bir kez gorunur. */
@@ -133,6 +149,14 @@ export default function App() {
   etkinlikRef.current = etkinlik;
   // Ada (Kokpit arka plandayken ust ortadaki serit) acik mi; komut paletinden degisir.
   const [adaAcik, setAdaAcik] = useState(true);
+  // Okuma sayfasi (v2.9): temasi kalici; okunmamis not sayisi nav rozeti ve Pano icin.
+  const [okumaTema, setOkumaTema] = useState<OkumaTema>('koyu');
+  const [okunmamisNot, setOkunmamisNot] = useState(0);
+  const [okumaIstegi, setOkumaIstegi] = useState<{ bolum: OkumaBolumu; n: number } | null>(null);
+  const okumayaGit = useCallback((bolum: OkumaBolumu) => {
+    setOkumaIstegi((i) => ({ bolum, n: (i?.n ?? 0) + 1 }));
+    setGorunum('okuma');
+  }, []);
   // Ayarlar diskten gelene kadar yazma; yoksa varsayilan degerler ustune yazilir.
   const ayarHazir = useRef(false);
 
@@ -172,6 +196,7 @@ export default function App() {
       setYaziBoyutu(a.yaziBoyutu);
       setArsivAcik(a.arsivAcik === true);
       setAdaAcik(a.ada !== false);
+      setOkumaTema(a.okumaTema === 'acik' ? 'acik' : 'koyu');
       ayarHazir.current = true;
     });
     return () => {
@@ -180,12 +205,39 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!ayarHazir.current) return;
-    void window.kokpit.ayarKaydet({ kenarAcik, yaziBoyutu, arsivAcik });
-  }, [kenarAcik, yaziBoyutu, arsivAcik]);
+    void window.kokpit.ayarKaydet({ kenarAcik, yaziBoyutu, arsivAcik, okumaTema });
+  }, [kenarAcik, yaziBoyutu, arsivAcik, okumaTema]);
 
   useEffect(() => {
     void window.kokpit.etkinlikAnlik().then(setEtkinlik);
     return window.kokpit.etkinlikDinle(setEtkinlik);
+  }, []);
+
+  // /clear ayni surecte yeni bir claude kimligi acar (kanca koprusu yakalar, main deftere
+  // yazar). Sekmenin kimligi guncellenir: Surdur kontrolu ve baglam yoklamasi yeni konusmaya
+  // bakar. Calisan PTY'ye dokunulmaz (TerminalOturumu kimligi yalniz acilista okur).
+  useEffect(
+    () =>
+      window.kokpit.kimlikDinle(({ id, claude }) =>
+        setOturumlar((l) =>
+          l.some((x) => x.id === id && !x.servis && x.claude !== claude)
+            ? l.map((x) => (x.id === id ? { ...x, claude } : x))
+            : l
+        )
+      ),
+    []
+  );
+
+  // Gece gorevi (electron/night.cjs): main sekme durumlarini yollar; isaret Scryne'in acik eylemi.
+  const [gece, setGece] = useState<NightView>({ active: false, done: false, tabs: {} });
+  const geceRef = useRef(gece);
+  geceRef.current = gece;
+  useEffect(() => window.kokpit.nightStateListen(setGece), []);
+  const geceDegistir = useCallback((id: string) => {
+    const o = oturumlarRef.current.find((x) => x.id === id);
+    if (!o || o.servis) return;
+    const durum = geceRef.current.tabs[id];
+    window.kokpit.nightToggle({ id, on: !durum || durum === 'closed', name: o.ad, claude: o.claude ?? null });
   }, []);
 
   // Genel kisayol (Ctrl+Alt+Shift+N, Kokpit arka plandayken de): main pencereyi one getirir,
@@ -350,6 +402,7 @@ export default function App() {
     // Kenar terminale gecerken otomatik daralir; alani terminale birakir (Ctrl+B geri acar).
     setGorunum('terminal');
     setKenarAcik(false);
+    return id;
   }, []);
 
   /** Bolme: aktif sekmenin icine yan yana ikinci (ucuncu...) terminal. */
@@ -533,6 +586,17 @@ export default function App() {
     },
     [defterKapandi]
   );
+
+  // Gece yarisi yeniden baslama: bitmemis gece sekmeleri kendi konusmalariyla geri acilir ve yeniden
+  // gece isaretlenir (main bir kez verir). Devam mesajini main ilk olayda ya da 30 sn sonra yollar.
+  useEffect(() => {
+    void window.kokpit.nightResume().then((liste) => {
+      for (const o of liste) {
+        const id = sekmeAc(o, true, o.claude);
+        window.kokpit.nightToggle({ id, on: true, name: o.ad, claude: o.claude, resume: true });
+      }
+    });
+  }, [sekmeAc]);
 
   const geriYukle = useCallback(() => {
     const liste = oncekiler;
@@ -867,6 +931,28 @@ export default function App() {
     [oturumlariKapat]
   );
 
+  // Gece eylemleri (main, night-host.cjs). Soru, durt ve devam mesaji oturumaGonder yolundan; onaydan
+  // sonra guvenli kapat. 90 sn'de kapanmazsa zorla: ajan onay verdi, gece bitmeli.
+  useEffect(
+    () =>
+      window.kokpit.nightActionListen((a) => {
+        void (async () => {
+          if (a.type === 'close') {
+            console.info('[gece] onaylandı, güvenli kapatılıyor: ' + a.id);
+            if (!(await guvenliKapat([a.id], true))) kapat([a.id]);
+            return;
+          }
+          if (a.type === 'nudge') {
+            oturumApileri.current.get(a.id)?.yaz('\x1b');
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+          const hata = await oturumaGonder({ id: a.id, tur: 'metin', metin: a.text ?? '' });
+          console.info('[gece] ' + a.type + ' -> ' + a.id + (hata ? ' gönderilemedi: ' + hata : ''));
+        })();
+      }),
+    [guvenliKapat, kapat, oturumaGonder]
+  );
+
   // Uygulama kapanisi. Main 'kapanis:sor' gonderir; renderer hemen 'alindi' der (main'in 3 sn
   // bekcisi durur), sonra kullanicinin kararina gore 'onay' ya da 'iptal'.
   useEffect(() => {
@@ -953,6 +1039,9 @@ export default function App() {
       { id: 's-term', grup: 'Sayfa', baslik: 'Terminaller', ipucu: 'Ctrl+2', calistir: () => setGorunum('terminal') },
       { id: 's-saglik', grup: 'Sayfa', baslik: 'Sağlık', ipucu: 'Ctrl+3', calistir: () => setGorunum('saglik') },
       { id: 's-env', grup: 'Sayfa', baslik: 'Envanter', ipucu: 'Ctrl+4', calistir: () => setGorunum('envanter') },
+      { id: 's-okuma', grup: 'Sayfa', baslik: 'Okuma', ipucu: 'Ctrl+5', calistir: () => setGorunum('okuma') },
+      { id: 's-okuma-proje', grup: 'Sayfa', baslik: 'Okuma: projelerde en son ne oldu', calistir: () => okumayaGit('projeler') },
+      { id: 's-okuma-son', grup: 'Sayfa', baslik: 'Okuma: Defter ve Threads', calistir: () => okumayaGit('companion') },
     ];
     for (const p of siraliProjeler) {
       const acik = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik' && !o.servis);
@@ -980,6 +1069,12 @@ export default function App() {
       { id: 'e-kenar', grup: 'Eylem', baslik: 'Kenar çubuğunu aç/kapat', ipucu: 'Ctrl+B', calistir: () => setKenarAcik((a) => !a) },
       { id: 'e-arsiv', grup: 'Eylem', baslik: arsivAcik ? 'Arşivi gizle' : 'Arşivi göster', calistir: () => setArsivAcik((a) => !a) },
       {
+        id: 'e-okuma-tema',
+        grup: 'Eylem',
+        baslik: okumaTema === 'acik' ? 'Okuma: koyu temaya geç' : 'Okuma: aydınlık temaya geç',
+        calistir: () => setOkumaTema((t) => (t === 'acik' ? 'koyu' : 'acik')),
+      },
+      {
         id: 'e-ada',
         grup: 'Eylem',
         baslik: adaAcik ? "Ada'yı kapat" : "Ada'yı aç",
@@ -994,10 +1089,10 @@ export default function App() {
         id: 'e-ada-ekran',
         grup: 'Eylem',
         baslik: "Ada'yı sonraki ekrana taşı",
-        ipucu: 'sürükleyerek de taşınır',
+        ipucu: 'üst ortaya koyar; sürükleyerek her yere taşınır',
         calistir: () =>
           void window.kokpit.adaSonrakiEkran().then(({ toplam, sira }) =>
-            setNotBildirimi(toplam > 1 ? `Ada ${sira}/${toplam}. ekranda` : 'Tek ekran bağlı')
+            setNotBildirimi(toplam > 1 ? `Ada ${sira}/${toplam}. ekranda, üst ortada` : 'Ada üst ortaya döndü')
           ),
       }
     );
@@ -1027,6 +1122,14 @@ export default function App() {
     // Hizli komutlar aktif oturuma ("devam" yazip Enter). Terminal gorunumu disinda da calisir.
     const hedef = oturumlar.find((o) => o.id === aktifOturumId && o.durumu === 'acik' && !o.servis);
     if (hedef) {
+      const geceMi = !!gece.tabs[hedef.id] && gece.tabs[hedef.id] !== 'closed';
+      k.push({
+        id: 'e-gece',
+        grup: 'Eylem',
+        baslik: geceMi ? 'Gece görevini kaldır' : 'Gece görevi olarak işaretle',
+        ipucu: hedef.ad,
+        calistir: () => geceDegistir(hedef.id),
+      });
       hizliKomutlar.forEach((hk, i) =>
         k.push({
           id: 'h-' + i,
@@ -1037,9 +1140,12 @@ export default function App() {
         })
       );
     }
+    if (gece.active) {
+      k.push({ id: 'e-gece-iptal', grup: 'Eylem', baslik: 'Gece modunu iptal et', ipucu: 'kapanma olmaz', calistir: () => window.kokpit.nightCancel() });
+    }
     k.push({ id: 'e-komutlar', grup: 'Eylem', baslik: 'Hızlı komutları düzenle', ipucu: 'komutlar.json', calistir: () => void window.kokpit.komutlarDuzenle() });
     return k;
-  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur]);
+  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur, gece, geceDegistir]);
 
   // Bağlam: statusline'dan (kesin, her turda) varsa o; yoksa transcript yoklamasi (20 sn).
   const baglamOku = (id: string) => {
@@ -1080,6 +1186,9 @@ export default function App() {
       } else if (e.key === '4') {
         e.preventDefault();
         setGorunum('envanter');
+      } else if (e.key === '5') {
+        e.preventDefault();
+        setGorunum('okuma');
       } else if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         // Ctrl+Shift+P: komut paleti. Ctrl+K degil: claude'da satir sonuna kadar siler.
         e.preventDefault();
@@ -1278,6 +1387,28 @@ export default function App() {
                   {durum.envanter.drift_kayitsiz.length + durum.envanter.drift_hayalet.length}
                 </span>
               )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setGorunum('okuma')}
+            title="Okuma (Ctrl+5)"
+            aria-label="Okuma"
+            aria-current={gorunum === 'okuma' ? 'page' : undefined}
+            className={
+              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              (kenarAcik ? '' : 'justify-center ') +
+              (gorunum === 'okuma'
+                ? 'bg-yuzey text-metin'
+                : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
+            }
+          >
+            <BookOpen className="size-4 shrink-0" aria-hidden="true" />
+            {kenarAcik && 'Okuma'}
+            {kenarAcik && okunmamisNot > 0 && (
+              <span className="enstruman ml-auto text-xs text-aksan-metin" title={okunmamisNot + ' okunmamış not'}>
+                {okunmamisNot}
+              </span>
+            )}
           </button>
         </nav>
 
@@ -1529,6 +1660,8 @@ export default function App() {
               arsivAcik={arsivAcik}
               onArsivDegistir={() => setArsivAcik((a) => !a)}
               onSaglik={() => setGorunum('saglik')}
+              okunmamisNot={okunmamisNot}
+              onOku={() => okumayaGit('akis')}
               onBaslat={sekmeAc}
               onCalistir={(p) => void calistirIste(p)}
               onSurdur={surdur}
@@ -1559,6 +1692,21 @@ export default function App() {
           className={(gorunum === 'envanter' ? 'block' : 'hidden') + ' min-h-0 flex-1 overflow-y-auto pr-1'}
         >
           {durum && <Envanter durum={durum} />}
+        </section>
+
+        {/* Okuma: gizlenir, sokulmez — acik not ve geri yigini korunur. */}
+        <section
+          aria-label="Okuma"
+          className={(gorunum === 'okuma' ? 'flex' : 'hidden') + ' min-h-0 flex-1 flex-col'}
+        >
+          <Okuma
+            aktif={gorunum === 'okuma'}
+            tema={okumaTema}
+            onTema={setOkumaTema}
+            projeler={durum?.projeler ?? []}
+            onOkunmamis={setOkunmamisNot}
+            istek={okumaIstegi}
+          />
         </section>
 
         {/* Terminaller: sekmeler + yan yana bolmeler. Hepsi mount kalir, biri gorunur. */}
@@ -1598,6 +1746,7 @@ export default function App() {
                 );
                 const kapaniyor = g.uyeler.some((o) => o.kapaniyor);
                 const calisiyor = g.uyeler.some((o) => etkinlik.oturumlar[o.id]?.durum === 'calisiyor');
+                const geceDurumu = g.uyeler.map((o) => gece.tabs[o.id]).find(Boolean);
                 const nokta = kapaniyor
                   ? 'animate-pulse bg-dikkat'
                   : dikkat
@@ -1646,6 +1795,13 @@ export default function App() {
                       >
                         {etiket}
                       </span>
+                      {geceDurumu && (
+                        <span className="inline-flex items-center gap-1 rounded-rozet border border-kenar px-1.5 text-xs text-metin-soluk">
+                          <Moon className="size-3 text-aksan-metin" aria-hidden="true" />
+                          <span className="sr-only">gece görevi:</span>
+                          {GECE_DURUMU[geceDurumu]}
+                        </span>
+                      )}
                       {g.uyeler.length === 1 && ilk.durumu === 'acik' && (
                         <span className="enstruman text-xs text-metin-soluk">
                           {sureMetni(Math.floor((simdi - ilk.baslangic) / 1000))}
@@ -1666,6 +1822,17 @@ export default function App() {
             </div>
 
             <div className="flex shrink-0 items-center gap-1">
+              {gece.active && (
+                <button
+                  type="button"
+                  onClick={() => window.kokpit.nightCancel()}
+                  title="Gece işaretlerini kaldırır; bilgisayar kapanmaz, bekleyen kapanma durur"
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-kontrol border border-kenar px-2 py-1 text-xs text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
+                >
+                  <Moon className="size-3.5" aria-hidden="true" />
+                  Gece modunu iptal et
+                </button>
+              )}
               {aktifGrupId && (
                 <ProjeSecici
                   projeler={siraliProjeler}
@@ -1876,13 +2043,26 @@ export default function App() {
                             e={etkinlik.oturumlar[o.id]}
                             simdi={simdi}
                             sag={
-                              hizliKomutlar.length > 0 && (
-                                <HizliKomutMenusu
-                                  komutlar={hizliKomutlar}
-                                  oturumAdi={o.ad}
-                                  onSec={(hk) => void oturumaGonder({ id: o.id, tur: 'metin', metin: hk.metin })}
-                                />
-                              )
+                              <>
+                                <button
+                                  type="button"
+                                  aria-pressed={!!gece.tabs[o.id] && gece.tabs[o.id] !== 'closed'}
+                                  aria-label={o.ad + ': gece görevi'}
+                                  title="Gece görevi: tur bitince Kokpit bitti mi diye sorar, onaydan sonra güvenli kapatır; hepsi kapanınca bilgisayar kapanır"
+                                  onClick={() => geceDegistir(o.id)}
+                                  className="flex h-full cursor-pointer items-center gap-1 border-b border-l border-kenar bg-yuzey px-2 text-xs text-metin-soluk transition-colors duration-[120ms] hover:bg-yuzey-guclu hover:text-metin aria-pressed:bg-yuzey-guclu aria-pressed:text-aksan-metin"
+                                >
+                                  <Moon className="size-3.5" aria-hidden="true" />
+                                  Gece görevi
+                                </button>
+                                {hizliKomutlar.length > 0 && (
+                                  <HizliKomutMenusu
+                                    komutlar={hizliKomutlar}
+                                    oturumAdi={o.ad}
+                                    onSec={(hk) => void oturumaGonder({ id: o.id, tur: 'metin', metin: hk.metin })}
+                                  />
+                                )}
+                              </>
                             }
                           />
                         )}

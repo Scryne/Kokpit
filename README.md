@@ -66,6 +66,12 @@ komut ve bir yanıt kutusu. Kokpit öne gelmez. Çok sorulu / çoklu seçimli so
 Cevap gidene kadar soru değiştiyse gönderilmez. **Ctrl+Alt+Shift+K** Kokpit'i her yerden çağırır
 (öndeyse küçültür).
 
+**Okuma (v2.9, Ctrl+5):** vault'a yazılanlar Kokpit'in içinde, okuma dostu. Akış (en son yazılan notlar,
+okunmamışlar noktalı), Companion (Last-Session, Threads...), Günlük, Bilgi (gece derlenen kavramlar) ve
+Projeler ("en son ne oldu": son oturumun kararları ve yapılacakları, son notlar). Wikilink ve göreli
+linkler içeride açılır, Alt+Sol geri. Sağ üstte "Aydınlık": sayfa kâğıt temaya geçer, seçim hatırlanır.
+Pano'nun Beyin bloğunda okunmamış not sayısı. Kokpit vault'a yazmaz; okundu bilgisi `~/.kokpit/okuma.json`.
+
 **Ada v2.5, Ada'nın gözü:** hapın solunda gümüş bir gövde, iki göz. Ne yaptığını gösterir: çalışırken araca
 göre bakar (Read satır okur, Edit aşağı odaklanır, Bash kısılır, Web yukarı bakar, araçlar arası düşünür),
 soru sorunca amber halkayla sana bakar, bitince gülüp bir kez zıplar, 30 dk sessizlikte uyur, Ada'dan cevap
@@ -142,6 +148,8 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ağacı dahil (18 kontrol)
 npm run test:kanca   # kanca köprüsü, soru/son söz/istek/komut/tarif/adres/kimlik (101 kontrol)
 npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada penceresi ve gözü dahil (84 kontrol, önce build)
+npm run test:okuyucu # Okuma sayfasının ana süreç modülü, sahte vault ile (61 kontrol; CI'da)
+npm run test:okuma-ui # Okuma sayfası gerçek Electron'da, sahte vault ile (26 kontrol, önce build)
 npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontrol; elle, plan kullanır)
 npm run ekran:ada    # v2.3–v2.4 yüzeylerinin ekran görüntüsü (ada, ada-klavye, ada-bitti, terminal, Pano)
 npm run ekran:goz    # Ada gözünün her hali, hap 4x (boşta, düşün, oku, yaz, komut, web, ajan, soru, kenar, sevinç, bitti, uyku)
@@ -183,7 +191,7 @@ bırakmama**.
 `test:ui` gibi `~/.kokpit/ayarlar.json` ve oturum defterini sonra geri koyar (kapanış bekleyen
 "geri yükle" teklifini tüketmesin diye).
 
-**CI** (`windows-latest`): typecheck + build + `test:pty` + `test:kanca`. `test:ui` CI'da koşmaz — vault ve
+**CI** (`windows-latest`): typecheck + build + `test:pty` + `test:kanca` + `test:okuyucu`. `test:ui` CI'da koşmaz — vault ve
 `durum.py` ister; yerelde çalıştırılır.
 
 ## Kurulum (temiz makinede)
@@ -258,6 +266,9 @@ der. Geri doldurma vault'ta: `python .claude/scripts/flush_kapsama.py --proje <a
 ## Kurallar (bozulursa proje bozulur)
 
 1. **İkinci toplayıcı yazılmaz.** Veri kaynağı `durum.py`; alan gerekiyorsa orada eklenir.
+   Okuma sayfası (v2.9) bunu çiğnemez: durum toplamaz, belge gösterir. `vault-okuyucu.cjs` vault'un
+   dört kökünü (Companion, daily, knowledge, projeler) salt okur, alan dışı yolu reddeder; yazdığı tek
+   yer Kokpit'in kendi `~/.kokpit/okuma.json`'ı.
 2. **`data:` URL kullanılmaz.** Opaque origin inline script ve WebSocket'i sessizce engeller.
 3. **Windows yolları `path.resolve()` / `path.join()` ile üretilir**, string literal yazılmaz.
 4. **PTY ayrı düz Node sürecinde kalır.** Electron'un içine alınırsa `electron-rebuild`
@@ -276,6 +287,10 @@ der. Geri doldurma vault'ta: `python .claude/scripts/flush_kapsama.py --proje <a
 8. **Kokpit bir oturuma yalnız Scryne'ın açık eylemiyle yazar** (hızlı komut, Ada'dan cevap). Kendiliğinden
    gönderim, sıraya alınmış otomatik "devam", koşullu cevap yok: oturumun sahibi kullanıcıdır. Soru cevabı
    damgasız ya da bayat damgayla gitmez.
+   Tek istisna gece görevi: sekmeyi "Gece görevi" diye işaretlemek Scryne'ın açık eylemidir. Kokpit
+   yalnız işaretli sekmelere ve yalnız üç metin yazar: bitti sorusu, dürtme ve yeniden başlatma sonrası
+   devam mesajı (2026-10-05, Kaan'ın kararı). Dürtmeden önce bekleyen istemi kapatan bir Esc gider; yalnız
+   20 dakika hiç kanca olayı gelmemiş ve alt ajan kalmamışsa. Olay üreten, çalışan ajana hiçbir şey yazılmaz.
 9. **Servis bölmesi ağacıyla ölür.** Bölme kapanınca `taskkill /T` (asenkron), uygulama kapanırken sunucunun
    kendi çıkışı beklenir (senkron ağaç öldürme). `p.kill()` tek başına konsoldan kopuk torunları bırakır.
 10. **Test ve ekran koşucuları `KOKPIT_DIZIN` ile ayrı dizinde çalışır.** Gerçek `~/.kokpit`'e yazmaz, geri

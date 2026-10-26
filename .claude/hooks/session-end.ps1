@@ -67,7 +67,12 @@ if ([string]::IsNullOrWhiteSpace($transcriptPath) -or -not (Test-Path -LiteralPa
 # Oturumu ikinci beyne dusur (2026-09-21): vault'un flush.py'i bu oturumu daily/'ye proje
 # etiketiyle yazar, derleyici gece toplar. Bundan once proje oturumlari beyne hic girmiyordu.
 # Ayrik surec; asla bekletmez, hata verirse sessizce gecer.
-$projeFlush = Join-Path 'C:\Users\scryn\Documents\ScryneOS' '.claude\hooks\proje-flush.ps1'
+# Vault yolu makineye gore degisir (2026-10-16): Kokpit'in kendi kurali (electron/config.cjs) gibi
+# once KOKPIT_VAULT, yoksa ~/Documents/ScryneOS. proje-flush.ps1 olmayan vault'ta (Kaan'inki: orada
+# global SessionEnd project_flush.py'yi cagirir) bu adim atlanir, oturum iki kez dusmez.
+$vaultDir = if (-not [string]::IsNullOrWhiteSpace($env:KOKPIT_VAULT)) { $env:KOKPIT_VAULT }
+else { Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Documents\ScryneOS' }
+$projeFlush = Join-Path $vaultDir '.claude\hooks\proje-flush.ps1'
 if (Test-Path -LiteralPath $projeFlush -PathType Leaf) {
     try { & $projeFlush -RawPayload $raw -Proje $projeAdi } catch { }
 }
@@ -155,7 +160,8 @@ $transcriptText
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("proje-sync-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 try {
     $resolvedProjeler = $null
-    try { $resolvedProjeler = (Resolve-Path 'C:\Users\scryn\Documents\Projeler' -ErrorAction Stop).Path } catch { }
+    # Projelerin durdugu klasor (Berkay: Documents\Projeler, Kaan: Documents\projects) bu reponun ustu.
+    try { $resolvedProjeler = (Resolve-Path (Split-Path -Parent $projectDir) -ErrorAction Stop).Path } catch { }
     if ($resolvedProjeler -and $tempDir.StartsWith($resolvedProjeler, [StringComparison]::OrdinalIgnoreCase)) {
         Write-SyncHealth -Error 'temp-dir-inside-projeler'
         exit 0

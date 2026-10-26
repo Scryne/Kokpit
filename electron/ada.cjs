@@ -19,6 +19,12 @@
 // dugmesinde 4 px esigi, ekran koordinatlari IPC ile); Electron'un `app-region: drag`'i
 // KULLANILMAZ: tiklamayi yutar (hap tiklayinca Kokpit one gelir) ve Windows surukleneni
 // etkinlestirir (ada odak calardi).
+//
+// v2.8: ada birakildigi yerde kalir (Scryne 2026-10-13: "istedigim yere"). Kayit hapin ekrana
+// gore yerini tutar; pencere ona gore kurulur. Hap ekranin alt kismindaysa kart YUKARI acilir
+// (asagi sigmaz), ekran kenarina dayaninca hap o kenara yaslanir (pencere ekrandan tasmaz).
+// Bu iki karari main verir, renderer'a 'ada:yerlesim' ile gider. Komut paletindeki "sonraki
+// ekran" ada'yi o ekranin ust ortasina koyar; tek ekranda bu, varsayilan yere donmek demek.
 
 const { BrowserWindow, ipcMain, screen } = require('electron');
 const { log } = require('./log.cjs');
@@ -27,10 +33,17 @@ const GENISLIK = 460;
 // Acik kart + soru secenekleri + yazi kutusu sigsin (v2.3). Bos alan fareyi gecirdigi icin
 // buyuk pencere alttakini kapatmaz.
 const YUKSEKLIK = 520;
+/** Kart ile pencere kenari arasi (renderer'daki p-1.5). */
+const KENAR = 6;
 
 let ada = null;
-/** Kayitli ekran: { id, x, y } (x/y ekranin sol ustu; kimlik degisirse yedek esleme). */
+/**
+ * Kayitli ekran: { id, x, y, hap? } (x/y ekranin sol ustu; kimlik degisirse yedek esleme).
+ * hap: { cx, ust, alt } hapin ekranin calisma alanina gore yeri (px); yoksa ust orta.
+ */
 let ekranKaydi = null;
+/** Renderer'a son giden yerlesim: hap pencerenin neresinde, kart ne yone acilir. */
+let yerlesim = { yatay: 'orta', dikey: 'asagi' };
 let ekranDinleyici = () => {};
 /** Surukleme surerken imlecin pencereye gore yeri; null = suruklenmiyor. */
 let surukleme = null;
@@ -54,16 +67,22 @@ function hedefEkran() {
   );
 }
 
-function ekraniSec(ekran) {
-  ekranKaydi = { id: ekran.id, x: ekran.bounds.x, y: ekran.bounds.y };
+function ekraniSec(ekran, hap = null) {
+  ekranKaydi = { id: ekran.id, x: ekran.bounds.x, y: ekran.bounds.y, ...(hap ? { hap } : {}) };
   ekranDinleyici(ekranKaydi);
   log(`ada ekrani: ${ekran.id} (${ekran.bounds.x},${ekran.bounds.y} ${ekran.bounds.width}x${ekran.bounds.height})`);
 }
 
-/** Pencereyi hedef ekranin ust ortasina koyar (suruklenirken dokunulmaz). */
+/** Pencereyi kayitli yere koyar (suruklenirken dokunulmaz). */
 function yerlestir() {
   if (!ada || ada.isDestroyed() || surukleme) return;
-  ada.setBounds(konum());
+  const k = konum();
+  // Once yerlesim: pencere kayarken hap eski yerlesimle bir kare yanlis yerde gorunmesin.
+  if (k.yatay !== yerlesim.yatay || k.dikey !== yerlesim.dikey) {
+    yerlesim = { yatay: k.yatay, dikey: k.dikey };
+    gonder('ada:yerlesim', yerlesim);
+  }
+  ada.setBounds({ x: k.x, y: k.y, width: k.width, height: k.height });
 }
 
 /**
@@ -79,14 +98,42 @@ function suruklemeyiKes() {
   yerlestir();
 }
 
+const sinirla = (v, alt, ust) => Math.max(alt, Math.min(ust, v));
+
+/**
+ * Pencere sinirlari + yerlesim, kayitli hap yerinden. Hap calisma alaninin icinde tutulur
+ * (cozunurluk degisti, ekran kuculdu). Pencere ekrandan tasacaksa yaslanir ve hap o kenara
+ * gecer; asagi sigmiyorsa kart yukari acilir.
+ */
 function konum() {
   const alan = hedefEkran().workArea;
-  return {
-    x: Math.round(alan.x + (alan.width - GENISLIK) / 2),
-    y: alan.y,
-    width: GENISLIK,
-    height: YUKSEKLIK,
-  };
+  const h = ekranKaydi?.hap;
+  if (!h) {
+    return { x: Math.round(alan.x + (alan.width - GENISLIK) / 2), y: alan.y, width: GENISLIK, height: YUKSEKLIK, yatay: 'orta', dikey: 'asagi' };
+  }
+  const yuk = Math.max(1, h.alt - h.ust);
+  const cx = sinirla(h.cx, 0, alan.width);
+  const ust = sinirla(h.ust, 0, Math.max(0, alan.height - yuk));
+  let x = alan.x + cx - GENISLIK / 2;
+  let yatay = 'orta';
+  if (x < alan.x) {
+    x = alan.x;
+    yatay = 'sol';
+  } else if (x + GENISLIK > alan.x + alan.width) {
+    x = alan.x + alan.width - GENISLIK;
+    yatay = 'sag';
+  }
+  let y;
+  let dikey;
+  if (ust - KENAR + YUKSEKLIK <= alan.height) {
+    y = alan.y + ust - KENAR;
+    dikey = 'asagi';
+  } else {
+    y = alan.y + ust + yuk + KENAR - YUKSEKLIK;
+    dikey = 'yukari';
+  }
+  y = Math.max(alan.y, y);
+  return { x: Math.round(x), y: Math.round(y), width: GENISLIK, height: YUKSEKLIK, yatay, dikey };
 }
 
 function gorunurlukGuncelle() {
@@ -116,8 +163,13 @@ function kur(s) {
   anaPencere = s.ana;
   ekranKaydi = s.ekran && typeof s.ekran === 'object' && Number.isFinite(s.ekran.id) ? s.ekran : null;
   ekranDinleyici = s.onEkran ?? (() => {});
+  const k = konum();
+  yerlesim = { yatay: k.yatay, dikey: k.dikey };
   ada = new BrowserWindow({
-    ...konum(),
+    x: k.x,
+    y: k.y,
+    width: k.width,
+    height: k.height,
     show: false,
     frame: false,
     transparent: true,
@@ -143,6 +195,7 @@ function kur(s) {
   ada.setIgnoreMouseEvents(true, { forward: true });
   ada.webContents.on('did-finish-load', () => {
     suruklemeyiKes();
+    gonder('ada:yerlesim', yerlesim);
     if (sonAnlik) gonder('etkinlik:anlik', sonAnlik);
     gonder('ada:liste', sonListe);
   });
@@ -204,7 +257,8 @@ ipcMain.on('ada:fare', (e, icinde) => {
   if (surukleme && !icinde) return;
   ada.setIgnoreMouseEvents(!icinde, { forward: true });
 });
-// Surukle-birak (v2.6). x/y ekran koordinati (DIP, renderer'in screenX/Y'si).
+// Surukle-birak (v2.6). x/y ekran koordinati (DIP, renderer'in screenX/Y'si). `bitir`de
+// renderer hapin pencere icindeki dikdortgenini de yollar (v2.8): ada oraya birakilir.
 ipcMain.on('ada:surukle', (e, m) => {
   if (!ada || ada.isDestroyed() || e.sender !== ada.webContents || !m || typeof m !== 'object') return;
   if (!Number.isFinite(m.x) || !Number.isFinite(m.y)) return;
@@ -220,7 +274,20 @@ ipcMain.on('ada:surukle', (e, m) => {
     ada.setBounds({ x: x - surukleme.dx, y: y - surukleme.dy, width: GENISLIK, height: YUKSEKLIK });
   } else if (m.asama === 'bitir' && surukleme) {
     surukleme = null;
-    ekraniSec(screen.getDisplayNearestPoint({ x, y }));
+    const r = m.hap;
+    const gecerli = r && typeof r === 'object' && ['sol', 'ust', 'sag', 'alt'].every((a) => Number.isFinite(r[a]));
+    if (!gecerli) {
+      ekraniSec(screen.getDisplayNearestPoint({ x, y }));
+    } else {
+      // Hap ekranda nerede: pencere konumu + pencere icindeki yeri. Ekran, hapin ortasina gore.
+      const b = ada.getBounds();
+      const cx = b.x + (r.sol + r.sag) / 2;
+      const ust = b.y + r.ust;
+      const alt = b.y + r.alt;
+      const ekran = screen.getDisplayNearestPoint({ x: Math.round(cx), y: Math.round((ust + alt) / 2) });
+      const alan = ekran.workArea;
+      ekraniSec(ekran, { cx: Math.round(cx - alan.x), ust: Math.round(ust - alan.y), alt: Math.round(alt - alan.y) });
+    }
     yerlestir();
   }
 });
@@ -278,7 +345,8 @@ module.exports = {
     return true;
   },
   /**
-   * Komut paleti: ada'yi siradaki ekrana tasir (soldan saga, sonda basa doner).
+   * Komut paleti: ada'yi siradaki ekranin ust ortasina tasir (soldan saga, sonda basa doner).
+   * Tek ekranda ada ust ortaya doner: surukleyip kaybedilen ada'nin klavye yolu.
    * @returns {{ toplam: number, sira: number, alan: Electron.Rectangle }}
    */
   sonrakiEkran() {
@@ -286,10 +354,8 @@ module.exports = {
     const simdiki = hedefEkran();
     const i = ekranlar.findIndex((d) => d.id === simdiki.id);
     const yeni = ekranlar[(i + 1) % ekranlar.length];
-    if (ekranlar.length > 1) {
-      ekraniSec(yeni);
-      yerlestir();
-    }
+    ekraniSec(yeni);
+    yerlestir();
     return { toplam: ekranlar.length, sira: ekranlar.indexOf(yeni) + 1, alan: yeni.workArea };
   },
   kapat() {

@@ -34,3 +34,6 @@ jobs:
 
       - name: Hook bridge (kanca)
         run: npm run test:kanca
+
+      - name: Vault reader (okuyucu)
+        run: npm run test:okuyucu

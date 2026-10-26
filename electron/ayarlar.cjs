@@ -17,6 +17,7 @@ const VARSAYILAN = Object.freeze({
   ada: true, // Kokpit arka plandayken ust ortadaki ada
   adaEkran: null, // { id, x, y }: ada'nin surukle-birakla secilen ekrani (v2.6); null = birincil
   seffaf: true, // akrilik pencere; false -> opak (Windows 11 22H2 alti zaten opak)
+  okumaTema: 'koyu', // Okuma sayfasinin temasi (v2.9): 'koyu' | 'acik'
 });
 
 let bellek = null;
@@ -53,6 +54,7 @@ function rendererYamasi(ham) {
   if (!ham || typeof ham !== 'object') return yama;
   if (typeof ham.kenarAcik === 'boolean') yama.kenarAcik = ham.kenarAcik;
   if (typeof ham.arsivAcik === 'boolean') yama.arsivAcik = ham.arsivAcik;
+  if (ham.okumaTema === 'koyu' || ham.okumaTema === 'acik') yama.okumaTema = ham.okumaTema;
   if (Number.isInteger(ham.yaziBoyutu) && ham.yaziBoyutu >= 9 && ham.yaziBoyutu <= 28) {
     yama.yaziBoyutu = ham.yaziBoyutu;
   }

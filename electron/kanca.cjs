@@ -31,8 +31,11 @@ let bilgi = null; // { port, token, ayarDosyasi, asilDurumSatiri }
 let hazirSozu = null;
 const oturumlar = new Map(); // kokpit oturum id -> etkinlik durumu
 const baglamlar = new Map(); // kokpit oturum id -> statusline baglami
+// kokpit oturum id -> claude oturum kimligi (uuid). Etkinlik durumundan ayri: kimlik her
+// govdede okunur, durum yalniz taninan olayda degisir.
+const kimlikler = new Map();
 let limitler = null; // { besSaat, hafta, olculdu }
-let dinleyiciler = { yayin: () => {}, sinyal: () => {} };
+let dinleyiciler = { yayin: () => {}, sinyal: () => {}, kimlik: () => {}, hook: () => {} };
 let yayinZamanlayici = null;
 
 function tokenGecerli(baslik) {
@@ -114,10 +117,27 @@ async function istek(req, res) {
     return;
   }
 
+  // Kimlik degisti (/clear, /resume) ya da ilk kez goruldu: main deftere yazar, sekme guncellenir.
+  const kimlik = etkinlik.oturumKimligi(govde);
+  if (kimlik && kimlikler.get(oturumId) !== kimlik) {
+    kimlikler.set(oturumId, kimlik);
+    try {
+      dinleyiciler.kimlik(oturumId, kimlik);
+    } catch (e) {
+      log('kanca kimlik hatasi: ' + e.message);
+    }
+  }
+
   const { durum, sinyal, degisti } = etkinlik.isle(oturumlar.get(oturumId), govde, Date.now());
   if (!degisti) return;
   oturumlar.set(oturumId, durum);
   yayinla();
+  // Gece gorevi (night-host.cjs): her islenen olay; ham govde Stop'un tam son mesaji ve transcript yolu icin.
+  try {
+    dinleyiciler.hook(oturumId, durum, govde, sinyal);
+  } catch (e) {
+    log('kanca hook dinleyici hatasi: ' + e.message);
+  }
   if (sinyal) {
     try {
       dinleyiciler.sinyal(oturumId, sinyal, durum);
@@ -229,6 +249,7 @@ function ozet(oturumId) {
 function unut(oturumId) {
   oturumlar.delete(oturumId);
   baglamlar.delete(oturumId);
+  kimlikler.delete(oturumId);
   yayinla();
 }
 

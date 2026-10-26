@@ -1,8 +1,8 @@
-const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, nativeTheme, screen, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, nativeTheme, powerSaveBlocker, screen, session, shell } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { DEV_URL, DEV_PORT } = require('./config.cjs');
+const { DEV_URL, DEV_PORT, KOKPIT_DIZIN } = require('./config.cjs');
 const { log, logHata, LOG_DOSYA } = require('./log.cjs');
 const { durumOku } = require('./durum.cjs');
 const ptyKopru = require('./pty-kopru.cjs');
@@ -17,6 +17,8 @@ const ada = require('./ada.cjs');
 const komutlar = require('./komutlar.cjs');
 const calistir = require('./calistir.cjs');
 const { gonderIstegi } = require('./gonder-istegi.cjs');
+const { createNightHost } = require('./night-host.cjs');
+const okuyucu = require('./vault-okuyucu.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
@@ -54,6 +56,17 @@ let kapanisZamanlayici = null;
 // once calisir; olculdu).
 let uygulamaKapaniyor = false;
 let ptyBeklendi = false;
+// Gece gorevi (README kural 8 istisnasi): durum makinesi night.cjs, yurutme night-host.cjs.
+const nightHost = createNightHost({
+  dir: KOKPIT_DIZIN,
+  log,
+  app,
+  powerSaveBlocker,
+  test: process.env.KOKPIT_TEST_KABUK === '1',
+  send: (kanal, veri) => {
+    if (pencere) pencere.webContents.send(kanal, veri);
+  },
+});
 
 /** Onceki calismadan kalan pencere konumu; ekran disinda kaldiysa yok sayilir. */
 function pencereKonumu() {
@@ -345,12 +358,18 @@ ipcMain.on('kapanis:onay', () => {
 });
 // Oturum defteri (Kokpit'in kendi verisi; bkz. defter.cjs).
 const DEFTER_SEBEP = new Set(['kullanici', 'kabuk']);
+// Bu calismada defterde acik olan sekmeler -> defterdeki son claude kimligi (yoksa null).
+// Kimlik olayi yalniz bunlara yazilir (servis bolmesi, kapanmis sekme defter disi) ve
+// acilistaki --session-id ile ayni kimlik ikinci kez yazilmaz.
+const defterAcik = new Map();
+const UUID_GECERLI = /^[0-9a-f-]{36}$/i;
 ipcMain.on('defter:olay', (_e, o) => {
   if (!o || typeof o !== 'object' || typeof o.id !== 'string') return;
   if (o.olay === 'acildi' && typeof o.ad === 'string' && typeof o.yol === 'string') {
     // claude oturum kimligi (uuid): geri yukleme / surdurme tam o konusmayi acar.
-    const claude = typeof o.claude === 'string' && /^[0-9a-f-]{36}$/i.test(o.claude) ? o.claude : undefined;
+    const claude = typeof o.claude === 'string' && UUID_GECERLI.test(o.claude) ? o.claude : undefined;
     defter.ekle({ olay: 'acildi', id: o.id, ad: o.ad, yol: o.yol, ...(claude ? { claude } : {}) });
+    defterAcik.set(o.id, claude ?? null);
   } else if (o.olay === 'kapandi') {
     if (uygulamaKapaniyor && o.sebep === 'kabuk') return;
     // Kanca koprusunun tuttugu oturum ozeti (tur, arac, dosya, +/-) defterde kalir.
@@ -362,15 +381,32 @@ ipcMain.on('defter:olay', (_e, o) => {
       sebep: DEFTER_SEBEP.has(o.sebep) ? o.sebep : 'kullanici',
       ...(ozet ? { ozet } : {}),
     });
+    defterAcik.delete(o.id);
     kanca.unut(o.id);
+    nightHost.closed(o.id);
   }
 });
+/**
+ * Kanca koprusu sekmenin claude kimliginin degistigini gordu (/clear ayni surecte yeni uuid
+ * acar, olculdu 2026-10-05). Deftere yazilmazsa geri yukleme ve Surdur /clear oncesini acar.
+ */
+function kimlikDegisti(id, claude) {
+  if (typeof id !== 'string' || typeof claude !== 'string' || !UUID_GECERLI.test(claude)) return;
+  if (defterAcik.has(id) && defterAcik.get(id) !== claude) {
+    defter.ekle({ olay: 'kimlik', id, claude });
+    defterAcik.set(id, claude);
+  }
+  if (pencere) pencere.webContents.send('oturum:kimlik', { id, claude });
+  nightHost.identity(id, claude);
+}
 let oncekilerVerildi = false;
 ipcMain.handle('defter:oncekiler', () => {
   // Bir kez: ayni calismada ikinci sorgu bos doner (StrictMode cift effect'i dahil).
   if (oncekilerVerildi) return [];
   oncekilerVerildi = true;
-  const liste = defter.oncekiAcikOturumlar();
+  // Gece sekmeleri seritte teklif edilmez: night:resume onlari kendiliginden acar.
+  const gece = nightHost.resumeIds();
+  const liste = defter.oncekiAcikOturumlar().filter((o) => !gece.has(o.id));
   if (liste.length > 0) log('onceki calismadan acik kalan oturum: ' + liste.map((o) => o.ad).join(', '));
   return liste;
 });
@@ -389,6 +425,20 @@ ipcMain.handle('defter:sonlar', () => {
     }
   }
   return sonlar;
+});
+// Gece gorevi: isaret (Scryne'in acik eylemi), iptal ve yeniden baslatma sonrasi geri acilis.
+ipcMain.on('night:toggle', (_e, x) => {
+  if (!x || typeof x.id !== 'string' || !/^[\w.-]{1,160}$/.test(x.id)) return;
+  nightHost.toggle(x.id, x.on === true, {
+    name: typeof x.name === 'string' ? x.name.slice(0, 80) : x.id,
+    claude: typeof x.claude === 'string' && UUID_GECERLI.test(x.claude) ? x.claude : null,
+    resume: x.resume === true,
+  });
+});
+ipcMain.on('night:cancel', () => nightHost.cancel());
+ipcMain.handle('night:resume', () => {
+  const kayitlar = new Map(defter.oturumlar().map((k) => [k.id, k]));
+  return nightHost.takeResume((id) => kayitlar.get(id));
 });
 // Kanca koprusu: oturum etkinligi, limitler, statusline baglami. Ilk yukleme icin anlik.
 ipcMain.handle('etkinlik:anlik', async () => {
@@ -458,14 +508,27 @@ ipcMain.handle('beyin:doldur', (_e, session, proje) => geriDoldurma.doldur(sessi
 ipcMain.handle('not:ekle', (_e, metin, kaynak) =>
   inboxNotu.ekle(metin, typeof kaynak === 'string' ? kaynak.slice(0, 60) : null)
 );
-ipcMain.handle('ayar:getir', () => {
-  const a = ayarlar.oku();
-  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik, ada: a.ada !== false };
-});
-ipcMain.handle('ayar:kaydet', (_e, yama) => {
-  const a = ayarlar.yaz(ayarlar.rendererYamasi(yama));
-  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik, ada: a.ada !== false };
-});
+// Okuma sayfasi (v2.9): vault'un dar kesimini SALT okur (bkz. vault-okuyucu.cjs).
+ipcMain.handle('vault:liste', (_e, bolum) => okuyucu.liste(String(bolum)));
+ipcMain.handle('vault:akis', (_e, n) => okuyucu.akis(n));
+ipcMain.handle('vault:oku', (_e, yol) => okuyucu.oku(yol));
+ipcMain.handle('vault:cozumle', (_e, hedef, kaynak) => okuyucu.cozumle(hedef, kaynak));
+ipcMain.handle('vault:projeler', () => okuyucu.projeOzetleri());
+ipcMain.handle('vault:okundu', (_e, yol, mtime) => okuyucu.okundu(yol, mtime));
+ipcMain.handle('vault:hepsi-okundu', () => okuyucu.hepsiOkundu());
+ipcMain.handle('vault:okunmamis', () => okuyucu.okunmamisSayisi());
+ipcMain.handle('vault:tazele', () => okuyucu.tazele());
+function ayarCevabi(a) {
+  return {
+    kenarAcik: a.kenarAcik,
+    yaziBoyutu: a.yaziBoyutu,
+    arsivAcik: a.arsivAcik,
+    ada: a.ada !== false,
+    okumaTema: a.okumaTema === 'acik' ? 'acik' : 'koyu',
+  };
+}
+ipcMain.handle('ayar:getir', () => ayarCevabi(ayarlar.oku()));
+ipcMain.handle('ayar:kaydet', (_e, yama) => ayarCevabi(ayarlar.yaz(ayarlar.rendererYamasi(yama))));
 
 // Content-Security-Policy tek kaynaktan. Dev'de Vite'in HMR'i inline script ve ws
 // istiyor; uretimde hicbiri gerekmiyor.
@@ -497,6 +560,7 @@ app.whenReady().then(() => {
   log('--- Kokpit basladi ---');
   Menu.setApplicationMenu(null);
   cspKur();
+  nightHost.boot(process.argv);
   if (!DEV) uretim.protokolKur(path.join(__dirname, '..', 'dist'), CSP);
   // Kanca koprusu erken: olaylar hem ana pencereye hem adaya yayinlanir.
   kanca
@@ -510,6 +574,8 @@ app.whenReady().then(() => {
         if (pencere) pencere.webContents.send('etkinlik:sinyal', { id, sinyal, durum });
         ada.sinyal(id, sinyal);
       },
+      kimlik: kimlikDegisti,
+      hook: nightHost.hook,
     })
     .catch((e) => logHata('kanca baslatilamadi', e));
   pencereKur();

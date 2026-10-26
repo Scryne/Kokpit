@@ -41,6 +41,10 @@ export default function KomutPaleti({ acik, komutlar, onKapat }: Props) {
       setTimeout(() => kutuRef.current?.focus(), 0);
     } else if (!acik && d.open) {
       d.close();
+      // Kapanista da sifirlanir: acilistaki sifirlama render'dan once yazilan harflerle yarisip
+      // eski sorguyu birakiyordu ("envantergece ...", test:ui 2026-10-05).
+      setSorgu('');
+      setSecili(0);
     }
   }, [acik]);
 

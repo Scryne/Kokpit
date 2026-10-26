@@ -409,10 +409,10 @@ async function main() {
     await cdp.yaz("k '{\"hook_event_name\":\"Stop\",\"session_id\":\"t\"}'; cls");
     await cdp.tus('Enter');
 
-    console.log('Ada (v2.6): surukle-birak, ekran hatirlanir, sonraki ekran komutu');
-    // Pencere surukleme boyunca imlecle gider, birakinca ayni ekranin ust ortasina oturur (tek
-    // ekranlik surukleme). CDP fare olayinin screenX'i pencere konumundan turetilir: pencere
-    // kaydiktan sonra ayni ekran noktasi istemcide eski yerine duser.
+    console.log('Ada (v2.6/v2.8): surukle-birak, birakilan yerde kalir, ekran hatirlanir, sonraki ekran komutu');
+    // Pencere surukleme boyunca imlecle gider, birakinca orada kalir (v2.8). CDP fare olayinin
+    // screenX'i pencere konumundan turetilir: pencere kaydiktan sonra ayni ekran noktasi
+    // istemcide eski yerine duser.
     const adaYeri = () => adaCdp.js(`({ x: window.screenX, y: window.screenY })`);
     const hap = await adaCdp.js(`(() => { const b = document.querySelector('.ada-kart > button').getBoundingClientRect(); return { x: Math.round(b.x + 40), y: Math.round(b.y + b.height / 2) }; })()`);
     const ilkYer = await adaYeri();
@@ -424,9 +424,9 @@ async function main() {
     await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseReleased', ...hap, button: 'left', buttons: 0, clickCount: 1 });
     await uyu(400);
     const sonYer = await adaYeri();
-    kontrol('ada: birakinca ekranin ust ortasina oturdu', sonYer.x === ilkYer.x && sonYer.y === ilkYer.y, JSON.stringify({ ilkYer, sonYer }));
+    kontrol('ada: birakilan yerde kaldi', sonYer.x === ortaYer.x && sonYer.y === ortaYer.y, JSON.stringify({ ortaYer, sonYer }));
     const adaEkran = JSON.parse(fs.readFileSync(AYARLAR, 'utf8')).adaEkran;
-    kontrol("ada: secilen ekran ayarlar.json'a yazildi", !!adaEkran && Number.isFinite(adaEkran.id), JSON.stringify(adaEkran));
+    kontrol("ada: ekran ve hap yeri ayarlar.json'a yazildi", !!adaEkran && Number.isFinite(adaEkran.id) && Number.isFinite(adaEkran.hap?.cx), JSON.stringify(adaEkran));
     const sonraki = await cdp.js(`window.kokpit.adaSonrakiEkran()`);
     if (sonraki.toplam > 1) {
       await uyu(300);
@@ -434,7 +434,7 @@ async function main() {
       kontrol("ada: sonraki ekran komutu ada'yi o ekranin ust ortasina tasidi", yeniYer.x === Math.round(sonraki.alan.x + (sonraki.alan.width - 460) / 2) && yeniYer.y === sonraki.alan.y, JSON.stringify({ sonraki, yeniYer }));
       for (let i = 1; i < sonraki.toplam; i++) await cdp.js(`window.kokpit.adaSonrakiEkran()`);
       await uyu(300);
-      kontrol('ada: komut dongusu ilk ekrana dondu', JSON.stringify(await adaYeri()) === JSON.stringify(ilkYer), '');
+      kontrol('ada: komut dongusu ilk ekranin ust ortasina dondu', JSON.stringify(await adaYeri()) === JSON.stringify(ilkYer), '');
       // Ekranlar arasi surukleme: hap tutulur, imlec diger ekranin icine (ust ortanin 300 px
       // altina) cekilir. Istemci koordinati = ekran noktasi - pencere konumu; pencere imlecle
       // kaydiktan sonra ayni ekran noktasi istemcide yine `hap`a duser.
@@ -451,12 +451,36 @@ async function main() {
       await uyu(400);
       const digerYer = await adaYeri();
       const digerKayit = JSON.parse(fs.readFileSync(AYARLAR, 'utf8')).adaEkran;
-      kontrol('ada: diger ekrana birakinca onun ust ortasina oturdu ve o ekran kaydedildi', digerYer.x === Math.round(sonraki.alan.x + (sonraki.alan.width - 460) / 2) && digerYer.y === sonraki.alan.y && digerKayit?.id !== adaEkran.id, JSON.stringify({ digerYer, digerKayit }));
+      kontrol('ada: diger ekrana birakinca orada kaldi ve o ekran kaydedildi', digerYer.x === gecisYeri.x && digerYer.y === gecisYeri.y && digerKayit?.id !== adaEkran.id, JSON.stringify({ gecisYeri, digerYer, digerKayit }));
       // Sonraki bolumler ada'yi ilk ekranda bekler.
       for (let i = 1; i < sonraki.toplam; i++) await cdp.js(`window.kokpit.adaSonrakiEkran()`);
       await uyu(300);
     } else {
-      kontrol('ada: tek ekran, sonraki ekran komutu yerinde birakti', sonraki.toplam === 1 && JSON.stringify(await adaYeri()) === JSON.stringify(ilkYer), JSON.stringify(sonraki));
+      kontrol('ada: tek ekran, sonraki ekran komutu ust ortaya dondurdu', sonraki.toplam === 1 && JSON.stringify(await adaYeri()) === JSON.stringify(ilkYer), JSON.stringify(sonraki));
+    }
+    // Ekranin altina birakilan ada yukari acilir: hap birakilan yerde kalir, pencere ekrandan
+    // tasmaz. Ada su an ilk ekranin ust ortasinda (ilkYer).
+    {
+      const alan = sonraki.toplam === 1 ? sonraki.alan : await adaCdp.js(`(() => ({ x: screen.availLeft, y: screen.availTop, width: screen.availWidth, height: screen.availHeight }))()`);
+      const asagi = alan.y + alan.height - 60 - (ilkYer.y + hap.y);
+      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mousePressed', ...hap, button: 'left', buttons: 1, clickCount: 1 });
+      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hap.x - 200, y: hap.y + asagi, button: 'left', buttons: 1 });
+      await uyu(300);
+      const hapUstu = async () => adaCdp.js(`(() => { const b = document.querySelector('.ada-kart > button').getBoundingClientRect(); return Math.round(b.top); })()`);
+      const suruklenen = (await adaYeri()).y + (await hapUstu());
+      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseReleased', ...hap, button: 'left', buttons: 0, clickCount: 1 });
+      await uyu(400);
+      const altYer = await adaYeri();
+      const birakilan = altYer.y + (await hapUstu());
+      const yukari = await adaCdp.js(`!!document.querySelector('.ada-yukari')`);
+      kontrol(
+        'ada: ekranin altinda kart yukari acilir, hap birakilan yerde, pencere ekranda',
+        yukari && Math.abs(birakilan - suruklenen) <= 2 && altYer.y + 520 <= alan.y + alan.height,
+        JSON.stringify({ alan, altYer, suruklenen, birakilan, yukari })
+      );
+      for (let i = 0; i < sonraki.toplam; i++) await cdp.js(`window.kokpit.adaSonrakiEkran()`);
+      await uyu(300);
+      kontrol('ada: sonraki ekran komutu ust ortaya geri koydu (asagi acilir)', JSON.stringify(await adaYeri()) === JSON.stringify(ilkYer) && !(await adaCdp.js(`!!document.querySelector('.ada-yukari')`)), '');
     }
     await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 510 });
 
@@ -689,6 +713,39 @@ async function main() {
     // Test notunu geri al: dosya yoksa sil, varsa eklenen satiri cikar.
     if (inboxOnce === null) fs.unlinkSync(inboxDosya);
     else fs.writeFileSync(inboxDosya, inboxSonra.split('\n').filter((l) => !l.includes(isaret)).join('\n'));
+
+    console.log('Gece gorevi (palet, rozet, iptal; bekci --dry-run)');
+    const GECE = path.join(TEST_DIZIN, 'night.json');
+    const geceIsaretle = async () => {
+      await cdp.tus('P', 2 | 8, 'KeyP');
+      await cdp.bekle(`document.activeElement?.getAttribute('role') === 'combobox'`, 3000, 'palet odagi');
+      await cdp.yaz('gece görevi olarak');
+      await cdp.bekle(`!!document.querySelector('[role="option"][aria-selected="true"]')?.textContent.includes('Gece görevi olarak')`, 3000, 'gece komutu secili').catch(async (e) => {
+        throw new Error(e.message + ' :: ' + (await cdp.js(`JSON.stringify({ deger: document.querySelector('dialog[open] [role="combobox"]')?.value, odak: document.activeElement?.tagName, secenekler: [...document.querySelectorAll('[role="option"]')].slice(0, 4).map(o => o.textContent) })`)));
+      });
+      await cdp.tus('Enter');
+      await cdp.bekle(`[...document.querySelectorAll('[role="tab"]')].some(t => t.textContent.includes('çalışıyor'))`, 3000, 'gece rozeti');
+    };
+    await cdp.js(AC_DUGMESI);
+    await cdp.bekle(`!!document.querySelector('[role="tab"] .bg-aksan')`, 20000, 'oturum acik');
+    await geceIsaretle();
+    kontrol('paletten isaret: sekmede gece rozeti "çalışıyor"', true);
+    const iptalDugmesi = `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Gece modunu iptal et')`;
+    kontrol('iptal dugmesi gorunur', await cdp.js(`!!${iptalDugmesi}`));
+    const gece1 = fs.existsSync(GECE) ? JSON.parse(fs.readFileSync(GECE, 'utf8')) : null;
+    kontrol('night.json test dizinine yazildi (working)', gece1?.version === 1 && gece1.tabs.length === 1 && gece1.tabs[0].state === 'working' && gece1.done === false, JSON.stringify(gece1));
+    await cdp.js(`(() => { ${iptalDugmesi}.click(); return true; })()`);
+    await cdp.bekle(`![...document.querySelectorAll('[role="tab"]')].some(t => t.textContent.includes('çalışıyor'))`, 3000, 'rozet kalkti');
+    kontrol('iptal: rozet ve dugme kalkti, night-cancel yazildi, night.json silindi',
+      (await cdp.js(`!${iptalDugmesi}`)) && fs.existsSync(path.join(TEST_DIZIN, 'night-cancel')) && !fs.existsSync(GECE));
+    await geceIsaretle();
+    await cdp.js(`(() => { document.querySelector('[aria-label$="sekmesini kapat"]').click(); return true; })()`);
+    await cdp.bekle(`document.querySelectorAll('[role="tab"]').length === 0`, 5000, 'gece sekmesi kapandi');
+    await uyu(200);
+    const gece2 = fs.existsSync(GECE) ? JSON.parse(fs.readFileSync(GECE, 'utf8')) : null;
+    kontrol('elle kapatilan son gece sekmesi: night.json done, iptal dugmesi hala gorunur',
+      gece2?.done === true && gece2.tabs[0].state === 'closed' && (await cdp.js(`!!${iptalDugmesi}`)), JSON.stringify(gece2));
+    await cdp.js(`(() => { ${iptalDugmesi}.click(); return true; })()`); // dry-run bekci de ciksin
 
     console.log('Surec calisirken uygulamayi kapat (guvenli kapat + geri yukleme)');
     await cdp.js(AC_DUGMESI);

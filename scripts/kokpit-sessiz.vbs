@@ -6,4 +6,9 @@ Set kabuk = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 kok = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
 kabuk.CurrentDirectory = kok
-kabuk.Run "node """ & kok & "\scripts\uretim.cjs""", 0, False
+' Argumanlar Electron'a gecer (gece oturum acilisi: --night-resume).
+ek = ""
+For Each a In WScript.Arguments
+  ek = ek & " " & a
+Next
+kabuk.Run "node """ & kok & "\scripts\uretim.cjs""" & ek, 0, False

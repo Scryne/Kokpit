@@ -7,6 +7,7 @@
 //
 // Olaylar:
 //   { t, calisma, olay: 'acildi',  id, ad, yol, claude? }   claude: claude oturum kimligi (uuid, v2.3; --session-id)
+//   { t, calisma, olay: 'kimlik',  id, claude }          sekmenin claude kimligi degisti (/clear, /resume; kanca koprusu, 2026-10-05)
 //   { t, calisma, olay: 'kapandi', id, kod?, sebep?, ozet? }  ozet: kanca koprusu (2026-10-03)   sebep: 'kullanici' | 'kabuk' | 'uygulama-kapandi'
 //   { t, calisma, olay: 'calisma-bitti' }                uygulama duzgun kapandi (2026-09-29'dan beri)
 //
@@ -61,6 +62,9 @@ function oturumlar(olaylar = oku()) {
   for (const o of olaylar) {
     if (o.olay === 'acildi' && o.id) {
       harita.set(o.id, { id: o.id, ad: o.ad, yol: o.yol, claude: o.claude ?? null, calisma: o.calisma, baslangic: o.t, bitis: null, kod: null, sebep: null, bitisBilinmiyor: false });
+    } else if (o.olay === 'kimlik' && harita.has(o.id) && typeof o.claude === 'string') {
+      // Sonuncusu gecer: geri yukleme ve Surdur /clear'dan sonraki konusmayi acar.
+      harita.get(o.id).claude = o.claude;
     } else if (o.olay === 'kapandi' && harita.has(o.id)) {
       const k = harita.get(o.id);
       if (k.bitis !== null) continue;
@@ -94,7 +98,7 @@ function oncekiAcikOturumlar() {
     const eski = yolaGore.get(k.yol);
     if (!eski || eski.baslangic < k.baslangic) yolaGore.set(k.yol, k);
   }
-  return [...yolaGore.values()].map((k) => ({ ad: k.ad, yol: k.yol, baslangic: k.baslangic, claude: k.claude }));
+  return [...yolaGore.values()].map((k) => ({ id: k.id, ad: k.ad, yol: k.yol, baslangic: k.baslangic, claude: k.claude }));
 }
 
 /** Yol basina son oturum: Pano'daki "son oturum" sutunu. Suren oturumlar dahil degil. */
@@ -117,4 +121,4 @@ function sonOturumlar() {
   return sonuc;
 }
 
-module.exports = { ekle, calismaBitti, oncekiAcikOturumlar, sonOturumlar, DOSYA, CALISMA };
+module.exports = { ekle, calismaBitti, oncekiAcikOturumlar, sonOturumlar, oturumlar, DOSYA, CALISMA };

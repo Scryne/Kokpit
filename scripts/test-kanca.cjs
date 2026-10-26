@@ -2,7 +2,8 @@
 // koprusu (durum-satiri.cjs). Electron'suz, duz node. Payload sekilleri 2026-10-03 spike'inda
 // gercek claude 2.1.288'den kaydedilenlerle ayni.
 //
-// Gercek ~/.kokpit/kanca/ dizinine yazmamak icin HOME/USERPROFILE gecici dizine cevrilir.
+// Gercek ~/.kokpit/kanca/ dizinine yazmamak icin HOME/USERPROFILE gecici dizine cevrilir;
+// Kokpit'in veri dizini de (KOKPIT_DIZIN, defter dahil) acikca onun altinda.
 
 const os = require('os');
 const path = require('path');
@@ -13,6 +14,7 @@ const { spawn } = require('child_process');
 const GECICI = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-kanca-'));
 process.env.USERPROFILE = GECICI;
 process.env.HOME = GECICI;
+process.env.KOKPIT_DIZIN = path.join(GECICI, '.kokpit');
 fs.mkdirSync(path.join(GECICI, '.claude'), { recursive: true });
 fs.writeFileSync(
   path.join(GECICI, '.claude', 'settings.json'),
@@ -301,6 +303,53 @@ kontrol('bilinmeyen olay durumu degistirmez', r.degisti === false && r.durum ===
   kontrol('transcriptVar: var / yok / gecersiz kimlik', beyin.transcriptVar(yol, kimlik) === true && beyin.transcriptVar(yol, '00000000-0000-4000-8000-000000000000') === false && beyin.transcriptVar(yol, '../x') === false);
 }
 
+// --- 1f. /clear sonrasi kimlik (2026-10-05). /clear ayni surecte yeni uuid acar: once eski
+// kimlikle SessionEnd, sonra yeni kimlikle olaylar ayni sekmeden gelir. Alt ajan govdeleri
+// agent_id tasir (sekiller 1a ile ayni) ve kimlik soylemez.
+const UUID_A = 'aaaaaaaa-1111-4222-8333-444444444444';
+const UUID_B = 'bbbbbbbb-1111-4222-8333-444444444444';
+{
+  const K = (o) => etkinlik.oturumKimligi({ ...ORTAK, session_id: UUID_A, ...o });
+  kontrol('kimlik: ana tur olayi uuid verir', K({ hook_event_name: 'UserPromptSubmit', prompt: 'x' }) === UUID_A);
+  kontrol('kimlik: buyuk harfli uuid kucuge cevrilir', K({ hook_event_name: 'Stop', session_id: UUID_B.toUpperCase() }) === UUID_B);
+  kontrol('kimlik: alt ajan govdesi kimlik soylemez', K({ hook_event_name: 'PreToolUse', tool_name: 'Read', agent_id: 'a1', agent_type: 'kasif' }) === null && K({ hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'kasif' }) === null);
+  kontrol('kimlik: SessionEnd biten oturumun kimligi, soylemez', K({ hook_event_name: 'SessionEnd', reason: 'clear' }) === null);
+  kontrol('kimlik: gecersiz / eksik uuid yok sayilir', K({ hook_event_name: 'Stop', session_id: 's-1' }) === null && K({ hook_event_name: 'Stop', session_id: '../' + UUID_A }) === null && K({ hook_event_name: 'Stop', session_id: undefined }) === null && etkinlik.oturumKimligi(null) === null);
+}
+
+// --- 1g. Defter: 'kimlik' olayi geri yuklemenin ve Surdur'un kimligini ezer ---
+{
+  const defter = require(path.join(KOK, 'electron', 'defter.cjs'));
+  kontrol('defter gecici KOKPIT_DIZIN altinda (gercek ~/.kokpit degil)', defter.DOSYA.startsWith(GECICI), defter.DOSYA);
+  const yolX = path.join(GECICI, 'proje-x');
+  const yolY = path.join(GECICI, 'proje-y');
+  const yolZ = path.join(GECICI, 'proje-z');
+  const C = 'cccccccc-1111-4222-8333-444444444444';
+  const satir = (t, o) => JSON.stringify({ t, calisma: 'eski-calisma', ...o });
+  fs.mkdirSync(path.dirname(defter.DOSYA), { recursive: true });
+  fs.writeFileSync(
+    defter.DOSYA,
+    [
+      satir(1, { olay: 'acildi', id: 'x-1', ad: 'X', yol: yolX, claude: UUID_A }),
+      satir(2, { olay: 'kimlik', id: 'x-1', claude: UUID_B }),
+      satir(3, { olay: 'acildi', id: 'y-1', ad: 'Y', yol: yolY }),
+      satir(4, { olay: 'kimlik', id: 'y-1', claude: C }),
+      satir(5, { olay: 'kimlik', id: 'bilinmeyen', claude: UUID_A }),
+      satir(6, { olay: 'acildi', id: 'z-1', ad: 'Z', yol: yolZ, claude: UUID_A }),
+      satir(7, { olay: 'kimlik', id: 'z-1', claude: C }),
+      satir(8, { olay: 'kapandi', id: 'z-1', kod: 0, sebep: 'kullanici' }),
+    ].join('\n') + '\n'
+  );
+  const sonlar = defter.sonOturumlar();
+  kontrol('defter: Surdur /clear sonrasi kimligi verir', sonlar[yolZ] && sonlar[yolZ].claude === C, sonlar[yolZ]);
+  const onceki = defter.oncekiAcikOturumlar();
+  const x = onceki.find((o) => o.yol === yolX);
+  const y = onceki.find((o) => o.yol === yolY);
+  kontrol('defter: geri yukleme /clear sonrasi kimligi verir (A degil B)', x && x.claude === UUID_B, x);
+  kontrol('defter: --session-id siz acilan sekme kimligini kanca ile kazanir', y && y.claude === C, y);
+  kontrol('defter: tanimsiz sekmenin kimlik olayi oturum dogurmaz', onceki.length === 2, onceki);
+}
+
 const oz = etkinlik.kaliciOzet(d);
 kontrol('kalici ozet', oz && oz.dosya === 2 && oz.arti === 6 && oz.eksi === 1 && oz.turlar === 1, oz);
 kontrol('bos oturumun ozeti yok', etkinlik.kaliciOzet(etkinlik.yeniDurum(0)) === null);
@@ -335,7 +384,12 @@ const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
   const kanca = require(path.join(KOK, 'electron', 'kanca.cjs'));
   const yayinlar = [];
   const sinyaller = [];
-  const b = await kanca.baslat({ yayin: (a) => yayinlar.push(a), sinyal: (id, s) => sinyaller.push([id, s]) });
+  const kimlikOlaylari = [];
+  const b = await kanca.baslat({
+    yayin: (a) => yayinlar.push(a),
+    sinyal: (id, s) => sinyaller.push([id, s]),
+    kimlik: (id, k) => kimlikOlaylari.push([id, k]),
+  });
   kontrol('ayar dosyasi gecici HOME altinda', b.ayarDosyasi && b.ayarDosyasi.startsWith(GECICI), b.ayarDosyasi);
   const ayar = JSON.parse(fs.readFileSync(b.ayarDosyasi, 'utf8'));
   const h = ayar.hooks.PreToolUse[0].hooks[0];
@@ -357,6 +411,35 @@ const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
   kontrol('gecersiz oturum basligi yok sayilir', Object.keys(a.oturumlar).length === 1);
   kontrol('sinyal bir kez: bitti', sinyaller.length === 1 && sinyaller[0][1] === 'bitti', sinyaller);
   kontrol('yayin kisildi (olay basina degil)', yayinlar.length >= 1 && yayinlar.length <= 2, yayinlar.length);
+  kontrol('gecersiz session_id (s-1) kimlik olayi uretmez', kimlikOlaylari.length === 0, kimlikOlaylari);
+
+  // /clear dizisi: A ile tur + alt ajan, SessionEnd(A), sonra B ile olaylar. Arka planda suren
+  // alt ajan /clear'dan sonra eski (ya da baska) kimlikle gelir: kimlik oynamamali.
+  const s2 = { ...yetki, 'X-Kokpit-Oturum': 'sekme-2' };
+  const A = (o) => ({ ...ORTAK, session_id: UUID_A, ...o });
+  const B = (o) => ({ ...ORTAK, session_id: UUID_B, ...o });
+  for (const g of [
+    A({ hook_event_name: 'UserPromptSubmit', prompt: 'x' }),
+    A({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: 'C:/a' } }),
+    A({ hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'kasif' }),
+    A({ hook_event_name: 'Stop', last_assistant_message: 'tamam' }),
+    A({ hook_event_name: 'SessionEnd', reason: 'clear' }),
+    B({ hook_event_name: 'UserPromptSubmit', prompt: 'temiz sayfa' }),
+    A({ hook_event_name: 'PreToolUse', tool_name: 'Grep', agent_id: 'a1', agent_type: 'kasif', tool_input: { pattern: 'x' } }),
+    B({ hook_event_name: 'PreToolUse', tool_name: 'Read', agent_id: 'a2', session_id: 'dddddddd-1111-4222-8333-444444444444', tool_input: { file_path: 'C:/b' } }),
+    B({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: 'C:/b' } }),
+    B({ hook_event_name: 'Stop', last_assistant_message: 'bitti' }),
+  ]) {
+    // Sirali: claude hook'lari da tek tek, cevabi bekleyerek gonderir.
+    await post(b.port, '/kanca', g, s2);
+  }
+  const s2Kimlikler = kimlikOlaylari.filter(([id]) => id === 'sekme-2').map(([, k]) => k);
+  kontrol('/clear: ilk kimlik A, sonra tek bir B; alt ajan ve SessionEnd oynatmaz', s2Kimlikler.join() === [UUID_A, UUID_B].join(), s2Kimlikler);
+  await post(b.port, '/kanca', { ...ORTAK, session_id: 'yok-boyle-uuid', hook_event_name: 'UserPromptSubmit', prompt: 'x' }, { ...yetki, 'X-Kokpit-Oturum': 'sekme-3' });
+  kontrol('gecersiz uuid: kimlik olayi yok', !kimlikOlaylari.some(([id]) => id === 'sekme-3'), kimlikOlaylari);
+  kanca.unut('sekme-2');
+  await post(b.port, '/kanca', B({ hook_event_name: 'Stop' }), s2);
+  kontrol('unut sonrasi ayni kimlik yeniden ilk kez gorulur', kimlikOlaylari.filter(([id]) => id === 'sekme-2').length === 3, kimlikOlaylari);
 
   // statusline koprusu: gercek alt surec, Claude Code'un yaptigi gibi stdin'e JSON
   const ortam = { ...process.env, ...kanca.ptyOrtami(), KOKPIT_OTURUM: 'sekme-1' };

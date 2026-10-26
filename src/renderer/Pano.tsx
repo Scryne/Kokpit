@@ -24,6 +24,9 @@ interface Props {
   arsivAcik: boolean;
   onArsivDegistir: () => void;
   onSaglik: () => void;
+  /** Okuma sayfasinda okunmamis not sayisi (v2.9); tiklaninca Okuma > Akis. */
+  okunmamisNot: number;
+  onOku: () => void;
   onBaslat: (p: Proje) => void;
   /** Calistir: projenin uygulamasini servis bolmesinde acar (komut yoksa sorar). */
   onCalistir: (p: Proje) => void;
@@ -40,6 +43,8 @@ export default function Pano({
   arsivAcik,
   onArsivDegistir,
   onSaglik,
+  okunmamisNot,
+  onOku,
   onBaslat,
   onCalistir,
   onSurdur,
@@ -314,7 +319,18 @@ export default function Pano({
 
       {/* Beyin: olcum seridiyle ayni dil, ama ayri bir blok. */}
       <section className="halka relative rounded-base bg-yuzey px-5 py-4">
-        <h2 className="etiket">Beyin</h2>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="etiket">Beyin</h2>
+          {okunmamisNot > 0 && (
+            <button
+              type="button"
+              onClick={onOku}
+              className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-metin-ikincil underline decoration-kenar-guclu underline-offset-4 transition-colors duration-[120ms] hover:text-metin hover:decoration-current"
+            >
+              <span className="enstruman text-aksan-metin">{okunmamisNot}</span> okunmamış not · Oku
+            </button>
+          )}
+        </div>
         <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
           <div>
             <dt className="text-xs text-metin-soluk">Derleyici</dt>
