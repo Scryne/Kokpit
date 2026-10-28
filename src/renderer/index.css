@@ -432,6 +432,84 @@ html.ada body {
     transform: translate(2px, -3px);
   }
 }
+/* v3.0 endise: bir oturum takildi ya da bir bot dustu. Gozler egilir ("/ \"), bakis asagi; amber halka
+   iki kez atar ve soner (sende olan bir sey var ama soru degil: neden satirda yaziyor). Kisa hal (8 sn). */
+.ada-goz[data-hal='endise'] .ada-goz-poz {
+  transform: translateY(0.8px);
+  gap: 5.5px;
+}
+.ada-goz[data-hal='endise'] .ada-goz-g:first-child {
+  transform: rotate(22deg) scaleY(0.85);
+}
+.ada-goz[data-hal='endise'] .ada-goz-g:last-child {
+  transform: rotate(-22deg) scaleY(0.85);
+}
+.ada-goz[data-hal='endise'] .ada-goz-halo {
+  animation: ada-goz-halo-son 1.8s ease-out 1 forwards;
+}
+@keyframes ada-goz-halo-son {
+  0%,
+  50% {
+    opacity: 0.95;
+  }
+  25% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* v3.0 yorgun: 5 saatlik limit %90'i gecti. Agir kapakli gozler, govde bir tik asagi ve sonuk. Duragan. */
+.ada-goz[data-hal='yorgun'] .ada-goz-g {
+  transform: translateY(1.2px) scaleY(0.38);
+}
+.ada-goz[data-hal='yorgun'] .ada-goz-govde {
+  opacity: 0.82;
+  transform: translateY(0.6px);
+}
+/* v3.0 para: yeni siparis. Mutlu gozler + iki zipla + "$" bir kez yukari suzulur. */
+.ada-goz[data-hal='para'] .ada-goz-g {
+  width: 3.6px;
+  height: 2.4px;
+  background: transparent;
+  border: 1.3px solid #101216;
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+}
+.ada-goz[data-hal='para'] {
+  animation: ada-goz-zipla 520ms cubic-bezier(0.3, 1.6, 0.5, 1) 2;
+}
+.ada-goz-para {
+  position: absolute;
+  right: -3px;
+  top: -2px;
+  font: 700 9px/1 var(--font-enstruman);
+  color: var(--color-birincil);
+  opacity: 0;
+}
+.ada-goz[data-hal='para'] .ada-goz-para {
+  animation: ada-goz-para 1.6s ease-out 1 forwards;
+}
+@keyframes ada-goz-para {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ada-goz[data-hal='endise'] .ada-goz-halo,
+  .ada-goz[data-hal='para'],
+  .ada-goz[data-hal='para'] .ada-goz-para {
+    animation: none;
+  }
+}
 /* Alt ajanlar: govdenin saginda, calisan ajan basina bir nokta (en fazla 3). */
 .ada-goz-altlar {
   position: absolute;

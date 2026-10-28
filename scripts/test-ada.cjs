@@ -279,8 +279,60 @@ function ustKatmanTesti() {
   fs.rmSync(d, { recursive: true, force: true });
 }
 
+// v3.0: nobet gecisleri, Ada'ya birakma bolgesi, git ozeti ayristirma, ek yolu denetimi (saf).
+function v3Testi() {
+  const { olaylariBul } = require(path.join(KOK, 'electron', 'nobet.cjs'));
+  const is = (hal, ek = {}) => ({ proje: 'Yanki', ad: 'Üretim', hal, son: '2026-10-29T01:00:05+03:00', ayrinti: 'RunPod bakiyesi', ...ek });
+  let r = olaylariBul(null, [is('dustu')]);
+  kontrol('nobet: ilk okuma olay uretmez (eski dusus her acilista haber olmasin)', r.olaylar.length === 0 && r.gorulen['Yanki|Üretim'].hal === 'dustu');
+  r = olaylariBul({ 'Yanki|Üretim': { hal: 'saglikli', son: null } }, [is('dustu')]);
+  kontrol('nobet: saglikli -> dustu olayi', r.olaylar.length === 1 && r.olaylar[0].tur === 'dustu' && r.olaylar[0].ayrinti === 'RunPod bakiyesi', r.olaylar);
+  r = olaylariBul({ 'Yanki|Üretim': { hal: 'dustu', son: null } }, [is('dustu')]);
+  kontrol('nobet: dustu kalan is tekrar olay uretmez', r.olaylar.length === 0);
+  r = olaylariBul({}, [is('dustu')]);
+  kontrol('nobet: yeni bildirilen is (onceki kayitta yok) olay uretmez', r.olaylar.length === 0);
+  const siparis = (son, deger) => ({ proje: 'Matbaa', ad: 'Günlük rapor', hal: 'saglikli', son, sayac: { ad: 'Yeni sipariş', deger, sevinc: true } });
+  r = olaylariBul({ 'Matbaa|Günlük rapor': { hal: 'saglikli', son: 'A' } }, [siparis('B', 2)]);
+  kontrol('nobet: yeni kosu + sayac > 0 -> sevinc', r.olaylar.length === 1 && r.olaylar[0].tur === 'sevinc' && r.olaylar[0].deger === 2 && r.olaylar[0].ad === 'Yeni sipariş', r.olaylar);
+  r = olaylariBul({ 'Matbaa|Günlük rapor': { hal: 'saglikli', son: 'B' } }, [siparis('B', 2)]);
+  kontrol('nobet: ayni kosu yeniden okununca sevinc tekrarlanmaz', r.olaylar.length === 0);
+  r = olaylariBul({ 'Matbaa|Günlük rapor': { hal: 'saglikli', son: 'A' } }, [siparis('B', 0)]);
+  kontrol('nobet: yeni kosu ama sayac 0 -> sevinc yok', r.olaylar.length === 0);
+
+  const { hapBolgesinde } = require(path.join(KOK, 'electron', 'ada-yer.cjs'));
+  const p = { x: 500, y: 0, width: 460 };
+  kontrol('birak: hapin ustu (orta, ust 20 px) bolgede', hapBolgesinde({ x: 730, y: 20 }, p));
+  kontrol('birak: hapin altindaki bos saydam alan bolgede degil', !hapBolgesinde({ x: 730, y: 200 }, p));
+  kontrol('birak: pencerenin kenarindaki bos alan bolgede degil', !hapBolgesinde({ x: 505, y: 10 }, p));
+
+  const { durumAyristir } = require(path.join(KOK, 'electron', 'git-ozet.cjs'));
+  const g = durumAyristir(
+    ['# branch.oid abc', '# branch.head master', '# branch.upstream origin/master', '# branch.ab +3 -1', '1 .M N... 100644 100644 100644 a b src/x.ts', '? yeni.txt', ''].join('\n')
+  );
+  kontrol('git: dal, ileride, uzak, kirli', g.dal === 'master' && g.ileride === 3 && g.uzakVar === true && g.kirli === 2, g);
+  const g2 = durumAyristir('# branch.oid abc\n# branch.head (detached)\n');
+  kontrol('git: ayrik HEAD + uzaksiz + temiz', g2.dal === null && g2.uzakVar === false && g2.ileride === 0 && g2.kirli === 0, g2);
+
+  const { dosyaUygun } = require(path.join(KOK, 'electron', 'yakala.cjs'));
+  const dosya = path.join(GECICI, 'ek.png');
+  fs.writeFileSync(dosya, 'x');
+  kontrol('ek: var olan mutlak dosya uygun', dosyaUygun(dosya, fs.statSync(dosya)));
+  kontrol('ek: klasor uygun degil', !dosyaUygun(GECICI, fs.statSync(GECICI)));
+  // Windows'ta klasorun boyutu 0: yukaridaki kontrol "bos dosya" kuralina da takilir. Dosya olmayan ama boyutu
+  // olan bir girdi (aygit, baglanti) yalniz isFile kuraliyla reddedilir (mutasyonla kacti, 2026-10-29).
+  kontrol('ek: boyutu olan ama dosya olmayan girdi uygun degil', !dosyaUygun(dosya, { isFile: () => false, size: 10 }));
+  kontrol('ek: goreli yol uygun degil', !dosyaUygun('ek.png', fs.statSync(dosya)));
+  kontrol('ek: satir sonu tasiyan yol uygun degil (Enter olurdu)', !dosyaUygun(dosya + '\r\nx', fs.statSync(dosya)));
+  kontrol('ek: bos dosya uygun degil', (() => {
+    const bos = path.join(GECICI, 'bos.png');
+    fs.writeFileSync(bos, '');
+    return !dosyaUygun(bos, fs.statSync(bos));
+  })());
+}
+
 (async () => {
   try {
+    v3Testi();
     ustKatmanTesti();
     saklanmaTesti();
     await limitTesti();

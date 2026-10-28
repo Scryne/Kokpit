@@ -54,6 +54,12 @@ let gitDinleyici = () => {};
 let gordumDinleyici = () => {};
 let gorevDinleyici = () => {};
 let limitTazeleDinleyici = () => {};
+let ekGonderDinleyici = (_istek) => {};
+let ekSilDinleyici = (_kimlikler) => {};
+let birakDinleyici = (_yollar) => 0;
+let sonEkler = []; // v3.0: yakala.cjs listesi (yolsuz)
+let sonNobet = null; // v3.0: nobet.cjs son olcumu
+let sonVadeler = []; // v3.0: durum.py vadeleri
 let sonProjeler = []; // { ad, yol } — gorev hedefi yalniz bu listeden olabilir
 let sonDis = [];
 let disZamanlayici = null;
@@ -72,6 +78,13 @@ let yoklamaZamanlayici = null;
 const YOKLAMA_MS = 600; // tam ekran + ust katman; ikisi de birkac user32 cagrisi (~10 µs)
 let dusus = { sayi: 0, sonLog: 0 }; // ust katman dususleri: ilk her zaman, sonra dakikada en fazla bir log
 let surukleme = null; // { x0, imlec0 }
+// v3.0, Ada'ya birakma. Ada fareyi alttaki pencereye gecirirken (setIgnoreMouseEvents forward) Windows'un
+// surukle-birak dongusu ona fare olayi yollamaz: imlec hapa gelse de renderer haberdar olmaz, birakma
+// alttaki pencereye gider. Yoklama sol tus basiliyken imlec hapin bolgesindeyse yakalamayi acar;
+// renderer dragenter ile kartini acar. Tus birakilinca (renderer imleci icinde saymiyorsa) kapanir.
+let fareIcinde = false;
+let birakmaAcik = false;
+let tusOku = null;
 let ekranDinleniyor = false;
 
 function konum() {
@@ -139,7 +152,42 @@ function yoklamaAyarla() {
 function yokla() {
   if (!ada || ada.isDestroyed()) return;
   if (tamEkranAyar) tamEkranOku();
-  if (ada.isVisible()) ustteTut();
+  if (ada.isVisible()) {
+    ustteTut();
+    birakmaYokla();
+  }
+}
+
+function solTusBasili() {
+  if (tusOku === null) {
+    tusOku = false;
+    if (process.platform === 'win32') {
+      try {
+        const koffi = require('koffi');
+        tusOku = koffi.load('user32.dll').func('int16 __stdcall GetAsyncKeyState(int vKey)');
+      } catch (e) {
+        log('ada: tus durumu okunamiyor, birakma yalniz imlec onceden hapin ustundeyse calisir: ' + e.message);
+      }
+    }
+  }
+  if (!tusOku) return false;
+  try {
+    return (tusOku(0x01) & 0x8000) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+function birakmaYokla() {
+  if (fareIcinde && !birakmaAcik) return;
+  const basili = solTusBasili();
+  if (!birakmaAcik && basili && yer.hapBolgesinde(screen.getCursorScreenPoint(), ada.getBounds())) {
+    birakmaAcik = true;
+    ada.setIgnoreMouseEvents(false);
+  } else if (birakmaAcik && !basili) {
+    birakmaAcik = false;
+    if (!fareIcinde) ada.setIgnoreMouseEvents(true, { forward: true });
+  }
 }
 
 /** Ada dusmusse topmost bandinin tepesine geri; ustteki pencerenin sinifi teshis icin loglanir. */
@@ -217,6 +265,9 @@ function kur(s) {
   gordumDinleyici = s.onGordum;
   gorevDinleyici = s.onGorev;
   limitTazeleDinleyici = s.onLimitTazele;
+  ekGonderDinleyici = s.onEkGonder ?? (() => {});
+  ekSilDinleyici = s.onEkSil ?? (() => {});
+  birakDinleyici = s.onBirak ?? (() => 0);
   ayarDinleyici = s.onAyar ?? (() => {});
   anaPencere = s.ana;
   sakli = s.sakli === true;
@@ -253,6 +304,9 @@ function kur(s) {
     gonder('ada:projeler', sonProjeler);
     gonder('ada:dis', sonDis);
     gonder('ada:ayar', { hep, kip: kip() });
+    gonder('ada:ekler', { ekler: sonEkler, neden: 'yukleme', acil: false });
+    if (sonNobet) gonder('ada:nobet', sonNobet);
+    gonder('ada:vadeler', sonVadeler);
   });
   ada.webContents.on('render-process-gone', (_e, d) => log('FAIL ada renderer coktu: ' + JSON.stringify(d)));
   ada.on('closed', () => {
@@ -321,6 +375,8 @@ function odakla(istek) {
 
 ipcMain.on('ada:fare', (e, icinde) => {
   if (!ada || e.sender !== ada.webContents) return;
+  fareIcinde = icinde === true;
+  if (birakmaAcik && !fareIcinde) return; // surukleme suruyor: tus birakilinca yoklama kapatir
   ada.setIgnoreMouseEvents(!icinde, { forward: true });
 });
 ipcMain.on('ada:git', (e, id) => {
@@ -370,6 +426,26 @@ ipcMain.on('ada:tasi', (e, asama) => {
 ipcMain.on('ada:limit-tazele', (e) => {
   if (!ada || e.sender !== ada.webContents) return;
   limitTazeleDinleyici();
+});
+// v3.0: ekleri oturuma gonder. Renderer'dan YOL gelmez: ek kimlikleri (yakala.cjs kaydi) + oturum
+// kimligi + tek satir not. Bicim burada, yol cozumu main'de.
+ipcMain.on('ada:ek-gonder', (e, ham) => {
+  if (!ada || e.sender !== ada.webContents || !ham || typeof ham !== 'object') return;
+  if (typeof ham.id !== 'string' || !/^[\w.-]{1,160}$/.test(ham.id)) return;
+  const kimlikler = Array.isArray(ham.ekler) ? ham.ekler.filter((k) => typeof k === 'string' && /^[0-9a-f]{12}$/.test(k)).slice(0, 8) : [];
+  const metin = typeof ham.metin === 'string' ? ham.metin.replace(/\s*[\r\n]+\s*/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 2000) : '';
+  if (kimlikler.length === 0 && !metin) return;
+  ekGonderDinleyici({ id: ham.id, ekler: kimlikler, metin, gonder: ham.gonder !== false });
+});
+ipcMain.on('ada:ek-sil', (e, ham) => {
+  if (!ada || e.sender !== ada.webContents) return;
+  if (ham === 'hepsi') ekSilDinleyici('hepsi');
+  else if (Array.isArray(ham)) ekSilDinleyici(ham.filter((k) => typeof k === 'string').slice(0, 8));
+});
+// Ada'ya birakilan dosyalar: yollar yakala.cjs'te denetlenir (var mi, dosya mi, boyut).
+ipcMain.on('ada:birak', (e, yollar) => {
+  if (!ada || e.sender !== ada.webContents || !Array.isArray(yollar)) return;
+  birakDinleyici(yollar.filter((y) => typeof y === 'string').slice(0, 8));
 });
 
 module.exports = {
@@ -423,6 +499,37 @@ module.exports = {
   },
   sinyal(id, sinyal) {
     gonder('etkinlik:sinyal', { id, sinyal });
+  },
+  /** v3.0: bot nobetinin son olcumu (Ada kartinda dusen isler). */
+  nobet(n) {
+    sonNobet = n;
+    gonder('ada:nobet', n);
+  },
+  /** v3.0: proje notlarinin vadeleri (durum.py). */
+  vadeler(v) {
+    sonVadeler = Array.isArray(v) ? v : [];
+    gonder('ada:vadeler', sonVadeler);
+  },
+  /** v3.0: nobet gecisi (yeni dusen is, yeni siparis): Ada bir an bakar, goz endise / para. */
+  nobetOlay(o) {
+    gonder('ada:nobet-olay', o);
+  },
+  /**
+   * v3.0: ek tepsisi degisti. `acil` (Ctrl+Alt+Shift+S ile istendi): Ada klavyeyle acilir, hedef secilip
+   * Enter'la gider. Degilse yalniz liste gider; renderer yeni goruntude bir an bakar (saklida bakmaz).
+   */
+  ekler(liste, { neden, acil, anaOdakta: anaOnde } = {}) {
+    sonEkler = Array.isArray(liste) ? liste : [];
+    if (acil && !anaOnde && ada && !ada.isDestroyed() && acik) {
+      gorunurlukGuncelle();
+      if (!ada.isVisible()) {
+        ada.setBounds(konum());
+        ada.showInactive();
+        ustteTut();
+      }
+      odakla(true);
+    }
+    gonder('ada:ekler', { ekler: sonEkler, neden: neden ?? 'pano', acil: acil === true && !anaOnde });
   },
   /** Renderer'in istegi: yazi kutusuna tiklandi (true) ya da odak karttan cikti (false). */
   odak(istek) {

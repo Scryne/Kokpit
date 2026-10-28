@@ -15,7 +15,7 @@ import {
   SquareTerminal,
   Wrench,
 } from 'lucide-react';
-import type { EtkinlikAraci, Limit, Limitler, OturumEtkinligi } from './types';
+import type { EtkinlikAraci, Limit, Limitler, OturumEtkinligi, Takilma } from './types';
 import { sureMetni } from './parcalar';
 
 // Kanca koprusunun arayuzu: etkinlik seridi (bolme basina), etkinlik akisi, limit gostergesi.
@@ -72,14 +72,47 @@ function sureMs(ms: number) {
   return sureMetni(Math.max(0, Math.floor(ms / 1000)));
 }
 
+/** v3.0: calisan turda bu kadar hic olay gelmezse (arac da surmuyorsa) "ses yok". */
+export const SESSIZLIK_MS = 10 * 60 * 1000;
+/** v3.0: tek arac bu kadar surerse "uzun suruyor" (derleme/test meşru uzun olabilir: esik genis). */
+export const UZUN_ARAC_MS = 20 * 60 * 1000;
+
+/**
+ * Oturum takilmis olabilir mi: kanca durumunun soyledigi (ust uste hata, API hatasi) ya da zamanin
+ * soyledigi (uzun sessizlik, bitmeyen arac). Zaman tabanli olanlar burada, her saniyelik cizimde
+ * hesaplanir; main'deki saf durum makinesi saat tutmaz.
+ */
+export function takilmaDurumu(e: OturumEtkinligi | null | undefined, simdi: number): Takilma | null {
+  if (!e) return null;
+  if (e.takilma) return e.takilma;
+  if (e.durum !== 'calisiyor') return null;
+  const a = e.arac;
+  if (a && a.bitti === null) {
+    // Agent araci alt ajanin olaylariyla zaten taze kalir; burada yalniz tek basina takilan arac.
+    if (simdi - a.basladi > UZUN_ARAC_MS)
+      return { tur: 'uzun', metin: a.ad + ' bitmiyor · ' + sureMs(simdi - a.basladi), ayrinti: a.hedef || null, t: a.basladi + UZUN_ARAC_MS };
+    return null;
+  }
+  const canliAlt = Object.values(e.altlar ?? {}).some((x) => simdi - x.t < SESSIZLIK_MS);
+  if (!canliAlt && simdi - e.degisti > SESSIZLIK_MS)
+    return {
+      tur: 'sessiz',
+      metin: 'Ses yok · ' + sureMs(simdi - e.degisti),
+      ayrinti: a ? 'son araç: ' + a.ad + (a.hedef ? ' ' + a.hedef : '') : null,
+      t: e.degisti + SESSIZLIK_MS,
+    };
+  return null;
+}
+
 /** Bildirim ve ada icin tek cumle: o an ne oluyor. */
 export function etkinlikCumlesi(e: OturumEtkinligi, simdi: number): string {
   if (e.durum === 'bekliyor') return e.soru ? 'Soru: ' + e.soru : 'Seni bekliyor';
   if (e.durum === 'bitti') {
-    const parca = ['Bitti'];
+    const parca = [e.takilma?.tur === 'api' ? 'Hatayla durdu' : 'Bitti'];
     if (e.sonTurSuresiMs !== null) parca.push(sureMs(e.sonTurSuresiMs));
-    if (e.ozet.dosyalar.length > 0)
-      parca.push(e.ozet.dosyalar.length + ' dosya +' + e.ozet.arti + ' −' + e.ozet.eksi);
+    // v3.0: bu turun sayilari (oturum toplami seritte); eski durum nesnesinde tur yok.
+    const t = e.tur ?? e.ozet;
+    if (t.dosyalar.length > 0) parca.push(t.dosyalar.length + ' dosya +' + t.arti + ' −' + t.eksi);
     return parca.join(' · ');
   }
   if (e.durum === 'calisiyor') {
@@ -167,6 +200,9 @@ export function EtkinlikSeridi({
 
   const o = e.ozet;
   const bekliyor = e.durum === 'bekliyor';
+  // v3.0: takilma da sende olan bir sey: ayni amber zemin, durumun yaninda nedeni.
+  const tk = takilmaDurumu(e, simdi);
+  const dikkat = bekliyor || tk !== null;
   return (
     <div ref={kap} className="relative shrink-0">
       <span className="sr-only" role="status">
@@ -178,20 +214,28 @@ export function EtkinlikSeridi({
         onClick={() => setAcik((a) => !a)}
         aria-expanded={acik}
         aria-controls={panelId}
-        title="Son araçlar"
+        title={tk ? tk.metin + (tk.ayrinti ? ' — ' + tk.ayrinti : '') : 'Son araçlar'}
+        data-takilma={tk ? tk.tur : undefined}
         className={
           'flex min-w-0 flex-1 cursor-pointer items-center gap-3 border-b px-2.5 py-1 text-left text-xs transition-colors duration-[120ms] ' +
-          (bekliyor ? 'border-dikkat/30 bg-dikkat/10' : 'border-kenar bg-yuzey hover:bg-yuzey-guclu')
+          (dikkat ? 'border-dikkat/30 bg-dikkat/10' : 'border-kenar bg-yuzey hover:bg-yuzey-guclu')
         }
       >
         <span className="flex shrink-0 items-center gap-2">
-          <DurumIsareti durum={e.durum} />
-          <span className={bekliyor ? 'text-dikkat-metin' : 'text-metin-ikincil'}>{DURUM_ADI[e.durum]}</span>
+          <DurumIsareti durum={tk && !bekliyor ? 'bekliyor' : e.durum} />
+          <span className={dikkat ? 'text-dikkat-metin' : 'text-metin-ikincil'}>
+            {tk && !bekliyor ? 'Takılmış olabilir' : DURUM_ADI[e.durum]}
+          </span>
         </span>
 
         <span className="min-w-0 flex-1">
           {bekliyor ? (
             <span className="block truncate text-metin">{e.soru}</span>
+          ) : tk ? (
+            <span className="block truncate text-metin">
+              {tk.metin}
+              {tk.ayrinti && <span className="enstruman text-metin-ikincil"> · {tk.ayrinti}</span>}
+            </span>
           ) : e.durum === 'bitti' ? (
             <span className="flex min-w-0 items-center gap-1.5 text-metin-soluk">
               {e.sonTurSuresiMs !== null && <span className="enstruman shrink-0">tur {sureMs(e.sonTurSuresiMs)}</span>}
@@ -246,6 +290,7 @@ export function EtkinlikSeridi({
                       {x.ad}
                     </span>
                     <span className="enstruman min-w-0 flex-1 truncate text-metin">{x.hedef}</span>
+                    {x.hata && <span className="shrink-0 text-hata-metin">hata</span>}
                     <Fark arti={x.arti} eksi={x.eksi} />
                   </li>
                 );

@@ -30,7 +30,7 @@ açılınca derleme çıktısı görünmez — bir şey açılmıyorsa terminald
 **Sayfalar:** Pano (Ctrl+1) · Terminaller (Ctrl+2) · Sağlık (Ctrl+3: beyin boru zinciri,
 beyne düşmemiş oturumlar + satır başına **Geri doldur**, sağlık nöbeti (CI, Dependabot, AI
 modelleri), 7 günlük bütçe, thread'ler, "Aria ile konuş") · Envanter (Ctrl+4: CLAUDE.md drift,
-skill/MCP, transcript hijyeni).
+skill/MCP, transcript hijyeni) · Botlar (Ctrl+5: kendiliğinden çalışan işlerin nöbeti, v3.0).
 
 **Proje grupları** (kenar çubuğu, Pano, seçiciler): Aktif · Kullanımda · Arşiv. Grup
 `Proje-Envanteri.md` durumundan gelir (`durum.py` `envanter` alanı): 🟢 aktif, ✅ kullanımda,
@@ -52,6 +52,24 @@ araç. Kenarın altında **limit** (5 saat, hafta). Statusline Kokpit oturumlar�
 **Ada:** ekranın üst ortasında küçük şerit: seni bekleyen ya da çalışan oturum, limitler. Üstüne
 gelince oturum listesi açılır; bir oturum bitince ya da soru sorunca 5 sn kendiliğinden açılır.
 Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
+
+**v3.0, yakala + nöbet + Ada'nın dikkati:**
+- **Ekran yakalama → oturum.** Panoya bir görüntü düşünce (Win+Shift+S, ya da Ctrl+Alt+Shift+S: Windows'un anlık
+  görüntü aracını açar) Ada önizlemeyi gösterir: hedef oturumu seç, istersen not yaz, **Gönder** (yol yapıştırılır,
+  claude `[Image #N]` yapar, Enter) ya da **Yalnız yapıştır** (Enter'sız, Kokpit o sekmeyle öne gelir). Görüntü
+  `~/.kokpit/goruntu/`'ya yazılır, 7 günde silinir; senin panon değişmez.
+- **Ada'ya bırak.** Dosya, görüntü ya da metin Ada'nın hapına sürüklenir (sol tuş basılıyken hapın üstünde bir an
+  tut): aynı tepsiye girer.
+- **Botlar sayfası + Pano şeridi.** Her projenin `.claude/nobet.json`'unda bildirdiği işler (Windows görevi, GitHub
+  Actions, durum dosyası, engel dosyası) 5 dakikada bir `durum.py --nobet` ile okunur: sağlıklı / gecikti / düştü.
+  Düşen ya da geciken iş Pano'nun üstünde şerit, kenar çubuğunda rozet. Yeni düşüşte Ada endişelenir, yeni siparişte
+  (Matbaa sayacı) sevinir.
+- **Vade şeridi.** Proje notlarının `vadeler:` alanı Pano'nun üstünde (bugün, yarın, bu hafta, gecikmiş); bugün ve
+  yarın Ada'nın kartında da.
+- **Ada'da oturumun hedefi** (ilk anlamlı istek; sekme ipucunda da), **takılma uyarısı** (3 araç üst üste hata,
+  API hatasıyla duran tur, 10 dk sessizlik, 20 dk bitmeyen araç), **bitti satırında sonuç** (bu turun dosya/satır
+  sayısı, oturumda atılan commit, push bekleyen, kirli dosya). Gözün yeni halleri: endişe, yorgun (5 saat ≥ %90),
+  para.
 
 **v2.9, denetim + süreklilik:**
 - **Biten bölme yerinde açılır.** claude'dan çıkınca ya da terminal bağlantısı kopunca bölme artık yalnız "kapandı"
@@ -281,6 +299,8 @@ Yükseltme Kokpit kapalıyken yapılır: açıkken `electron.exe` ve koffi'nin y
 | `KOKPIT_TEST_TEPSI` | — | Test koşucusunda tepsiyi de kur (X tepsiye indirir) |
 | `KOKPIT_DURUM_SCRIPT` | vault'taki `durum.py` | Test: `durum.py`'yi saran betik (okuma hatası, push bekleyen commit taklidi) |
 | `KOKPIT_CLAUDE_PROJELER` | `~/.claude/projects` | Test: transcript'lerin okunduğu dizin (sürdürülebilir mi, beyin durumu, bağlam) |
+| `KOKPIT_TEST_NOBET` | — | Test koşucusunda bot nöbetini de başlat (`durum.py --nobet`; testte sarmalayıcının fikstürü) |
+| `KOKPIT_TEST_PANO` | — | Test koşucusunda pano bekçisini de başlat (gerçek panoyu izler) |
 
 `~/.kokpit/ayarlar.json`: `seffaf: false` pencereyi opak yapar, `ada: false` adayı kapatır, `adaHep: false`
 eski davranış (yalnız Kokpit arka plandayken), `tepsi: false` X'i yine kapatma yapar.
@@ -351,3 +371,6 @@ der. Geri doldurma vault'ta: `python .claude/scripts/flush_kapsama.py --proje <a
    kendi çıkışı beklenir (senkron ağaç öldürme). `p.kill()` tek başına konsoldan kopuk torunları bırakır.
 10. **Test ve ekran koşucuları `KOKPIT_DIZIN` ile ayrı dizinde çalışır.** Gerçek `~/.kokpit`'e yazmaz, geri
     yazma yapmaz.
+11. **Ekler yolla, kimlikle gider (v3.0).** Ada renderer'ı oturuma yol göndermez: ek kimliği seçer, yolu main
+    (`yakala.cjs`) kendi kaydından çözer; bırakılan yol orada denetlenir (mutlak, var olan normal dosya, satır sonu
+    yok). Scryne'ın panosuna yazılmaz. Bot nöbeti yalnız okur: hiçbir işi tetiklemez, `nobet.json`'u Kokpit yazmaz.

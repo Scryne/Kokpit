@@ -24,13 +24,27 @@ const etkinlik = require('./etkinlik.cjs');
 const DIZIN = path.join(KOKPIT_DIZIN, 'kanca');
 const GOVDE_SINIRI = 8 * 1024 * 1024; // Write'in content'i buyuk olabilir
 const YAYIN_ARALIGI_MS = 80;
-const OLAYLAR = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'SubagentStart', 'SubagentStop', 'SessionEnd'];
+// v3.0: PostToolUseFailure ve StopFailure (takilma uyarisi; claude 2.1.312'de var, olculdu).
+const OLAYLAR = [
+  'SessionStart',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'Notification',
+  'Stop',
+  'StopFailure',
+  'SubagentStart',
+  'SubagentStop',
+  'SessionEnd',
+];
 
 let sunucu = null;
 let bilgi = null; // { port, token, ayarDosyasi, asilDurumSatiri }
 let hazirSozu = null;
 const oturumlar = new Map(); // kokpit oturum id -> etkinlik durumu
 const baglamlar = new Map(); // kokpit oturum id -> statusline baglami
+const gitler = new Map(); // v3.0: kokpit oturum id -> tur bitince olculen git hali (git-ozet.cjs)
 let limitler = null; // { besSaat, hafta, olculdu, kaynak }
 let limitDurumu = 'bekliyor'; // limit.cjs yoklamasinin son sonucu (tamam / token-eski / ...)
 let dinleyiciler = { yayin: () => {}, sinyal: () => {} };
@@ -46,6 +60,7 @@ function anlik() {
   return {
     oturumlar: Object.fromEntries(oturumlar),
     baglamlar: Object.fromEntries(baglamlar),
+    gitler: Object.fromEntries(gitler),
     limitler,
     limitDurumu,
   };
@@ -251,6 +266,7 @@ function ozet(oturumId) {
 function unut(oturumId) {
   oturumlar.delete(oturumId);
   baglamlar.delete(oturumId);
+  gitler.delete(oturumId);
   yayinla();
 }
 
@@ -272,4 +288,12 @@ function durdur() {
   sunucu = null;
 }
 
-module.exports = { baslat, ptyOrtami, anlik, ozet, unut, durdur, disLimit, mevcutBilgi: () => bilgi };
+/** v3.0: main tur bitince oturumun git halini olcer, buradan ayni yayinla gider. */
+function gitYaz(oturumId, ozet) {
+  if (!oturumlar.has(oturumId)) return;
+  if (ozet) gitler.set(oturumId, ozet);
+  else gitler.delete(oturumId);
+  yayinla();
+}
+
+module.exports = { baslat, ptyOrtami, anlik, ozet, unut, durdur, disLimit, gitYaz, mevcutBilgi: () => bilgi };

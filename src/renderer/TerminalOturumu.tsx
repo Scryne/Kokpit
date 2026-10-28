@@ -61,7 +61,7 @@ function uygulamaninKisayolu(e: KeyboardEvent) {
   if (!e.ctrlKey || e.altKey) return false;
   if (e.key === 'Tab') return true;
   if (e.shiftKey) return ['W', 'w', 'N', 'n', 'P', 'p', 'T', 't'].includes(e.key);
-  return ['1', '2', '3', '4', '=', '+', '-', '0'].includes(e.key);
+  return ['1', '2', '3', '4', '5', '=', '+', '-', '0'].includes(e.key);
 }
 
 /** Bosluk/tirnak iceren yol kabuga tek arguman olarak gitsin (Windows Terminal de boyle yapar). */

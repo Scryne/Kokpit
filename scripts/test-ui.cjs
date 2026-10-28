@@ -49,6 +49,12 @@ fs.writeFileSync(DURUM_SARMAL, [
   "d = os.environ['KOKPIT_DIZIN']",
   "if os.path.exists(os.path.join(d, 'durum-hata')):",
   "    sys.stderr.write('test: durum.py hatasi taklidi\\n'); sys.exit(3)",
+  // v3.0: --nobet gercek pwsh/GitHub'a gitmez; test dizinindeki fikstur aynen basilir.
+  "if '--nobet' in sys.argv:",
+  "    f = os.path.join(d, 'nobet-fikstur.json')",
+  "    sys.stdout.reconfigure(encoding='utf-8')",
+  "    print(open(f, encoding='utf-8').read() if os.path.exists(f) else json.dumps({'isler': []}))",
+  '    sys.exit(0)',
   "r = subprocess.run([sys.executable, os.environ['KOKPIT_TEST_GERCEK_DURUM'], '--json'], capture_output=True)",
   'if r.returncode != 0:',
   '    sys.stderr.buffer.write(r.stderr); sys.exit(r.returncode)',
@@ -58,9 +64,15 @@ fs.writeFileSync(DURUM_SARMAL, [
   "    ad = open(yol, encoding='utf-8').read().strip()",
   "    for p in veri['projeler']:",
   "        if p['ad'] == ad and p.get('git'): p['git']['ahead'] = 3",
+  // v3.0: vadeler gercek notlardan degil fiksturden (tarih gune gore degisir).
+  "vf = os.path.join(d, 'vadeler-fikstur.json')",
+  'if os.path.exists(vf):',
+  "    veri['vadeler'] = json.load(open(vf, encoding='utf-8'))",
   "sys.stdout.reconfigure(encoding='utf-8')",
   'print(json.dumps(veri, ensure_ascii=False))',
 ].join('\n'));
+// v3.0: gercek vadeler (proje notlari) teste sizmasin: Ada'nin hapi "yarin: GP2 teslim" derdi. Bos fikstur.
+fs.writeFileSync(path.join(TEST_DIZIN, 'vadeler-fikstur.json'), '[]');
 fs.writeFileSync(KIMLIK, JSON.stringify({ claudeAiOauth: { accessToken: 'ui-test-token', expiresAt: Date.now() + 6 * 3600_000 } }));
 const limitIstekleri = [];
 const limitSunucusu = http.createServer((req, res) => {
@@ -153,7 +165,7 @@ class Cdp {
     await this.gonder('Input.insertText', { text: metin });
   }
 }
-const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, P: 80, p: 80, T: 84, t: 84, '1': 49, '2': 50, '3': 51, '4': 52, '=': 187, '-': 189, '0': 48 };
+const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, P: 80, p: 80, T: 84, t: 84, '1': 49, '2': 50, '3': 51, '4': 52, '5': 53, '=': 187, '-': 189, '0': 48 };
 
 /** Uygulamayi acar, CDP'ye baglanir. */
 async function baslat(ekOrtam = {}) {
@@ -179,6 +191,7 @@ async function baslat(ekOrtam = {}) {
       KOKPIT_CLAUDE_PROJELER: TRANSCRIPTLER,
       KOKPIT_DURUM_SCRIPT: DURUM_SARMAL,
       KOKPIT_TEST_GERCEK_DURUM: path.join(VAULT, '.claude', 'scripts', 'durum.py'),
+      KOKPIT_TEST_NOBET: '1',
       ...ekOrtam,
     },
   });
@@ -574,6 +587,166 @@ async function adaSaklanmaTesti(app, adaCdp, disYaz, disSil) {
 
 const AC_DUGMESI =`(() => { const b = [...document.querySelectorAll('table tbody tr button')].find(x => x.textContent.trim() === 'Aç'); b.click(); return true; })()`;
 
+/**
+ * v3.0: oturumun hedefi, takilma, tur sonucu, ek tepsisi (Ada'ya birak -> PTY'ye bracketed paste), bot
+ * nobeti (Botlar sayfasi, Pano seridi, Ada endise/para) ve vadeler. Kabukta `k` (kanca taklidi) tanimli.
+ */
+async function v3Testi(cdp, adaCdp) {
+  const adaAc = () => adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 230, y: 18 });
+  const adaKapat = () => adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 510 });
+  const kabuk = async (komut) => {
+    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+    await cdp.yaz(komut + '; cls');
+    await cdp.tus('Enter');
+  };
+
+  console.log('v3.0 hedef: ilk anlamli istek Ada satirinda ve sekme ipucunda');
+  await kabuk(
+    "k '{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"t\",\"prompt\":\"ne durumdayız?\"}';" +
+      "k '{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"t\",\"prompt\":\"selam. [Image #1] Matbaa ilanlarını yeniden fiyatla ve raporla\"}'"
+  );
+  await adaAc();
+  kontrol(
+    'ada: hedef satiri = ilk ANLAMLI istek (kisa "ne durumdayiz" ve selam/[Image] atildi)',
+    await adaCdp.bekle(`document.querySelector('[data-hedef]')?.textContent === 'Matbaa ilanlarını yeniden fiyatla ve raporla'`, 10000, 'hedef').catch(() => false),
+    await adaCdp.js(`document.querySelector('[data-hedef]')?.textContent ?? null`)
+  );
+  kontrol('sekme ipucunda hedef', await cdp.js(`[...document.querySelectorAll('[role="tab"]')].some(t => (t.title || '').includes('Matbaa ilanlarını'))`));
+
+  console.log('v3.0 takilma: 3 arac ust uste hata');
+  const hata = "k '{\"hook_event_name\":\"PostToolUseFailure\",\"session_id\":\"t\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls /yok\"},\"error\":\"Exit code 2\\nls: yok\",\"is_interrupt\":false}'";
+  await kabuk(hata + ';' + hata);
+  await uyu(1200);
+  kontrol('2 hata: henuz takilma yok', await adaCdp.js(`!document.querySelector('[data-takilma]')`));
+  await kabuk(hata);
+  kontrol(
+    'ada: 3. hata -> satirda "Takılmış olabilir" + neden',
+    await adaCdp.bekle(`document.querySelector('[data-takilma="hata"]')?.textContent.includes('3. hata')`, 10000, 'ada takilma').catch(() => false),
+    await adaCdp.js(`document.querySelector('.ada-kart')?.innerText.slice(0, 300)`)
+  );
+  kontrol('ada: takilma satiri nedenle basliyor (kod satiri degil anlamli satir)', await adaCdp.js(`document.querySelector('[data-takilma="hata"]').textContent.startsWith('Bash: ls: yok (kod 2)')`));
+  kontrol('ada: goz endise (yeni takilma)', await adaCdp.js(`document.querySelector('.ada-goz')?.dataset.hal === 'endise'`));
+  kontrol('ana pencere seridi: "Takılmış olabilir" amber', await cdp.bekle(`!!document.querySelector('button[data-takilma="hata"]') && document.body.innerText.includes('Takılmış olabilir')`, 5000, 'serit takilma').catch(() => false));
+  kontrol('etkinlik akisinda hatali araclar isaretli', await cdp.js(`window.kokpit.etkinlikAnlik().then(a => Object.values(a.oturumlar).some(e => e.olaylar.filter(o => o.hata).length >= 3))`));
+
+  console.log('v3.0 tur sonucu: basarili arac takilmayi siler; Stop -> bitti satirinda dosya sayisi');
+  await kabuk(
+    "k '{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"t\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"C:/x/yeni.txt\",\"content\":\"a\\nb\\n\"},\"tool_response\":{\"type\":\"create\"}}'"
+  );
+  kontrol('basarili ana tur araci takilmayi sildi', await adaCdp.bekle(`!document.querySelector('[data-takilma]')`, 8000, 'takilma kalkti').catch(() => false));
+  await kabuk("k '{\"hook_event_name\":\"Stop\",\"session_id\":\"t\",\"last_assistant_message\":\"tamam\"}'");
+  kontrol(
+    'ada bitti satiri: "1 dosya +2 −0" (bu turun; oturumun toplami 2 dosya olurdu)',
+    await adaCdp.bekle(`[...document.querySelectorAll('[data-oturum]')].some(li => li.textContent.includes('Bitti') && li.textContent.includes('1 dosya +2 −0'))`, 10000, 'tur sonucu').catch(() => false),
+    await adaCdp.js(`document.querySelector('[data-oturum]')?.textContent.slice(0, 160) ?? null`)
+  );
+  kontrol('git hali olculdu (Stop -> gitler)', await cdp.bekle(`window.kokpit.etkinlikAnlik().then(a => Object.keys(a.gitler || {}).length > 0)`, 10000, 'gitler').catch(() => false));
+
+  console.log('v3.0 ek tepsisi: Ada\'ya birakilan dosya -> PTY\'ye bracketed paste + not + Enter');
+  // Kabukta girdiyi ham kaydeden betik: bracketed paste'i (?2004h) acar, gelen baytlari dosyaya yazar.
+  // Gercek bir yolu pwsh'a yapistirip Enter'a basmak dosyayi acardi; burada hicbir sey calismaz.
+  const kayitBetik = path.join(TEST_DIZIN, 'girdi.cjs');
+  const kayitCikti = path.join(TEST_DIZIN, 'girdi.json');
+  const kayitHazir = path.join(TEST_DIZIN, 'girdi.hazir');
+  fs.writeFileSync(kayitBetik, [
+    "const fs = require('fs');",
+    "let gelen = '';",
+    "process.stdin.setRawMode(true); process.stdin.setEncoding('utf8');",
+    "process.stdin.on('data', (d) => { gelen += d; if (gelen.includes('\\r')) { fs.writeFileSync(process.argv[2], JSON.stringify(gelen)); process.stdout.write('\\x1b[?2004l'); process.exit(0); } });",
+    "process.stdout.write('\\x1b[?2004h');",
+    "setTimeout(() => fs.writeFileSync(process.argv[3], '1'), 300);",
+    "setTimeout(() => { fs.writeFileSync(process.argv[2], JSON.stringify(gelen)); process.exit(0); }, 12000);",
+  ].join('\n'));
+  const ekDosya = path.join(TEST_DIZIN, 'ek görüntü.png');
+  fs.writeFileSync(ekDosya, Buffer.from('89504e470d0a1a0a', 'hex'));
+  await kabuk("node '" + kayitBetik + "' '" + kayitCikti + "' '" + kayitHazir + "'");
+  for (let i = 0; i < 40 && !fs.existsSync(kayitHazir); i++) await uyu(150);
+  await adaCdp.js(`(() => { window.kokpit.adaBirak([${JSON.stringify(ekDosya)}, 'goreli/yol.png', ${JSON.stringify(TEST_DIZIN)}]); return true; })()`);
+  await adaAc();
+  kontrol('tepside yalniz gecerli dosya (goreli yol ve klasor reddedildi)', await adaCdp.bekle(`document.querySelectorAll('[data-ek-tepsisi] ul[aria-label="Ekler"] li').length === 1`, 8000, 'tepsi').catch(() => false));
+  kontrol('hapta ek sayaci', await adaCdp.js(`!!document.querySelector('.ada-kart [title$="ek gönderilmeyi bekliyor"]')`));
+  kontrol('hedef oturum secili (tek oturum)', await adaCdp.js(`document.querySelectorAll('[data-ek-tepsisi] [role="radio"][aria-checked="true"]').length === 1`));
+  await adaCdp.js(`(() => { const i = document.querySelector('[data-ek-tepsisi] input'); const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; s.call(i, 'bu ekrana bak'); i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  await adaCdp.js(`(() => { [...document.querySelectorAll('[data-ek-tepsisi] button')].find(b => b.textContent.trim() === 'Gönder').click(); return true; })()`);
+  for (let i = 0; i < 60 && !fs.existsSync(kayitCikti); i++) await uyu(200);
+  const gelen = fs.existsSync(kayitCikti) ? JSON.parse(fs.readFileSync(kayitCikti, 'utf8')) : null;
+  kontrol(
+    'PTY: yol bracketed paste icinde, sonra not, sonra Enter',
+    gelen === '\x1b[200~' + ekDosya + '\x1b[201~ bu ekrana bak\r',
+    JSON.stringify(gelen)
+  );
+  kontrol('gonderince tepsi bosaldi', await adaCdp.bekle(`!document.querySelector('[data-ek-tepsisi]')`, 5000, 'tepsi bosaldi').catch(() => false));
+  await adaKapat();
+  await uyu(400);
+  await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+  await cdp.tus('Enter'); // kayit betiginden sonra istem temiz
+
+  console.log('v3.0 bot nobeti + vadeler (durum.py fiksturu)');
+  const nobetFikstur = (hal, son, deger) =>
+    fs.writeFileSync(path.join(TEST_DIZIN, 'nobet-fikstur.json'), JSON.stringify({
+      olculdu: new Date().toISOString(),
+      isler: [
+        { proje: 'Yanki', ad: 'Üretim', tur: 'engel', siklik_saat: null, hal, ayrinti: hal === 'dustu' ? 'RunPod bakiyesi bitti' : '', son: '2026-10-29T01:00:00+03:00', sonraki: null, kaynak: 'calisma/.uretim_engeli.json' },
+        { proje: 'Matbaa', ad: 'Günlük rapor', tur: 'dosya', siklik_saat: 24, hal: 'saglikli', ayrinti: '', son, sonraki: null, kaynak: 'calisma/gunluk/son.json', sayac: { ad: 'Yeni sipariş', deger, sevinc: true } },
+      ],
+    }));
+  nobetFikstur('saglikli', '2026-10-28T10:30:00+03:00', 0);
+  await cdp.js(`window.kokpit.nobetTazele().then(() => true)`);
+  nobetFikstur('dustu', '2026-10-28T10:30:00+03:00', 0);
+  await cdp.js(`window.kokpit.nobetTazele().then(() => true)`);
+  kontrol('ada: yeni dusen bot -> goz endise', await adaCdp.bekle(`document.querySelector('.ada-goz')?.dataset.hal === 'endise'`, 6000, 'endise').catch(() => false));
+  await adaAc();
+  kontrol('ada karti "Bugün": dusen is + neden', await adaCdp.bekle(`document.querySelector('[data-ada-bugun]')?.textContent.includes('Üretim düştü') && document.querySelector('[data-ada-bugun]').textContent.includes('RunPod')`, 6000, 'ada bugun').catch(() => false));
+  await adaKapat();
+  nobetFikstur('dustu', '2026-10-29T10:30:00+03:00', 2);
+  await cdp.js(`window.kokpit.nobetTazele().then(() => true)`);
+  kontrol('ada: yeni kosuda siparis > 0 -> goz para', await adaCdp.bekle(`document.querySelector('.ada-goz')?.dataset.hal === 'para'`, 6000, 'para').catch(() => false));
+  await cdp.js(`window.kokpit.nobetTazele().then(() => true)`);
+  const paraLog = fs.readFileSync(LOG('kokpit.log'), 'utf8').split('\n').filter((x) => x.includes('nobet olayi: sevinc')).length;
+  kontrol('ayni kosu yeniden okununca sevinc tekrarlanmadi', paraLog === 1, paraLog);
+
+  await cdp.tus('5', 2);
+  kontrol('Ctrl+5 Botlar sayfasi: dusen is satiri', await cdp.bekle(`!!document.querySelector('section[aria-label="Botlar"] tr[data-bot-hal="dustu"]')`, 5000, 'botlar').catch(() => false));
+  kontrol('Botlar: siparis sayaci satirda', await cdp.js(`document.querySelector('section[aria-label="Botlar"]').innerText.includes('Yeni sipariş: 2')`));
+  // Rozet yalniz acik kenar cubugunda (kapaliyken simge). Kapaliysa acilir, sonra eski haline.
+  const kenarKapali = await cdp.js(`!document.querySelector('button[aria-label="Botlar"]').textContent.includes('Botlar')`);
+  if (kenarKapali) await cdp.js(`(() => { document.querySelector('button[aria-label*="kenar" i], button[title*="Ctrl+B"]')?.click(); return true; })()`);
+  kontrol('kenar cubugunda Botlar rozeti 1', await cdp.bekle(`[...document.querySelectorAll('button[aria-label="Botlar"]')].some(b => b.textContent.includes('Botlar') && b.textContent.includes('1'))`, 3000, 'rozet').catch(() => false), kenarKapali ? 'kenar kapaliydi' : 'kenar acik');
+  if (kenarKapali) await cdp.js(`(() => { document.querySelector('button[aria-label*="kenar" i], button[title*="Ctrl+B"]')?.click(); return true; })()`);
+
+  const bugun = new Date();
+  const gun = (n) => { const d = new Date(bugun); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  fs.writeFileSync(path.join(TEST_DIZIN, 'vadeler-fikstur.json'), JSON.stringify([
+    { proje: 'Dönem', tarih: gun(0), saat: '23:59', metin: 'GP2 teslim', kalan_gun: 0 },
+    { proje: 'Matbaa', tarih: gun(4), saat: null, metin: 'kıyas ölçümü', kalan_gun: 4 },
+    { proje: 'Otomat', tarih: gun(20), saat: null, metin: 'Faz 18 kararı', kalan_gun: 20 },
+  ]));
+  await cdp.tus('1', 2);
+  await cdp.js(`(() => { window.dispatchEvent(new Event('focus')); return true; })()`);
+  await cdp.bekle(`[...document.querySelectorAll('header button')].some(x => x.textContent.includes('Tazele') && !x.disabled)`, 30000, 'tazele hazir');
+  await cdp.js(`(() => { [...document.querySelectorAll('header button')].find(x => x.textContent.includes('Tazele'))?.click(); return true; })()`);
+  kontrol('Pano: vade seridi "bugün 23:59" + bu haftaki ikinci', await cdp.bekle(`(() => { const v = document.querySelector('section[aria-label="Vadeler"]'); return !!v && v.innerText.includes('bugün 23:59') && v.innerText.includes('kıyas ölçümü') && !v.innerText.includes('Faz 18'); })()`, 30000, 'vade seridi').catch(() => false));
+  kontrol('Pano: ufuk disindaki "sonra 1 vade daha"', await cdp.js(`document.querySelector('section[aria-label="Vadeler"]').innerText.includes('sonra 1 vade daha')`));
+  kontrol('Pano: bot seridi (dusen is)', await cdp.js(`!!document.querySelector('section[aria-label="Bot nöbeti: sorunlu işler"]')`));
+  await adaAc();
+  kontrol('ada karti "Bugün": bugunku vade', await adaCdp.bekle(`document.querySelector('[data-ada-bugun]')?.textContent.includes('GP2 teslim')`, 8000, 'ada vade').catch(() => false));
+  await adaKapat();
+  fs.writeFileSync(path.join(TEST_DIZIN, 'vadeler-fikstur.json'), '[]');
+  fs.rmSync(path.join(TEST_DIZIN, 'nobet-fikstur.json'), { force: true });
+  await cdp.tus('2', 2);
+}
+
+/** Teshis: on plandaki pencerenin sureci (odak testleri dusunce kim onde?). */
+function ondekiSurec() {
+  try {
+    return require('child_process')
+      .execFileSync('pwsh', ['-NoProfile', '-Command', "Add-Type -Namespace W -Name U -MemberDefinition '[DllImport(\"user32.dll\")] public static extern System.IntPtr GetForegroundWindow(); [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, out uint p);'; $p=0; [void][W.U]::GetWindowThreadProcessId([W.U]::GetForegroundWindow(), [ref]$p); $x = Get-Process -Id $p; $x.ProcessName + ' ' + $p + ' ' + $x.MainWindowTitle"], { encoding: 'utf8', timeout: 15000 })
+      .trim();
+  } catch (e) {
+    return 'okunamadi: ' + e.message.slice(0, 80);
+  }
+}
+
 /** Acik terminalde uzun bir surec baslatir: kapatma korumasinin "cocuk var" dali. */
 async function cocukBaslat(cdp) {
   await uyu(1500); // pwsh istemi
@@ -619,12 +792,15 @@ async function main() {
     const tazeleBas = () => cdp.js(`(() => { const b = [...document.querySelectorAll('header button')].find(x => x.textContent.includes('Tazele')); if (!b) return false; b.click(); return true; })()`);
     const tazeleBitti = () => cdp.bekle(`[...document.querySelectorAll('header button')].some(x => x.textContent.includes('Tazele') && !x.disabled)`, 20000, 'tazele bitti');
     const ilkProje = await cdp.js(`document.querySelector('table tbody tr:nth-child(2) th .enstruman')?.textContent ?? ''`);
+    // Gercek depolarda zaten push bekleyen commit olabilir (Tezgah bilerek push edilmiyor): taban + 3 beklenir.
+    const pushSayisi = `Number((document.querySelector('section[aria-label="Ölçümler"]').textContent.match(/(\\d+) commit push bekliyor/) || [0, 0])[1])`;
+    const pushTaban = await cdp.js(pushSayisi);
     fs.writeFileSync(path.join(TEST_DIZIN, 'durum-push'), ilkProje);
     await tazeleBitti();
     kontrol('tazele dugmesine basildi', await tazeleBas());
     const pushSatiri = `[...document.querySelectorAll('table tbody tr')].find(tr => tr.querySelector('th .enstruman')?.textContent === ${JSON.stringify(ilkProje)})?.textContent ?? ''`;
     kontrol('git sutununda ↑3 (' + ilkProje + ', push edilmedi)', await cdp.bekle(`(${pushSatiri}).includes('↑3') && (${pushSatiri}).includes('commit push edilmedi')`, 20000, 'push isareti').catch(() => false), await cdp.js(pushSatiri));
-    kontrol('olcum seridinde "3 commit push bekliyor"', await cdp.js(`document.querySelector('section[aria-label="Ölçümler"]').textContent.includes('3 commit push bekliyor')`));
+    kontrol('olcum seridinde push bekleyen +3 (gercek taban ' + pushTaban + ')', (await cdp.js(pushSayisi)) === pushTaban + 3, await cdp.js(pushSayisi));
     fs.rmSync(path.join(TEST_DIZIN, 'durum-push'), { force: true });
     fs.writeFileSync(path.join(TEST_DIZIN, 'durum-hata'), '1');
     await tazeleBitti();
@@ -721,6 +897,8 @@ async function main() {
     await cdp.tus('Escape');
     await uyu(200);
     kontrol('Escape akisi kapatti', await cdp.js(`!document.querySelector('ol[aria-label^="Son araçlar"]')`));
+
+    await v3Testi(cdp, adaCdp);
 
     console.log('Hizli komut (v2.3): menu -> oturuma yazilir ve gonderilir');
     // Test veri dizinindeki komut dosyasina gecici bir komut yazilir: pwsh'ta yan
@@ -908,10 +1086,26 @@ async function main() {
     await uyu(1100);
     // Kisayolun yaptigi gibi ada pencereye odak alir (ada.klavye -> odakla); tus olaylari ancak
     // odakli pencereye gider. Sonra ilk secenek odaklanir ve "3" basilir.
-    await adaCdp.js(`(() => { window.kokpit.adaOdak(true); return true; })()`);
-    await uyu(300);
+    // On kosul: Ada OS odagini aldi. Gercekte kisayol gercek tus oldugu icin Windows one gecmeye izin verir; testte
+    // girdi sentetik ve odak birak/al dongusu ~yari yariya tutmuyor (olculdu 2026-10-29, v3.0'dan ONCEKI derlemede
+    // de ayni: tekrar 1 ve 3 false). Odak alinamadiysa birakip yeniden istenir; asil kontrol ipucunun kendisi.
+    let adaOdakta = false;
+    for (let i = 0; i < 4 && !adaOdakta; i++) {
+      await adaCdp.js(`(() => { window.kokpit.adaOdak(true); return true; })()`);
+      await uyu(350);
+      adaOdakta = await adaCdp.js(`document.hasFocus()`);
+      if (!adaOdakta) {
+        await adaCdp.js(`(() => { window.kokpit.adaOdak(false); return true; })()`);
+        await uyu(350);
+      }
+    }
+    kontrol('on kosul: Ada OS odagini aldi', adaOdakta, ondekiSurec());
     await adaCdp.js(`(() => { document.querySelector('[role="group"][aria-label*="Tek soru?"] button[data-eylem]').focus(); return true; })()`);
-    kontrol('ada: odak alinca klavye ipucu gorundu', await adaCdp.bekle(`document.body.innerText.includes('seçer') && document.body.innerText.includes('bırakır')`, 2000, 'ipucu').catch(() => false));
+    kontrol(
+      'ada: odak alinca klavye ipucu gorundu',
+      await adaCdp.bekle(`document.body.innerText.includes('seçer') && document.body.innerText.includes('bırakır')`, 2000, 'ipucu').catch(() => false),
+      (await adaCdp.js(`JSON.stringify({ odak: document.hasFocus(), aktif: (document.activeElement?.outerHTML ?? '').slice(0, 90) })`)) + ' onde: ' + ondekiSurec()
+    );
     await adaCdp.tus('3');
     await uyu(600);
     await kabugaYaz(" | Out-File -FilePath '" + rakamDosya + "'");
@@ -1065,7 +1259,8 @@ async function main() {
     kontrol('sekme kapandi, Pano\'ya donuldu', await cdp.js(`document.querySelector('h1')?.textContent === 'Pano'`));
     await uyu(300);
     const ozetSatiri = fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).map((x) => JSON.parse(x)).filter((x) => x.olay === 'kapandi' && x.ozet).pop();
-    kontrol('kapanan oturumun ozeti deftere yazildi (1 dosya +2 -1)', !!ozetSatiri && ozetSatiri.ozet.dosya === 1 && ozetSatiri.ozet.arti === 2 && ozetSatiri.ozet.eksi === 1, ozetSatiri && ozetSatiri.ozet);
+    // Edit Sorular.tsx (+2 -1) + v3.0 bolumundeki Write yeni.txt (+2).
+    kontrol('kapanan oturumun ozeti deftere yazildi (2 dosya +4 -1)', !!ozetSatiri && ozetSatiri.ozet.dosya === 2 && ozetSatiri.ozet.arti === 4 && ozetSatiri.ozet.eksi === 1, ozetSatiri && ozetSatiri.ozet);
 
     console.log('Ctrl+Shift+T (v2.9): son kapatilan oturum geri acilir');
     const kapanan = sonAcilis();

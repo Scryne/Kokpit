@@ -30,4 +30,18 @@ function oranBul(alan, genislik, x) {
   return Math.round(((x + genislik / 2 - alan.x) / alan.width) * 10000) / 10000;
 }
 
-module.exports = { yatayKonum, surukluKonum, oranBul, MIKNATIS_PX };
+/**
+ * v3.0, Ada'ya birakma: imlec hapin bolgesinde mi? Hap pencerenin ust ortasinda (acik kart 440, kapali
+ * hap daha dar); bolge ust BIRAK_Y px ve merkezden +-BIRAK_YARI px. Bos saydam alan sayilmaz: orada
+ * fareyi yakalamak alttaki pencerenin tiklamasini yerdi.
+ * @param {{ x: number, y: number }} imlec DIP
+ * @param {{ x: number, y: number, width: number }} pencere DIP
+ */
+const BIRAK_Y = 48;
+const BIRAK_YARI = 220;
+function hapBolgesinde(imlec, pencere) {
+  const orta = pencere.x + pencere.width / 2;
+  return imlec.y >= pencere.y && imlec.y <= pencere.y + BIRAK_Y && Math.abs(imlec.x - orta) <= BIRAK_YARI;
+}
+
+module.exports = { yatayKonum, surukluKonum, oranBul, hapBolgesinde, MIKNATIS_PX };

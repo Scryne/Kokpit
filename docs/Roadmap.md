@@ -1,7 +1,7 @@
 ---
 proje: Kokpit
 created: 2026-09-10
-modified: 2026-10-21
+modified: 2026-10-29
 type: roadmap
 status: aktif
 ---
@@ -53,6 +53,14 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 35 | Denetim 2026-10-21: dayanıklılık | ✅ Tamamlandı | Sinema geçici tam ekranda titremiyor (giriş gecikmesi + kabuk katmanları); `durum.py` hatasında son ölçüm kalıyor, zaman aşımı var; derleme düşerse eski paketle açılıyor; açık bağımlılık 0 |
 | 36 | Biten bölme yerinde + Ctrl+Shift+T | ✅ Tamamlandı | Biten claude bölmesi aynı yerde Sürdür (`--resume`, aynı kimlik) / Yeniden aç (yeni kimlik); Ctrl+Shift+T son kapatılanı geri açıyor; kimlik zinciri defterde doğrulandı |
 | 37 | Push durumu + hızlı tazeleme | ✅ Tamamlandı | Pano'da ↑N/↓N/"yerel" ve "N commit push bekliyor"; `durum.py` git'i paralel okuyor (2,1 → 0,8 sn, çıktı birebir aynı) |
+| 38 | Ekran yakalama → oturum | ✅ Tamamlandı | Panoya düşen görüntü (Win+Shift+S ya da Ctrl+Alt+Shift+S) Ada'da önizleme + hedef oturum; seçilen oturumda `[Image #N]` olarak yapışıyor ve model görüyor (gerçek claude); Scryne'ın panosu değişmiyor; dosyalar `~/.kokpit/goruntu`'da, 7 günde temizleniyor |
+| 39 | Ada'ya bırak | ✅ Tamamlandı | Ada'ya sürüklenen dosya/görüntü/metin hedef seçimiyle o oturuma yol ya da metin olarak gidiyor; Kokpit öne gelmiyor |
+| 40 | Bot nöbeti | ✅ Tamamlandı | Kendiliğinden çalışan her işin son koşusu, beklenen sıklığı ve hali (sağlıklı / gecikti / düştü) Nöbet sayfasında; veri `durum.py`'den, ağ çağrıları önbellekli; bilerek bozulan örnek "düştü" görünüyor |
+| 41 | Vade şeridi | ✅ Tamamlandı | Proje notlarının `vadeler` alanı Pano'nun üstünde (gecikmiş, bugün, bu hafta); bugünkü/yarınki Ada'da; mevcut tarihli işler alana taşındı |
+| 42 | Ada: nöbet sesi + yeni ifadeler | ✅ Tamamlandı | Bot düşünce / vade bugünse Ada bakar, göz "endişe"; 5 saat ≥ %90'da "yorgun"; her hal `ekran:goz`'da görüldü, `test:ui`'da DOM'dan |
+| 43 | Ada: takılma uyarısı | ✅ Tamamlandı | Üst üste hata veren araç (`PostToolUseFailure`), API hatasıyla duran tur (`StopFailure`) ve uzun sessiz "çalışıyor" satırda amber "takılmış olabilir" + neden; gerçek claude hata gövdesiyle sınandı |
+| 44 | Ada: oturumun hedefi | ✅ Tamamlandı | Oturumun ilk isteği (UserPromptSubmit `prompt`) satırın altında tek satır; Kokpit sekme ipucunda da |
+| 45 | Ada: bitti kartında sonuç | ✅ Tamamlandı | Biten turun dosya / +− sayısı, oturumda commit atıldı mı, push bekleyen ve kirli dosya var mı Ada'nın bitti satırında |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -760,3 +768,72 @@ Scryne: "Projeyi en baştan en sona incele, denetle; eksik ve hataların tamamı
 - **Kontrol edilemeyen:** Test kabuğuna
   yazılan `exit`'in ara sıra ulaşmamasının sebebi bulunmadı (teşhis noktası PTY sunucusunu canlı gösterdi); ürün
   tarafında karşılığı görülmedi.
+
+### v3.0 — Yakala, nöbet, Ada'nın dikkati (Faz 38–45, 2026-10-29)
+
+Scryne: "Kokpit'i daha çok geliştirmek istiyorum, sana bırakıyorum." Öneriler kullanım verisinden çıktı
+(10-04 → 10-28: Kokpit'te 146 oturum, medyan 2,4 sa, çoğunlukla 2–3 eşzamanlı, en çok 5; 1.184 prompt'un
+197'si ekran görüntüsü taşıyor, Matbaa 82, ScryneOS 61). Scryne seçti: ekran yakalama, bot nöbeti + vade,
+Ada için de bas-konuş dışındakiler (Ada'ya bırak, nöbet sesi, ifadeler, takılma, hedef, bitti sonucu).
+Diff/inceleme ekranı, worktree'li paralel ajan, zamanlanmış görev, telefon önerildi, alınmadı.
+
+- **Spike (gerçek claude 2.1.312, 2026-10-29):** (1) PTY'ye görüntü **yolu** yapıştırmak (bracketed
+  paste) girdide `[Image #1]` doğuruyor ve model görüyor (beyaz zeminde "ZEYTIN 47" → son mesaj
+  "ZEYTIN 47"); panoya yazmak gerekmiyor. (2) `PostToolUseFailure` gövdesi: `tool_name`, `tool_input`,
+  `error` ("Exit code 2\nls: cannot access …"), `is_interrupt`, `duration_ms`. `StopFailure` ikili dosyada
+  var, yalnız API hatasında tetiklendiği için ölçülemedi: savunmacı işlenir. (3) `UserPromptSubmit`
+  `prompt` taşıyor (görüntü `[Image #1]` metniyle). (4) v2.8'den açık soru kapandı: Ada'yı üstten düşüren
+  `WinUIDesktopWin32WindowClass` = `Photos.exe` (7) ve `WhatsApp.Root.exe` (1); bekçi geri alıyor.
+- **Faz 43, takılma** (✅): `etkinlik.cjs` `PostToolUseFailure` (ana turda üst üste hata sayısı; alt ajanın hatası ve
+  Esc ile kesilen araç sayılmaz; başarılı ana tur aracı seriyi siler) ve `StopFailure` (tur API hatasıyla durdu,
+  gövde ölçülemediği için bilinen alanlardan ilk dolu metin). Eşik 3: son 25 günün 1.675 transcript'inde 3'lük seri 8
+  kez, 5'lik hiç. Zaman tabanlı iki hal renderer'da (`takilmaDurumu`): 10 dk hiç olay yok (alt ajan da yok), tek araç
+  20 dk bitmiyor. Etkinlik şeridi ve Ada satırı amber "Takılmış olabilir" + neden; yeni takılmada Ada bir kez bakar,
+  göz 8 sn "endişe". Kanca ayarına iki olay eklendi.
+- **Faz 44, hedef** (✅): `UserPromptSubmit.prompt` → `istekMetni` (yapıştırma işaretleri, tırnaklı yol, baştaki
+  selam atılır); ≥ 20 karakter ve `/` ile başlamayan ilk istek `hedef`, sonuncusu `sonIstek`. Son 40 oturumun ~4'te 1'i
+  "ne durumdayız?" ile açılıyordu: ilk istek değil ilk *anlamlı* istek. Ada satırında ikinci satır, sekme ipucunda.
+- **Faz 45, bitti sonucu** (✅): `tur` özeti her istekte sıfırlanır (bitti cümlesi artık oturumun değil turun
+  sayılarını söyler). Tur bitince main `git-ozet.cjs` ile oturum klasörünü okur (`status --porcelain=v2 --branch` +
+  `rev-list --count --since=<açılış>`): commit, ↑ push bekleyen, uzak dalsız, kirli. Yalnız Stop anında, yoklama yok.
+- **Faz 38–39, yakala + bırak** (✅): `yakala.cjs` panoyu `GetClipboardSequenceNumber` ile 600 ms'de yoklar (yalnız
+  sayı; değişince biçim, görüntüyse PNG + sha1 ile tekrar ayıklama). Ek kaydı main'de; Ada kimlik seçer, yol main'de
+  çözülür (README kural 11). Gönderim: her yol ayrı bracketed paste, not, 350 ms sonra Enter; "Yalnız yapıştır" Enter'a
+  basmaz, Kokpit o sekmeyle öne gelir. Ctrl+Alt+Shift+S `ms-screenclip:` açar; gelen görüntü Ada'yı klavyeyle açar.
+  Bırakma: Ada fareyi geçirirken Windows'un sürükleme döngüsü ona olay yollamaz; 600 ms'lik yoklama sol tuş basılı +
+  imleç hap bölgesindeyse (`hapBolgesinde`, üst 48 px, merkez ±220) yakalamayı açar, tuş bırakılınca kapatır.
+  **Gerçek hata, ölçümle yakalandı:** Electron 44.9.3'te `clipboard.availableFormats`/`readImage` yok; API W3C
+  biçimli ve asenkron (`has('image/png')`, `read()` → `ClipboardItem.getType()` → `Blob`). İlk sürüm her yoklamada
+  sessizce hata verip hiçbir şey yakalamayacaktı; `test:ui` bekçiyi kapalı koştuğu için görmedi, canlı pano denemesi
+  gördü. Yeni yol: yazılan PNG 1 ms'de okunuyor; uçtan uca 313 ms. `npm run test:pano` (elle, gerçek panoya yazar,
+  önceki içeriği her türüyle yedekleyip geri yazar).
+- **Faz 40–42, nöbet + vade + Ada** (✅): vault'ta `nobet.py` (`durum.py --nobet`; kural 1 korunur, Kokpit yine yalnız
+  `durum.py` çağırır). Projeler işlerini `.claude/nobet.json`'da bildirir: Otomat, GridGrade (Actions), Matbaa (görev
+  + `son.json` alarm/sipariş sayacı), Yanki (3 görev + üretim engeli), OsintLab (servis), ScryneOS (yedek, sağlık).
+  `gh run list` çağrı başına 12,9 sn sürüyordu (AAAA'sız DNS tuzağı): REST + IPv4 0,9 sn; ilk ölçüm 28 → 5,4 sn,
+  önbellekle anlık. `nobet.cjs` 5 dk'da bir okur, geçişleri bulur (`olaylariBul`, saf): yeni düşüş → Ada endişe, yeni
+  koşuda sipariş > 0 → Ada "para"; ilk okuma ve aynı koşu tekrar olay üretmez (`~/.kokpit/nobet-son.json`). Vadeler
+  `durum.py --json`'da (`vadeleri_oku`, frontmatter `vadeler:`), mevcut 10 tarihli iş dört nota taşındı; kural global
+  CLAUDE.md'ye yazıldı. İlk gerçek ölçümde: Yanki üretimi düştü (RunPod bakiyesi 0,80 $), Otomat 24 saatte 2 başarısız
+  koşu (429), gerisi sağlıklı.
+- **Testler:** `test:kanca` 124 (101'den: hedef, takılma serisi, alt ajan/Esc istisnası, tur özeti, StopFailure),
+  `test:ada` 88 (70'ten: nöbet geçişleri, bırakma bölgesi, git ayrıştırma, ek yolu denetimi), `test:pty` geçti,
+  `test:ui` 202 (174'ten; v3.0 bölümü: hedef satırı + sekme ipucu, takılma Ada/şerit/göz, tur sonucu + git ölçümü,
+  Ada'ya bırak → PTY'ye giden baytlar birebir `ESC[200~yol ESC[201~ not CR`, nöbet endişe/para/tekrarsız sevinç,
+  Botlar sayfası + rozet, vade şeridi + Ada "Bugün"), iki koşu üst üste yeşil. Vault `sistem_test.py` 16/16 (+ bot
+  nöbeti, vadeler fikstürü). `test:pano` (elle, gerçek pano) geçti. **Mutasyon:** `test:kanca` 2/2 (eşik 2, alt ajan
+  hatası sayılır), `test:ada` 2/2 (ilk okuma olay üretir, klasör kabul — bu ilk turda kaçtı: Windows'ta klasör boyutu 0,
+  "boş dosya" kuralı örtüyordu; isFile'sız girdiyle güçlendirildi), vault 2/2 (gecikme yok, eski vade süzülmüyor).
+  `npm run ekran:v3` → `kokpit-v3-*.png` (Pano şeritleri, vadeler, Botlar, Ada takılma/tepsi/bugün, hap endişe/para/yorgun).
+- **Bulgular:** (1) Electron 44 pano API'si (yukarıda). (2) `test:ui`'nin v2.4 "odak alınca klavye ipucu" kontrolü
+  v3.0 bölümü eklenince düştü; sebep v3.0 değil: Ada'nın odak bırak/al döngüsü sentetik girdiyle ~yarı yarıya tutmuyor,
+  v3.0'dan önceki derlemede de aynı (yan yana ölçüldü: tekrar 1 ve 3 false). Gerçekte kısayol gerçek tuş, Windows izin
+  veriyor; test odağı artık ön koşul olarak dener + doğrular. (3) Botlar sayfası her zaman bağlı (gizli) bir tablo
+  taşıdığı için "tablo doldu" artık Pano'nun yüklendiğini söylemiyor; ekran koşucusu Pano'ya özgü öğe bekliyor.
+  (4) Push testi gerçek depolardaki push bekleyen commit'i (Tezgah, bilerek) saymıyordu: taban + 3. (5) Makine
+  kullanılırken (son girdi 0 sn) Ada'nın hover testleri gerçek fare hareketiyle bozuluyor; test boşta koşuldu.
+- **Kontrol edilemeyen:** gerçek Win+Shift+S anlık görüntüsünün panoda `image/png` olarak görünmesi (Chromium CF_DIB'i
+  png'ye çeviriyor, yazılan PNG ölçüldü; gerçek kesme aracı ekranı açacağı için denenmedi), `ms-screenclip:` kısayolu,
+  Gezgin'den gerçek fareyle Ada'ya sürükle-bırak (yoklama + bırakma yolu ayrı ölçüldü), gerçek `StopFailure` gövdesi.
+  Çalışan Kokpit eski kodla açık: yeni sürüm yeniden başlatınca gelir (tepside "Yeni sürüm hazır").
+

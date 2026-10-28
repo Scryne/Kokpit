@@ -10,8 +10,11 @@ import type { OturumEtkinligi } from './types';
 // compositor kare uretmez. Bosta, bitti ve uyku duragan; kirpma birkac saniyede bir 140 ms.
 // Hareket azaltmada zamanlayicilar hic kurulmaz, tek seferlik animasyonlar son karede durur.
 
-/** Gozun hali: durum + bitti anindaki kisa sevinc + uzun sessizlik. */
-export type GozHali = 'bosta' | 'calisiyor' | 'bekliyor' | 'bitti' | 'mutlu' | 'uyku';
+/**
+ * Gozun hali: durum + bitti anindaki kisa sevinc + uzun sessizlik. v3.0: endise (yeni takilma ya da
+ * dusen bot, kisa), yorgun (5 saatlik limit dolmak uzere, sakin hallerin yerine), para (yeni siparis).
+ */
+export type GozHali = 'bosta' | 'calisiyor' | 'bekliyor' | 'bitti' | 'mutlu' | 'uyku' | 'endise' | 'yorgun' | 'para';
 /** Calisirken bakis: aracin turune gore. */
 export type GozPozu = 'dusun' | 'oku' | 'yaz' | 'komut' | 'web' | 'ajan' | 'odak';
 
@@ -142,6 +145,7 @@ export function AdaGoz({
         </span>
       )}
       <span className="ada-goz-z">z</span>
+      <span className="ada-goz-para">$</span>
     </span>
   );
 }

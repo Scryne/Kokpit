@@ -314,6 +314,89 @@ kontrol('statusline limitleri', ds.limitler.besSaat.yuzde === 76 && ds.limitler.
 kontrol('statusline baglami', ds.baglam.token === 42571 && ds.baglam.yuzde === 21, ds.baglam);
 kontrol('rate_limits yoksa null', etkinlik.durumSatiri({}).limitler.besSaat === null);
 
+// --- 1f. v3.0: hedef, takilma, tur ozeti. Govdeler 2026-10-29 spike'inda gercek claude 2.1.312'den:
+// PostToolUseFailure { tool_name, tool_input, error: "Exit code 2\n...", is_interrupt, duration_ms }.
+{
+  kontrol(
+    'istekMetni: selam, [Image #1], tirnakli yol atilir',
+    etkinlik.istekMetni('selam. [Image #1] "C:\\Users\\x\\a b.png" pano   500 veriyor bak') === 'pano 500 veriyor bak',
+    etkinlik.istekMetni('selam. [Image #1] "C:\\Users\\x\\a b.png" pano   500 veriyor bak')
+  );
+  kontrol('istekMetni: "sselam." yazim hatasi da', etkinlik.istekMetni('sselam. proje ne durumda?') === 'proje ne durumda?');
+  kontrol(
+    'hataOzeti: Exit code satiri yerine anlamli satir + kod',
+    etkinlik.hataOzeti("Exit code 2\nls: cannot access '/yok': No such file or directory") ===
+      "ls: cannot access '/yok': No such file or directory (kod 2)"
+  );
+
+  const PUS = (t) => P({ hook_event_name: 'UserPromptSubmit', prompt: t });
+  const HATA = (ek) =>
+    P({ hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_input: { command: 'ls /yok' }, error: 'Exit code 2\nls: yok', is_interrupt: false, duration_ms: 500, ...ek });
+  const BASARI = (ek) => P({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' }, tool_response: { stdout: '' }, ...ek });
+
+  let h = etkinlik.isle(null, PUS('ne durumdayız?'), 100).durum;
+  kontrol('kisa ilk istek hedef sayilmaz', h.hedef === null && h.sonIstek === null, h.hedef);
+  h = etkinlik.isle(h, PUS('/login'), 150).durum;
+  kontrol('slash komutu hedef sayilmaz', h.hedef === null);
+  h = etkinlik.isle(h, PUS('selam. Matbaa ilanlarını yeniden fiyatla ve raporla'), 200).durum;
+  kontrol('ilk anlamli istek hedef olur', h.hedef === 'Matbaa ilanlarını yeniden fiyatla ve raporla', h.hedef);
+  h = etkinlik.isle(h, PUS('şimdi de kapak görsellerini yeniden üret lütfen'), 300).durum;
+  kontrol('sonraki istek hedefi ezmez, sonIstek olur', h.hedef.startsWith('Matbaa') && h.sonIstek.startsWith('şimdi de'), h);
+
+  h = etkinlik.isle(h, HATA(), 400).durum;
+  h = etkinlik.isle(h, HATA(), 500).durum;
+  kontrol('2 hata: henuz takilma yok', h.hataSerisi === 2 && h.takilma === null, h.takilma);
+  kontrol('hatali arac olaylarda isaretli', h.olaylar.at(-1).hata === true && h.arac.hata === true);
+  h = etkinlik.isle(h, HATA({ agent_id: 'alt-1', agent_type: 'Explore' }), 550).durum;
+  kontrol('alt ajanin hatasi ana seriyi saymaz', h.hataSerisi === 2 && h.takilma === null);
+  h = etkinlik.isle(h, HATA({ is_interrupt: true }), 560).durum;
+  kontrol('Esc ile kesilen arac hata sayilmaz', h.hataSerisi === 2);
+  h = etkinlik.isle(h, HATA(), 600).durum;
+  kontrol(
+    '3. hata: takilma + neden',
+    h.takilma && h.takilma.tur === 'hata' && h.takilma.metin === '3 araç üst üste hata verdi' && h.takilma.ayrinti === 'Bash: ls: yok (kod 2)',
+    h.takilma
+  );
+  kontrol('takilma durumu degistirmez (hala calisiyor)', h.durum === 'calisiyor');
+  h = etkinlik.isle(h, BASARI({ agent_id: 'alt-1' }), 650).durum;
+  kontrol('alt ajanin basarisi takilmayi silmez', h.takilma !== null && h.hataSerisi === 3);
+  h = etkinlik.isle(h, BASARI(), 700).durum;
+  kontrol('ana turda basarili arac seriyi ve takilmayi siler', h.hataSerisi === 0 && h.takilma === null);
+
+  for (let i = 0; i < 3; i++) h = etkinlik.isle(h, HATA(), 800 + i).durum;
+  kontrol('yeniden 3 hata: takilma', h.takilma !== null);
+  h = etkinlik.isle(h, P({ hook_event_name: 'Stop', last_assistant_message: 'yapamadim' }), 900).durum;
+  kontrol('Stop takilmayi kapatir (tur bitti)', h.durum === 'bitti' && h.takilma === null && h.hataSerisi === 0);
+
+  // Tur ozeti: her UserPromptSubmit'te sifirlanir, ozet (oturum geneli) birikir.
+  h = etkinlik.isle(h, PUS('başka bir şey yap şimdi lütfen tamam mı'), 1000).durum;
+  kontrol('yeni tur: tur ozeti sifir', h.tur.araclar === 0 && h.tur.arti === 0 && h.tur.dosyalar.length === 0, h.tur);
+  h = etkinlik.isle(
+    h,
+    P({
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Write',
+      tool_input: { file_path: 'C:\\p\\yeni.txt', content: 'a\nb\n' },
+      tool_response: { type: 'create' },
+    }),
+    1100
+  ).durum;
+  kontrol('tur ozeti: dosya ve satir', h.tur.dosyalar.length === 1 && h.tur.arti === 2 && h.tur.araclar === 1, h.tur);
+  kontrol('oturum ozeti birikmeye devam eder', h.ozet.araclar > h.tur.araclar && h.ozet.arti >= 2);
+
+  // StopFailure: govde olculemedi, bilinen alanlarin hicbiri yoksa da cokmez.
+  let sf = etkinlik.isle(h, P({ hook_event_name: 'StopFailure', error: 'rate_limit: 429 Too Many Requests' }), 1200);
+  kontrol(
+    'StopFailure -> bitti + api takilmasi + bitti sinyali',
+    sf.durum.durum === 'bitti' && sf.durum.takilma?.tur === 'api' && sf.durum.takilma.ayrinti.startsWith('rate_limit') && sf.sinyal === 'bitti',
+    sf.durum.takilma
+  );
+  sf = etkinlik.isle(h, P({ hook_event_name: 'StopFailure' }), 1200);
+  kontrol('StopFailure alansiz govde: ayrinti null, cokmez', sf.durum.takilma?.tur === 'api' && sf.durum.takilma.ayrinti === null);
+  h = etkinlik.isle(sf.durum, PUS('tekrar dene bakalım şu işi lütfen'), 1300).durum;
+  kontrol('yeni istek api takilmasini siler', h.takilma === null);
+}
+
 // --- 2. HTTP alicisi + 3. statusline koprusu ---
 function post(port, yol, govde, basliklar) {
   return new Promise((coz) => {

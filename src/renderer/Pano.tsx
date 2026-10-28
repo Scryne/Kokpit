@@ -1,5 +1,6 @@
 import { AlertTriangle, ArrowRight, ChevronRight, FolderOpen, Play, TerminalSquare } from 'lucide-react';
-import type { Durum, Oturum, Proje, SonOturum } from './types';
+import type { BotNobeti, Durum, Oturum, Proje, SonOturum } from './types';
+import { BotSeridi, VadeSeridi } from './Nobet';
 import {
   AsamaRozeti,
   BeyinKaydiRozeti,
@@ -24,6 +25,9 @@ interface Props {
   arsivAcik: boolean;
   onArsivDegistir: () => void;
   onSaglik: () => void;
+  /** v3.0: bot nobeti (dusen/geciken isler seridi) ve Botlar sayfasina gecis. */
+  nobet: BotNobeti | null;
+  onBotlar: () => void;
   onBaslat: (p: Proje) => void;
   /** Calistir: projenin uygulamasini servis bolmesinde acar (komut yoksa sorar). */
   onCalistir: (p: Proje) => void;
@@ -40,6 +44,8 @@ export default function Pano({
   arsivAcik,
   onArsivDegistir,
   onSaglik,
+  nobet,
+  onBotlar,
   onBaslat,
   onCalistir,
   onSurdur,
@@ -63,6 +69,9 @@ export default function Pano({
 
   return (
     <div className="space-y-6">
+      {/* v3.0: dusen/geciken botlar ve bu haftanin vadeleri; ikisi de yalniz varken. */}
+      <BotSeridi nobet={nobet} onBotlar={onBotlar} />
+      <VadeSeridi vadeler={durum.vadeler} />
       {/* Saglik nobeti alarmi: yalniz varken, tek serit. Ayrinti Saglik sayfasinda. */}
       {alarmlar.length > 0 && (
         <section

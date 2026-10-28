@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import {
   Activity,
   AlertTriangle,
+  Bot,
   Boxes,
   ChevronRight,
   ExternalLink,
@@ -17,6 +18,7 @@ import {
   TerminalSquare,
   X,
 } from 'lucide-react';
+import type { BotNobeti } from './types';
 import type {
   Durum,
   EtkinlikAnlik,
@@ -33,6 +35,7 @@ import type {
 import Pano from './Pano';
 import Saglik from './Saglik';
 import Envanter from './Envanter';
+import Botlar from './Nobet';
 import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
@@ -66,12 +69,13 @@ function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat' | 'kapaniyor'>) {
   return 'bg-metin-soluk';
 }
 
-type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter';
+type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter' | 'botlar';
 const GORUNUM_BASLIK: Record<Gorunum, string> = {
   pano: 'Pano',
   terminal: 'Terminaller',
   saglik: 'Sağlık',
   envanter: 'Envanter',
+  botlar: 'Botlar',
 };
 
 /** Onceki calismadan kalan oturumlar icin tek satirlik teklif. Bir kez gorunur. */
@@ -118,6 +122,12 @@ function GeriYuklemeSeridi({
 
 export default function App() {
   const [durum, setDurum] = useState<Durum | null>(null);
+  // v3.0: bot nobeti (main 5 dk'da bir durum.py --nobet okur, yayinlar).
+  const [nobet, setNobet] = useState<BotNobeti | null>(null);
+  useEffect(() => {
+    void window.kokpit.nobetGetir().then((n) => n && setNobet(n));
+    return window.kokpit.nobetDinle(setNobet);
+  }, []);
   const [hata, setHata] = useState<string | null>(null);
   const [yukleniyor, setYukleniyor] = useState(true);
   const [gorunum, setGorunum] = useState<Gorunum>('pano');
@@ -694,7 +704,7 @@ export default function App() {
     window.kokpit.adaListe(
       oturumlar
         .filter((o) => !o.servis && (o.durumu === 'acik' || o.durumu === 'baglaniyor'))
-        .map((o) => ({ id: o.id, ad: o.ad, baslangic: o.baslangic, dikkat: o.dikkat === true, claude: o.claude }))
+        .map((o) => ({ id: o.id, ad: o.ad, baslangic: o.baslangic, dikkat: o.dikkat === true, claude: o.claude, yol: o.yol }))
     );
   }, [oturumlar]);
   // Adadan tiklama: main pencereyi one getirdi, burada o oturuma gecilir.
@@ -734,6 +744,19 @@ export default function App() {
         if (!api.yaz(istek.metin)) return 'Terminal bağlantısı yok';
         await bekle(350);
         api.yaz('\r');
+      } else if (istek.tur === 'ek') {
+        // v3.0: her yol ayri bracketed paste. claude goruntu yolunu taniyip `[Image #N]` yapar (spike
+        // 2026-10-29, gercek claude 2.1.312; model goruntuyu gordu). Goruntu olmayan yol metin kalir.
+        for (const yol of istek.yollar) {
+          if (!api.yaz('\x1b[200~' + yol + '\x1b[201~')) return 'Terminal bağlantısı yok';
+          await bekle(250);
+          api.yaz(' ');
+        }
+        if (istek.metin && !api.yaz(istek.metin)) return 'Terminal bağlantısı yok';
+        if (istek.gonder) {
+          await bekle(350);
+          api.yaz('\r');
+        }
       } else {
         const s = etkinlikRef.current.oturumlar[istek.id]?.soruAyrinti;
         const hala = () => {
@@ -768,7 +791,10 @@ export default function App() {
     } finally {
       gonderiliyor.current.delete(istek.id);
     }
-    console.info('[gonder] ' + o.ad + ': ' + istek.tur + (istek.tur === 'cevap' ? ' (' + istek.cevaplar.length + ' soru)' : ''));
+    console.info(
+      '[gonder] ' + o.ad + ': ' + istek.tur +
+        (istek.tur === 'cevap' ? ' (' + istek.cevaplar.length + ' soru)' : istek.tur === 'ek' ? ' (' + istek.yollar.length + ' yol' + (istek.gonder ? '' : ', Enter yok') + ')' : '')
+    );
     setOturumlar((l) => (l.some((x) => x.id === istek.id && x.dikkat) ? l.map((x) => (x.id === istek.id ? { ...x, dikkat: false } : x)) : l));
     return null;
   }, []);
@@ -1057,6 +1083,7 @@ export default function App() {
       { id: 's-term', grup: 'Sayfa', baslik: 'Terminaller', ipucu: 'Ctrl+2', calistir: () => setGorunum('terminal') },
       { id: 's-saglik', grup: 'Sayfa', baslik: 'Sağlık', ipucu: 'Ctrl+3', calistir: () => setGorunum('saglik') },
       { id: 's-env', grup: 'Sayfa', baslik: 'Envanter', ipucu: 'Ctrl+4', calistir: () => setGorunum('envanter') },
+      { id: 's-bot', grup: 'Sayfa', baslik: 'Botlar', ipucu: 'Ctrl+5', calistir: () => setGorunum('botlar') },
     ];
     for (const p of siraliProjeler) {
       const acik = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik' && !o.servis);
@@ -1179,6 +1206,9 @@ export default function App() {
       } else if (e.key === '4') {
         e.preventDefault();
         setGorunum('envanter');
+      } else if (e.key === '5') {
+        e.preventDefault();
+        setGorunum('botlar');
       } else if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         // Ctrl+Shift+P: komut paleti. Ctrl+K degil: claude'da satir sonuna kadar siler.
         e.preventDefault();
@@ -1381,6 +1411,28 @@ export default function App() {
                   {durum.envanter.drift_kayitsiz.length + durum.envanter.drift_hayalet.length}
                 </span>
               )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setGorunum('botlar')}
+            title="Botlar (Ctrl+5)"
+            aria-label="Botlar"
+            aria-current={gorunum === 'botlar' ? 'page' : undefined}
+            className={
+              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              (kenarAcik ? '' : 'justify-center ') +
+              (gorunum === 'botlar'
+                ? 'bg-yuzey text-metin'
+                : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
+            }
+          >
+            <Bot className="size-4 shrink-0" aria-hidden="true" />
+            {kenarAcik && 'Botlar'}
+            {kenarAcik && (nobet?.isler ?? []).some((x) => x.hal === 'dustu' || x.hal === 'gecikti') && (
+              <span className="enstruman ml-auto text-xs text-dikkat-metin" title="Düşen ya da geciken iş">
+                {(nobet?.isler ?? []).filter((x) => x.hal === 'dustu' || x.hal === 'gecikti').length}
+              </span>
+            )}
           </button>
         </nav>
 
@@ -1635,6 +1687,8 @@ export default function App() {
               arsivAcik={arsivAcik}
               onArsivDegistir={() => setArsivAcik((a) => !a)}
               onSaglik={() => setGorunum('saglik')}
+              nobet={nobet}
+              onBotlar={() => setGorunum('botlar')}
               onBaslat={sekmeAc}
               onCalistir={(p) => void calistirIste(p)}
               onSurdur={surdur}
@@ -1665,6 +1719,19 @@ export default function App() {
           className={(gorunum === 'envanter' ? 'block' : 'hidden') + ' min-h-0 flex-1 overflow-y-auto pr-1'}
         >
           {durum && <Envanter durum={durum} />}
+        </section>
+
+        <section
+          aria-label="Botlar"
+          className={(gorunum === 'botlar' ? 'block' : 'hidden') + ' min-h-0 flex-1 overflow-y-auto pr-1'}
+        >
+          <Botlar
+            nobet={nobet}
+            simdi={simdi}
+            onTazele={async () => {
+              setNobet(await window.kokpit.nobetTazele());
+            }}
+          />
         </section>
 
         {/* Terminaller: sekmeler + yan yana bolmeler. Hepsi mount kalir, biri gorunur. */}
@@ -1732,7 +1799,18 @@ export default function App() {
                       aria-selected={secili}
                       aria-controls={'panel-' + g.id}
                       onClick={() => grubaGit(g.id, ilk.id)}
-                      title={dikkat ? etiket + ' — dikkat bekliyor' : undefined}
+                      title={
+                        // v3.0: sekmenin ipucu oturumlarin hedefi (ilk anlamli istek): "bu sekme ne yapiyordu".
+                        [
+                          dikkat ? etiket + ' — dikkat bekliyor' : '',
+                          ...g.uyeler.map((o) => {
+                            const h = etkinlik.oturumlar[o.id]?.hedef;
+                            return h ? (g.uyeler.length > 1 ? o.ad + ': ' : '') + h : '';
+                          }),
+                        ]
+                          .filter(Boolean)
+                          .join('\n') || undefined
+                      }
                       className="flex cursor-pointer items-center gap-2"
                     >
                       {g.uyeler.every((o) => o.servis) ? (

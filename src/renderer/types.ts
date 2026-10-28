@@ -139,6 +139,8 @@ export interface Durum {
   butce: Butce;
   /** Sağlık nöbetinin son koşusu; hiç koşmadıysa null/yok. */
   saglik?: SaglikNobeti | null;
+  /** v3.0: proje notlarındaki tarihli işler (14 güne kadar gecikmiş olanlar dahil), tarih sırasıyla. */
+  vadeler?: Vade[];
 }
 
 export type DurumSonuc =
@@ -250,6 +252,35 @@ export interface EtkinlikAraci {
   basladi: number;
   /** null: arac hala calisiyor (PreToolUse geldi, PostToolUse gelmedi). */
   bitti: number | null;
+  /** v3.0: arac hata verdi (PostToolUseFailure). */
+  hata?: boolean;
+}
+
+/** v3.0: oturumun takilma isareti (electron/etkinlik.cjs). */
+export interface Takilma {
+  tur: 'hata' | 'api' | 'sessiz' | 'uzun';
+  metin: string;
+  ayrinti: string | null;
+  t: number;
+}
+
+/** v3.0: bir turun ozeti (UserPromptSubmit'te sifirlanir). */
+export interface TurOzeti {
+  araclar: number;
+  dosyalar: string[];
+  arti: number;
+  eksi: number;
+}
+
+/** v3.0: oturumun git hali, tur bitince olculur (electron/git-ozet.cjs). */
+export interface GitOzeti {
+  dal: string | null;
+  /** Oturum basladigindan beri atilan commit sayisi. */
+  commit: number;
+  kirli: number;
+  ileride: number;
+  uzakVar: boolean;
+  olculdu: number;
 }
 
 /** AskUserQuestion'un sorulari (electron/etkinlik.cjs soruAyrintisi). */
@@ -288,7 +319,65 @@ export interface HizliKomut {
  */
 export type GonderIstegi =
   | { id: string; tur: 'metin'; metin: string }
-  | { id: string; tur: 'cevap'; cevaplar: SoruCevabi[]; damga: number };
+  | { id: string; tur: 'cevap'; cevaplar: SoruCevabi[]; damga: number }
+  /** v3.0: ekler (main yollari cozdu). gonder false: yalniz yapistir, Enter Scryne'da. */
+  | { id: string; tur: 'ek'; yollar: string[]; metin: string; gonder: boolean };
+
+/** v3.0: bot nobetindeki bir is (durum.py --nobet; ScryneOS/.claude/scripts/nobet.py). */
+export interface BotIsi {
+  proje: string;
+  ad: string;
+  tur: 'gorev' | 'actions' | 'dosya' | 'engel' | string;
+  siklik_saat: number | null;
+  hal: 'saglikli' | 'gecikti' | 'dustu' | 'bilinmiyor';
+  ayrinti: string;
+  son: string | null;
+  sonraki: string | null;
+  kaynak: string;
+  url?: string;
+  sayac?: { ad: string; deger: number; sevinc: boolean };
+}
+
+export interface BotNobeti {
+  olculdu?: string;
+  isler?: BotIsi[];
+  /** Okuma basarisizsa; son olcum (varsa) yine tasinir. */
+  hata?: string;
+}
+
+export interface NobetOlayi {
+  tur: 'dustu' | 'sevinc';
+  proje: string;
+  ad: string;
+  ayrinti?: string;
+  deger?: number;
+}
+
+/** v3.0: proje notlarinin `vadeler` alani (durum.py vadeleri_oku). */
+export interface Vade {
+  proje: string;
+  tarih: string;
+  saat: string | null;
+  metin: string;
+  kalan_gun: number;
+}
+
+/** v3.0: Ada'nin ek tepsisindeki oge (electron/yakala.cjs; yol renderer'a gelmez). */
+export interface AdaEki {
+  id: string;
+  tur: 'goruntu' | 'dosya';
+  ad: string;
+  /** Kucuk onizleme (yalniz goruntu). */
+  onizleme: string | null;
+  t: number;
+}
+
+export interface AdaEkleri {
+  ekler: AdaEki[];
+  neden: 'pano' | 'birak' | 'sil' | 'yukleme';
+  /** Ctrl+Alt+Shift+S ile istendi: Ada klavyeyle acik, ilk hedef odakta. */
+  acil: boolean;
+}
 
 export interface OturumEtkinligi {
   durum: EtkinlikDurumu;
@@ -308,7 +397,15 @@ export interface OturumEtkinligi {
   sonTurSuresiMs: number | null;
   degisti: number;
   ozet: { araclar: number; dosyalar: string[]; arti: number; eksi: number; turlar: number };
-  olaylar: { t: number; ad: string; hedef: string; alt: boolean; arti: number | null; eksi: number | null }[];
+  olaylar: { t: number; ad: string; hedef: string; alt: boolean; arti: number | null; eksi: number | null; hata?: boolean }[];
+  /** v3.0: son (ya da suren) turun ozeti. */
+  tur?: TurOzeti;
+  /** v3.0: oturumun ilk anlamli istegi ve en son anlamli istek. */
+  hedef?: string | null;
+  sonIstek?: string | null;
+  hataSerisi?: number;
+  sonHata?: { arac: string; metin: string; t: number } | null;
+  takilma?: Takilma | null;
 }
 
 export interface Limit {
@@ -365,6 +462,8 @@ export interface EtkinlikAnlik {
   baglamlar: Record<string, DurumSatiriBaglami>;
   limitler: Limitler | null;
   limitDurumu?: LimitDurumu;
+  /** v3.0: oturum kimligi -> git hali (tur bitince olculur). */
+  gitler?: Record<string, GitOzeti>;
 }
 
 export type EtkinlikSinyali = { id: string; sinyal: 'bitti' | 'bekliyor'; durum?: OturumEtkinligi };
@@ -377,6 +476,8 @@ export interface AdaOturumu {
   dikkat: boolean;
   /** claude oturum kimligi: dis oturum listesinde Kokpit'in kendilerini ayirmak icin. */
   claude?: string;
+  /** v3.0: oturumun klasoru (git hali icin; main mutlak yol ister). */
+  yol?: string;
 }
 
 declare global {
@@ -444,6 +545,15 @@ declare global {
       adaDisDinle: (cb: (l: DisOturum[]) => void) => () => void;
       adaAyarDinle: (cb: (a: { hep: boolean; kip?: AdaKipi }) => void) => () => void;
       adaGorev: (gorev: { ad: string; metin: string }) => void;
+      adaEklerDinle: (cb: (e: AdaEkleri) => void) => () => void;
+      adaEkGonder: (istek: { id: string; ekler: string[]; metin: string; gonder: boolean }) => void;
+      adaEkSil: (kimlikler: string[] | 'hepsi') => void;
+      adaBirak: (yollar: string[]) => void;
+      nobetGetir: () => Promise<BotNobeti | null>;
+      nobetTazele: () => Promise<BotNobeti>;
+      nobetDinle: (cb: (n: BotNobeti) => void) => () => void;
+      adaNobetOlayDinle: (cb: (o: NobetOlayi) => void) => () => void;
+      adaVadelerDinle: (cb: (v: Vade[]) => void) => () => void;
       adaLimitTazele: () => void;
       adaSakla: (istek: boolean) => void;
       adaTasi: (asama: 'basla' | 'surukle' | 'bit') => void;

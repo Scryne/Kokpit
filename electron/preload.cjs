@@ -56,6 +56,37 @@ contextBridge.exposeInMainWorld('kokpit', {
   },
   // Ada: oturum listesi ana pencereden gider; adadan tiklama ana pencereye "oturuma git" doner.
   adaListe: (liste) => ipcRenderer.send('ada:liste', liste),
+  // v3.0: ek tepsisi (yakalanan goruntu / birakilan dosya).
+  adaEklerDinle: (cb) => {
+    const d = (_e, v) => cb(v);
+    ipcRenderer.on('ada:ekler', d);
+    return () => ipcRenderer.removeListener('ada:ekler', d);
+  },
+  adaEkGonder: (istek) => ipcRenderer.send('ada:ek-gonder', istek),
+  adaEkSil: (kimlikler) => ipcRenderer.send('ada:ek-sil', kimlikler),
+  adaBirak: (yollar) => ipcRenderer.send('ada:birak', yollar),
+  // v3.0: bot nobeti.
+  nobetGetir: () => ipcRenderer.invoke('nobet:getir'),
+  nobetTazele: () => ipcRenderer.invoke('nobet:tazele'),
+  nobetDinle: (cb) => {
+    const d = (_e, v) => cb(v);
+    ipcRenderer.on('nobet:anlik', d);
+    ipcRenderer.on('ada:nobet', d);
+    return () => {
+      ipcRenderer.removeListener('nobet:anlik', d);
+      ipcRenderer.removeListener('ada:nobet', d);
+    };
+  },
+  adaVadelerDinle: (cb) => {
+    const d = (_e, v) => cb(v);
+    ipcRenderer.on('ada:vadeler', d);
+    return () => ipcRenderer.removeListener('ada:vadeler', d);
+  },
+  adaNobetOlayDinle: (cb) => {
+    const d = (_e, v) => cb(v);
+    ipcRenderer.on('ada:nobet-olay', d);
+    return () => ipcRenderer.removeListener('ada:nobet-olay', d);
+  },
   adaAyar: (acik) => ipcRenderer.send('ada:ayar', acik),
   adaListeDinle: (cb) => {
     const d = (_e, l) => cb(l);

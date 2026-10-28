@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
-import { ArrowDownFromLine, ArrowUpToLine, Check, ChevronDown, CornerDownLeft, RefreshCw } from 'lucide-react';
+import { ArrowDownFromLine, ArrowUpToLine, Camera, Check, ChevronDown, CornerDownLeft, FileText, RefreshCw, X } from 'lucide-react';
 import type {
+  AdaEki,
   AdaKipi,
+  BotIsi,
+  BotNobeti,
+  NobetOlayi,
+  Vade,
   AdaOturumu,
   AdaProjesi,
   DisOturum,
   EtkinlikAnlik,
+  GitOzeti,
   Limit,
   LimitDurumu,
   Limitler,
@@ -14,10 +20,12 @@ import type {
   OturumEtkinligi,
   SoruAyrintisi,
   SoruCevabi,
+  Takilma,
 } from './types';
-import { DurumIsareti, etkinlikCumlesi, sifirlanmaMetni } from './Etkinlik';
+import { DurumIsareti, etkinlikCumlesi, sifirlanmaMetni, takilmaDurumu } from './Etkinlik';
 import { sureMetni } from './parcalar';
 import { AdaGoz, gozPozu, type GozHali } from './AdaGoz';
+import { VadeMetni, vadeEtiketi } from './Nobet';
 
 // Ada: Kokpit arka plandayken ekranin ust ortasindaki serit (electron/ada.cjs).
 // Kapali: tek satirlik hap — en onemli tek sey. Acik: oturum basina satir + limitler.
@@ -55,6 +63,13 @@ const SEVINC_MS = 8000;
 const UYKU_MS = 30 * 60 * 1000;
 /** SubagentStop kacarsa alt ajan noktasi bu kadar sessizlikten sonra duser (etkinlik.cjs ile ayni). */
 const ALT_AJAN_MS = 15 * 60 * 1000;
+/** v3.0: endise (yeni takilma) bu kadar surer; sonra satirdaki amber neden kalir, goz normale doner. */
+const ENDISE_MS = 8000;
+/** v3.0: 5 saatlik limit bu yuzdeyi gecince bosta/bitti gozler yorgun. */
+const YORGUN_YUZDE = 90;
+/** v3.0: yeni siparis sevinci ve kartin ustundeki haberi bu kadar surer. */
+const PARA_MS = 8000;
+const HABER_MS = 60_000;
 
 const SIRA: Record<OturumEtkinligi['durum'], number> = { bekliyor: 0, calisiyor: 1, bitti: 2, bosta: 3, kapandi: 4 };
 /** Gorev gonderildi bildirimi bu kadar kalir; oturum satiri zaten listede belirir. */
@@ -129,6 +144,20 @@ export default function Ada() {
   const surukleme = useRef<{ sx: number; aktif: boolean; kare: number } | null>(null);
   const tiklamaYut = useRef(false);
   const [surukleniyor, setSurukleniyor] = useState(false);
+  // v3.0: gorulmus takilmalar (oturum + damga). Yeni biri dogunca Ada bir kez bakar, goz endiselenir.
+  const gorulenTakilma = useRef(new Set<string>());
+  const [endiseZamani, setEndiseZamani] = useState(0);
+  // v3.0: ek tepsisi (yakalanan goruntu, birakilan dosya) ve birakilan metin. `ekIstegi` Ctrl+Alt+Shift+S
+  // ile gelen goruntude artar: tepsinin not kutusu odaklanir.
+  const [ekler, setEkler] = useState<AdaEki[]>([]);
+  const [birakilanMetin, setBirakilanMetin] = useState('');
+  const [ekIstegi, setEkIstegi] = useState(0);
+  const [birakiliyor, setBirakiliyor] = useState(false);
+  // v3.0: bot nobeti, vadeler, son nobet olayi (dusen is / yeni siparis).
+  const [nobet, setNobet] = useState<BotNobeti | null>(null);
+  const [vadeler, setVadeler] = useState<Vade[]>([]);
+  const [haber, setHaber] = useState<(NobetOlayi & { t: number }) | null>(null);
+  const [paraZamani, setParaZamani] = useState(0);
 
   const bak = useCallback(() => {
     setBakis(true);
@@ -144,6 +173,21 @@ export default function Ada() {
     const k3 = window.kokpit.sinyalDinle(bak);
     const k5 = window.kokpit.adaProjelerDinle(setProjeler);
     const k7 = window.kokpit.adaAyarDinle((a) => setKip(a.kip ?? 'normal'));
+    const k9 = window.kokpit.nobetDinle(setNobet);
+    const k10 = window.kokpit.adaVadelerDinle(setVadeler);
+    const k11 = window.kokpit.adaNobetOlayDinle((o) => {
+      setHaber({ ...o, t: Date.now() });
+      if (o.tur === 'sevinc') setParaZamani(Date.now());
+      else setEndiseZamani(Date.now());
+      bak();
+    });
+    const k8 = window.kokpit.adaEklerDinle((v) => {
+      setEkler(v.ekler);
+      if (v.acil) {
+        setOdakta(true);
+        setEkIstegi((n) => n + 1);
+      } else if ((v.neden === 'pano' || v.neden === 'birak') && v.ekler.length > 0) bak();
+    });
     // Dis oturum seni beklemeye gecince Kokpit oturumundaki gibi 5 sn acilir.
     const k6 = window.kokpit.adaDisDinle((l) => {
       const once = new Map(disRef.current.map((d) => [d.pid, d.durum]));
@@ -175,6 +219,10 @@ export default function Ada() {
       k5();
       k6();
       k7();
+      k8();
+      k9();
+      k10();
+      k11();
       clearInterval(t);
       if (sarkmaZamani.current) clearTimeout(sarkmaZamani.current);
     };
@@ -274,11 +322,17 @@ export default function Ada() {
     .sort((a, b) => SIRA[a.e?.durum ?? 'bosta'] - SIRA[b.e?.durum ?? 'bosta']);
 
   const bekleyen = satirlar.filter((x) => x.e?.durum === 'bekliyor');
+  const takilan = satirlar
+    .map((x) => ({ ...x, tk: x.e?.durum === 'bekliyor' ? null : takilmaDurumu(x.e, simdi) }))
+    .filter((x): x is typeof x & { tk: Takilma } => x.tk !== null);
   const calisan = satirlar.filter((x) => x.e?.durum === 'calisiyor');
   const biten = satirlar.filter((x) => x.e?.durum === 'bitti' && x.o.dikkat);
   const disBekleyen = dis.filter((d) => d.durum === 'bekliyor');
+  // v3.0: dusen botlar ve yakin vadeler (bugun, yarin, gecikmis): hapta en dusuk oncelik, kartta "Bugün".
+  const dusenBot = (nobet?.isler ?? []).filter((x) => x.hal === 'dustu');
+  const yakinVade = vadeler.filter((v) => v.kalan_gun <= 1);
   const disCalisan = dis.filter((d) => d.durum === 'calisiyor');
-  const ilk = bekleyen[0] ?? calisan[0] ?? biten[0] ?? null;
+  const ilk = bekleyen[0] ?? takilan[0] ?? calisan[0] ?? biten[0] ?? null;
   // Uyku: hicbir oturum (Kokpit'in ya da disaridaki) calismiyor/beklemiyor ve en son olay UYKU_MS'den eski.
   const sonOlay = Math.max(
     acilis,
@@ -291,6 +345,8 @@ export default function Ada() {
   const toplam = satirlar.length + dis.length;
   const ozet = bekleyen.length
     ? bekleyen[0].o.ad + ' seni bekliyor' + (bekleyen.length > 1 ? ' +' + (bekleyen.length - 1) : '')
+    : takilan.length
+      ? takilan[0].o.ad + ' takılmış olabilir' + (takilan.length > 1 ? ' +' + (takilan.length - 1) : '')
     : calisan.length
       ? calisan[0].o.ad + ' · ' + etkinlikCumlesi(calisan[0].e!, simdi)
       : biten.length
@@ -299,6 +355,10 @@ export default function Ada() {
           ? disBekleyen[0].ad + ' seni bekliyor · Kokpit dışında'
           : disCalisan.length
             ? disCalisan[0].ad + ' çalışıyor · Kokpit dışında'
+            : dusenBot.length
+              ? dusenBot[0].proje + ' · ' + dusenBot[0].ad + ' düştü' + (dusenBot.length > 1 ? ' +' + (dusenBot.length - 1) : '')
+            : yakinVade.length
+              ? yakinVade[0].proje + ': ' + vadeEtiketi(yakinVade[0])
             : uyku
               ? (toplam ? toplam + ' oturum · ' : '') + sessizlik + ' sessiz'
               : toplam
@@ -308,28 +368,49 @@ export default function Ada() {
   const ozetSure = bekleyen.length ? bekleme(bekleyen[0].e!, simdi) : !calisan.length && biten.length ? bekleme(biten[0].e!, simdi) : null;
   // Gozun hali: soru > yeni biten (kisa sevinc) > calisan > bitti > uyku > bosta.
   const taze = satirlar.find(({ e }) => e?.durum === 'bitti' && simdi - (e.durumZamani ?? e.degisti) < SEVINC_MS);
+  const l = anlik?.limitler;
+  const bes = etkinYuzde(l?.besSaat, simdi);
+  const haf = etkinYuzde(l?.hafta, simdi);
+  // Goz: soru > yeni takilma (endise, kisa) > yeni biten (sevinc) > calisan > bitti > uyku > bosta.
+  // Limit dolmak uzereyken sakin haller (bitti/bosta) yorgun gorunur; uyku uykudur.
+  const sakinHal: GozHali = biten.length && !uyku ? 'bitti' : uyku ? 'uyku' : 'bosta';
   const gozHali: GozHali = bekleyen.length || disBekleyen.length
     ? 'bekliyor'
-    : taze
-      ? 'mutlu'
-      : calisan.length || disCalisan.length
-        ? 'calisiyor'
-        : biten.length && !uyku
-          ? 'bitti'
-          : uyku
-            ? 'uyku'
-            : 'bosta';
+    : simdi - paraZamani < PARA_MS
+      ? 'para'
+    : simdi - endiseZamani < ENDISE_MS
+      ? 'endise'
+      : taze
+        ? 'mutlu'
+        : calisan.length || disCalisan.length
+          ? 'calisiyor'
+          : sakinHal !== 'uyku' && bes !== null && bes >= YORGUN_YUZDE
+            ? 'yorgun'
+            : sakinHal;
   const altSayisi = satirlar.reduce(
     (n, { e }) => n + Object.values(e?.altlar ?? {}).filter((a) => simdi - a.t < ALT_AJAN_MS).length,
     0
   );
-  const l = anlik?.limitler;
-  const bes = etkinYuzde(l?.besSaat, simdi);
-  const haf = etkinYuzde(l?.hafta, simdi);
   const saklandi = kip !== 'normal';
+  const takilmaAnahtari = takilan.map((x) => x.o.id + '@' + x.tk.t).join('|');
   // Saklanmisken kendiliginden bakis yok: Scryne gizledi, cene amber yanar ama kart acilmaz.
-  const genis = uzerinde || odakta || (bakis && !saklandi);
+  const tepsiVar = ekler.length > 0 || birakilanMetin !== '';
+  const genis = uzerinde || odakta || birakiliyor || (bakis && !saklandi);
   const soruVar = bekleyen.some((x) => x.e?.soruAyrinti?.cevaplanabilir);
+
+  useEffect(() => {
+    if (!takilmaAnahtari) return;
+    let yeni = false;
+    for (const k of takilmaAnahtari.split('|')) {
+      if (!gorulenTakilma.current.has(k)) {
+        gorulenTakilma.current.add(k);
+        yeni = true;
+      }
+    }
+    if (!yeni) return;
+    setEndiseZamani(Date.now());
+    bak();
+  }, [takilmaAnahtari, bak]);
 
   if (saklandi && !genis) {
     const bekliyor = gozHali === 'bekliyor';
@@ -399,10 +480,38 @@ export default function Ada() {
             (document.activeElement as HTMLElement | null)?.blur();
           }
         }}
+        // v3.0: Ada'ya birak. Dosya -> yol (main denetler, tepsiye girer); dosyasiz metin -> not kutusu.
+        onDragEnter={(ev) => {
+          const t = [...ev.dataTransfer.types];
+          if (!t.includes('Files') && !t.includes('text/plain')) return;
+          ev.preventDefault();
+          setBirakiliyor(true);
+          fare(true);
+        }}
+        onDragOver={(ev) => {
+          const t = [...ev.dataTransfer.types];
+          if (!t.includes('Files') && !t.includes('text/plain')) return;
+          ev.preventDefault();
+          ev.dataTransfer.dropEffect = 'copy';
+        }}
+        onDragLeave={(ev) => {
+          if (!ev.currentTarget.contains(ev.relatedTarget as Node | null)) setBirakiliyor(false);
+        }}
+        onDrop={(ev) => {
+          ev.preventDefault();
+          setBirakiliyor(false);
+          const yollar = [...ev.dataTransfer.files].map((d) => window.kokpit.dosyaYolu(d)).filter((y) => y.length > 0);
+          if (yollar.length > 0) window.kokpit.adaBirak(yollar);
+          else {
+            const m = ev.dataTransfer.getData('text/plain').replace(/\s+/g, ' ').trim().slice(0, 2000);
+            if (m) setBirakilanMetin(m);
+          }
+        }}
         className={
           'ada-kart halka relative overflow-hidden text-metin ' +
           (genis ? 'ada-acik w-[440px] rounded-2xl' : 'rounded-full') +
-          (saklandi ? ' ada-sarkan' : '')
+          (saklandi ? ' ada-sarkan' : '') +
+          (birakiliyor ? ' outline-2 outline-dashed outline-aksan/70 -outline-offset-2' : '')
         }
       >
         <div className="flex items-center">
@@ -432,13 +541,20 @@ export default function Ada() {
             key={ozet.replace(/\d+/g, '#')}
             className={
               'ada-metin min-w-0 truncate ' +
-              (bekleyen.length || disBekleyen.length ? 'text-dikkat-metin' : uyku || !toplam ? 'text-metin-ikincil' : 'text-metin')
+              (bekleyen.length || disBekleyen.length || takilan.length ? 'text-dikkat-metin' : uyku || !toplam ? 'text-metin-ikincil' : 'text-metin')
             }
           >
             {ozet}
           </span>
           {altSayisi > 0 && <span className="sr-only">, {altSayisi} alt ajan çalışıyor</span>}
           {ozetSure && <span className="enstruman shrink-0 text-metin-soluk">{ozetSure}</span>}
+          {ekler.length > 0 && (
+            <span className="enstruman flex shrink-0 items-center gap-1 text-metin-ikincil" title={ekler.length + ' ek gönderilmeyi bekliyor'}>
+              <Camera className="size-3.5" aria-hidden="true" />
+              {ekler.length}
+              <span className="sr-only"> ek gönderilmeyi bekliyor</span>
+            </span>
+          )}
           {(bes !== null || haf !== null) && (
             <span className="enstruman ml-auto flex shrink-0 gap-2 pl-2 text-metin-soluk">
               {bes !== null && (
@@ -476,6 +592,30 @@ export default function Ada() {
         {!genis && bes !== null && <LimitKenari kart={kart} yuzde={bes} />}
         {genis && (
           <div className="max-h-[440px] overflow-y-auto border-t border-kenar px-1.5 pb-1.5 pt-1">
+            {(tepsiVar || birakiliyor) && (
+              <EkTepsisi
+                ekler={ekler}
+                metin={birakilanMetin}
+                onMetin={setBirakilanMetin}
+                hedefler={satirlar.map(({ o, e }) => ({ id: o.id, ad: o.ad, durum: e?.durum ?? 'bosta' }))}
+                odakIstegi={ekIstegi}
+                birakiliyor={birakiliyor}
+                onGonder={(id, gonderMi, not) => {
+                  window.kokpit.adaEkGonder({ id, ekler: ekler.map((x) => x.id), metin: not, gonder: gonderMi });
+                  setBirakilanMetin('');
+                  setOnay((n) => n + 1);
+                  (document.activeElement as HTMLElement | null)?.blur();
+                }}
+                onSil={(k) => window.kokpit.adaEkSil(k)}
+                onVazgec={() => {
+                  window.kokpit.adaEkSil('hepsi');
+                  setBirakilanMetin('');
+                }}
+              />
+            )}
+            {(dusenBot.length > 0 || yakinVade.length > 0 || (haber && simdi - haber.t < HABER_MS)) && (
+              <AdaBugun dusen={dusenBot} vadeler={yakinVade} haber={haber && simdi - haber.t < HABER_MS ? haber : null} />
+            )}
             {toplam === 0 && <p className="px-2 py-1.5 text-xs text-metin-soluk">Açık claude oturumu yok.</p>}
             <ul aria-label="Kokpit oturumları" hidden={satirlar.length === 0}>
               {satirlar.map(({ o, e }) => (
@@ -485,6 +625,7 @@ export default function Ada() {
                   e={e}
                   simdi={simdi}
                   komutlar={komutlar}
+                  git={anlik?.gitler?.[o.id] ?? null}
                   gonderildi={
                     gonderilen[o.id] !== undefined &&
                     e !== null &&
@@ -521,6 +662,7 @@ function AdaSatiri({
   e,
   simdi,
   komutlar,
+  git,
   gonderildi,
   onGonder,
 }: {
@@ -528,13 +670,15 @@ function AdaSatiri({
   e: OturumEtkinligi | null;
   simdi: number;
   komutlar: HizliKomut[];
+  git: GitOzeti | null;
   gonderildi: boolean;
   onGonder: (istek: GonderIstegi) => void;
 }) {
   const sende = siraSende(e);
   const s = e?.durum === 'bekliyor' ? e.soruAyrinti ?? null : null;
+  const tk = e?.durum === 'bekliyor' ? null : takilmaDurumu(e, simdi);
   return (
-    <li>
+    <li data-oturum={o.id}>
       <button
         type="button"
         onClick={() => window.kokpit.adaGit(o.id)}
@@ -554,9 +698,41 @@ function AdaSatiri({
         <span className="enstruman text-metin-soluk" title={sende ? 'Sıra sende' : 'Oturum süresi'}>
           {e && sende ? bekleme(e, simdi) : o.baslangic ? sureMetni(Math.floor((simdi - o.baslangic) / 1000)) : ''}
         </span>
+        {/* v3.0: ikinci satir. Takilmissa nedeni (amber), degilse oturumun hedefi (ilk anlamli istek). */}
+        {tk ? (
+          // Neden once (kirpilan son kisim olmasin): hata/API'de hata metni, sessizlik/uzun aracta sure.
+          <span
+            data-takilma={tk.tur}
+            className="col-start-3 col-end-5 truncate text-dikkat-metin"
+            title={'Takılmış olabilir: ' + tk.metin + (tk.ayrinti ? '\n' + tk.ayrinti : '')}
+          >
+            {(tk.tur === 'hata' || tk.tur === 'api') && tk.ayrinti ? (
+              <>
+                <span className="enstruman">{tk.ayrinti}</span>
+                <span className="text-metin-ikincil"> · {tk.tur === 'hata' ? (e?.hataSerisi ?? 3) + '. hata' : tk.metin}</span>
+              </>
+            ) : (
+              <>
+                Takılmış olabilir · {tk.metin}
+                {tk.ayrinti && <span className="enstruman text-metin-ikincil"> · {tk.ayrinti}</span>}
+              </>
+            )}
+          </span>
+        ) : (
+          e?.hedef && (
+            <span
+              data-hedef
+              className="col-start-3 col-end-5 truncate text-metin-soluk"
+              title={'Hedef: ' + e.hedef + (e.sonIstek && e.sonIstek !== e.hedef ? '\nSon istek: ' + e.sonIstek : '')}
+            >
+              {e.hedef}
+            </span>
+          )
+        )}
       </button>
       {sende && e && (
         <div className="space-y-1.5 px-2 pb-2 pl-[1.75rem]">
+          {e.durum === 'bitti' && <TurSonucu e={e} git={git} />}
           {e.durum === 'bitti' && e.sonSoz && <SonSoz metin={e.sonSoz} yeni={o.dikkat} />}
           {gonderildi ? (
             <p role="status" className="text-xs text-metin-soluk">
@@ -575,6 +751,231 @@ function AdaSatiri({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * v3.0: kartta "Bugün": yeni nobet haberi (siparis / dusen is), dusen botlar, bugun-yarin-gecikmis vadeler.
+ * Tiklaninca Kokpit one gelir (Botlar sayfasi ana pencerede).
+ */
+function AdaBugun({ dusen, vadeler, haber }: { dusen: BotIsi[]; vadeler: Vade[]; haber: (NobetOlayi & { t: number }) | null }) {
+  return (
+    <section aria-label="Bugün" data-ada-bugun className="mb-1 space-y-1 border-b border-kenar px-2 pb-2 pt-1 text-xs">
+      {haber && (
+        <p role="status" className={haber.tur === 'sevinc' ? 'text-metin' : 'text-dikkat-metin'}>
+          {haber.tur === 'sevinc'
+            ? haber.proje + ': ' + haber.ad + (haber.deger ? ' · ' + haber.deger : '')
+            : haber.proje + ' · ' + haber.ad + ' düştü' + (haber.ayrinti ? ': ' + haber.ayrinti : '')}
+        </p>
+      )}
+      {dusen
+        .filter((x) => !(haber && haber.tur === 'dustu' && haber.proje === x.proje && haber.ad === x.ad))
+        .map((x) => (
+          <p key={x.proje + x.ad} className="flex min-w-0 gap-1.5">
+            <span className="shrink-0 text-dikkat-metin">
+              <span className="enstruman">{x.proje}</span> · {x.ad} düştü
+            </span>
+            {x.ayrinti && <span className="truncate text-metin-ikincil" title={x.ayrinti}>{x.ayrinti}</span>}
+          </p>
+        ))}
+      {vadeler.map((v) => (
+        <p key={v.proje + v.tarih + v.metin} className="flex min-w-0 items-baseline gap-2">
+          <span className={'enstruman shrink-0 ' + (v.kalan_gun <= 0 ? 'text-dikkat-metin' : 'text-metin-ikincil')}>{vadeEtiketi(v)}</span>
+          <span className="truncate text-metin" title={v.metin.replace(/`/g, '')}>
+            <VadeMetni metin={v.metin} />
+          </span>
+          <span className="enstruman ml-auto shrink-0 text-metin-soluk">{v.proje}</span>
+        </p>
+      ))}
+    </section>
+  );
+}
+
+/**
+ * v3.0: Ada'nin ek tepsisi. Yakalanan goruntuler / birakilan dosyalar + hedef oturum + not.
+ * "Gönder" yollari yapistirir, notu yazar, Enter'a basar. "Yalnız yapıştır" Enter'a basmaz ve Kokpit'i o
+ * sekmeyle one getirir (uzun mesaji terminalde yazmak icin). Hedef: siradaki oturum (soru > bitti >
+ * calisan); tek oturum varsa o. Oturum yoksa gonderilemez, neden yazar.
+ */
+function EkTepsisi({
+  ekler,
+  metin,
+  onMetin,
+  hedefler,
+  odakIstegi,
+  birakiliyor,
+  onGonder,
+  onSil,
+  onVazgec,
+}: {
+  ekler: AdaEki[];
+  metin: string;
+  onMetin: (m: string) => void;
+  hedefler: { id: string; ad: string; durum: OturumEtkinligi['durum'] }[];
+  odakIstegi: number;
+  birakiliyor: boolean;
+  onGonder: (id: string, gonder: boolean, not: string) => void;
+  onSil: (kimlikler: string[]) => void;
+  onVazgec: () => void;
+}) {
+  const [hedef, setHedef] = useState<string | null>(null);
+  const kutu = useRef<HTMLInputElement>(null);
+  const secili = hedefler.find((h) => h.id === hedef) ?? hedefler[0] ?? null;
+
+  useEffect(() => {
+    if (!odakIstegi) return;
+    const id = requestAnimationFrame(() => kutu.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [odakIstegi]);
+
+  const goruntu = ekler.filter((x) => x.tur === 'goruntu').length;
+  const baslik =
+    ekler.length === 0
+      ? birakiliyor
+        ? 'Bırak: dosya ya da metin oturuma gider'
+        : 'Bırakılan metin'
+      : goruntu === ekler.length
+        ? goruntu + ' görüntü'
+        : ekler.length + ' ek';
+  const gonder = (enter: boolean) => {
+    if (!secili || (ekler.length === 0 && !metin.trim())) return;
+    onGonder(secili.id, enter, metin.trim());
+  };
+
+  return (
+    <section aria-label="Oturuma gönderilecekler" data-ek-tepsisi className="mb-1 space-y-2 border-b border-kenar px-2 pb-2.5 pt-1.5">
+      <div className="flex items-center gap-2 text-xs">
+        <Camera className="size-3.5 shrink-0 text-metin-ikincil" aria-hidden="true" />
+        <span className="text-metin">{baslik}</span>
+        {(ekler.length > 0 || metin) && (
+          <button
+            type="button"
+            onClick={onVazgec}
+            className="ml-auto cursor-pointer px-1 text-metin-soluk transition-colors duration-[120ms] hover:text-metin"
+          >
+            Vazgeç
+          </button>
+        )}
+      </div>
+      {ekler.length > 0 && (
+        <ul aria-label="Ekler" className="flex gap-1.5 overflow-x-auto pb-0.5">
+          {ekler.map((x) => (
+            <li key={x.id} className="group relative shrink-0">
+              {x.onizleme ? (
+                <img src={x.onizleme} alt={x.ad} title={x.ad} className="h-14 max-w-[7.5rem] rounded-md border border-kenar object-cover" />
+              ) : (
+                <span title={x.ad} className="flex h-14 w-24 flex-col items-center justify-center gap-1 rounded-md border border-kenar px-1 text-metin-ikincil">
+                  <FileText className="size-4" aria-hidden="true" />
+                  <span className="enstruman w-full truncate text-center text-[0.625rem]">{x.ad}</span>
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => onSil([x.id])}
+                aria-label={x.ad + ' ekini çıkar'}
+                className="absolute -right-1 -top-1 flex size-4 cursor-pointer items-center justify-center rounded-full border border-kenar-guclu bg-yuzey-guclu text-metin-ikincil opacity-0 transition-opacity duration-[120ms] group-hover:opacity-100 focus-visible:opacity-100 hover:text-metin"
+              >
+                <X className="size-2.5" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {hedefler.length === 0 ? (
+        (ekler.length > 0 || metin) && <p className="text-xs text-metin-soluk">Açık claude oturumu yok; önce Kokpit'te bir oturum aç.</p>
+      ) : (
+        (ekler.length > 0 || metin) && (
+          <>
+            <div role="radiogroup" aria-label="Hedef oturum" className="flex flex-wrap gap-1">
+              {hedefler.map((h) => {
+                const sec = secili?.id === h.id;
+                return (
+                  <button
+                    key={h.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={sec}
+                    data-eylem={sec ? '' : undefined}
+                    onClick={() => setHedef(h.id)}
+                    className={
+                      'enstruman cursor-pointer rounded-full border px-2.5 py-0.5 text-xs transition-colors duration-[120ms] ' +
+                      (sec ? 'border-kenar-guclu bg-yuzey-guclu text-metin' : 'border-kenar text-metin-ikincil hover:border-kenar-guclu hover:text-metin')
+                    }
+                  >
+                    {h.ad}
+                    {h.durum === 'calisiyor' && <span className="text-metin-soluk"> · çalışıyor</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <form
+              onSubmit={(ev) => {
+                ev.preventDefault();
+                gonder(true);
+              }}
+              className="flex items-center gap-1.5"
+            >
+              <input
+                ref={kutu}
+                value={metin}
+                onChange={(ev) => onMetin(ev.target.value)}
+                onFocus={() => window.kokpit.adaOdak(true)}
+                onMouseDown={(ev) => odakIste(ev.currentTarget)}
+                placeholder={'Not ekle (isteğe bağlı)'}
+                aria-label={'Eklerle birlikte ' + (secili?.ad ?? '') + ' oturumuna gidecek not'}
+                className="halka min-w-0 flex-1 rounded-kontrol border border-kenar bg-transparent px-2 py-1 text-xs text-metin placeholder:text-metin-soluk"
+              />
+              <button
+                type="submit"
+                title={'Yapıştır ve gönder (Enter): ' + (secili?.ad ?? '')}
+                className="cursor-pointer rounded-kontrol bg-birincil px-2.5 py-1 text-xs font-medium text-birincil-uzeri transition-opacity duration-[120ms] hover:opacity-90"
+              >
+                Gönder
+              </button>
+              <button
+                type="button"
+                onClick={() => gonder(false)}
+                title="Yapıştır ama gönderme; Kokpit o oturumla öne gelir"
+                className="cursor-pointer rounded-kontrol border border-kenar px-2 py-1 text-xs text-metin-ikincil transition-colors duration-[120ms] hover:border-kenar-guclu hover:text-metin"
+              >
+                Yalnız yapıştır
+              </button>
+            </form>
+            {secili?.durum === 'calisiyor' && (
+              <p className="text-[0.6875rem] text-metin-soluk">{secili.ad} çalışıyor: mesaj sıraya girer, tur bitince okunur.</p>
+            )}
+          </>
+        )
+      )}
+    </section>
+  );
+}
+
+/**
+ * v3.0: biten turun sonucu, tek mono satir (mono = olculmus deger). Tur sayilari kancadan; git hali tur
+ * bitince olculur (electron/git-ozet.cjs) ve bir an sonra gelir. Bos parca yazilmaz; hic parca yoksa satir yok.
+ */
+function TurSonucu({ e, git }: { e: OturumEtkinligi; git: GitOzeti | null }) {
+  // Turun dosya/satir sayisi satirin cumlesinde (etkinlikCumlesi); burada yalniz git.
+  const parca: { k: string; m: string; vurgu?: boolean }[] = [];
+  // Git olcumu bu turdan sonra mi? Onceki turun olcumu bayat sayilir; yenisi gelince yer degistirir.
+  const g = git && git.olculdu >= (e.durumZamani ?? e.degisti) ? git : null;
+  if (g) {
+    if (g.commit > 0) parca.push({ k: 'c', m: g.commit + ' commit' });
+    if (g.ileride > 0) parca.push({ k: 'p', m: '↑' + g.ileride + ' push bekliyor', vurgu: true });
+    else if (g.commit > 0 && !g.uzakVar) parca.push({ k: 'p', m: 'yerel dal' });
+    if (g.kirli > 0) parca.push({ k: 'k', m: g.kirli + ' kirli dosya' });
+  }
+  if (parca.length === 0) return null;
+  return (
+    <p data-tur-sonucu className="enstruman text-xs text-metin-soluk">
+      {parca.map((p, i) => (
+        <span key={p.k} className={p.vurgu ? 'text-metin-ikincil' : undefined}>
+          {i > 0 && ' · '}
+          {p.m}
+        </span>
+      ))}
+    </p>
   );
 }
 

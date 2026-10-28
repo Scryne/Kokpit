@@ -10,11 +10,19 @@
 //   bekliyor  — claude kullanicidan cevap istiyor (AskUserQuestion, izin, elicitation)
 //   bitti     — Stop geldi: tur tamam, sira kullanicida
 //   kapandi   — SessionEnd
+//
+// v3.0: oturumun hedefi (ilk anlamli istek), takilma (ust uste arac hatasi, API hatasiyla duran
+// tur) ve son turun ozeti (bitti kartinda). Govde sekilleri gercek claude 2.1.312'den (2026-10-29).
 
 const path = require('path');
 
 const SON_OLAY_SINIRI = 30;
 const ALT_AJAN_ZAMAN_ASIMI = 15 * 60 * 1000;
+/**
+ * Bu kadar ana tur araci ust uste hata verirse "takilmis olabilir". Olculdu (2026-10-29): son 25 gunun
+ * 1.675 transcript'inde 3'luk seri 8 kez, 5'lik hic gorulmedi; 3 gurultu yapmaz.
+ */
+const HATA_SERISI_ESIGI = 3;
 
 function yeniDurum(simdi) {
   return {
@@ -33,8 +41,18 @@ function yeniDurum(simdi) {
     soruZamani: null,
     altlar: {}, // calisan alt ajanlar: { [agent_id]: { tur, t } } (SubagentStart..SubagentStop)
     ozet: { araclar: 0, dosyalar: [], arti: 0, eksi: 0, turlar: 0 },
-    olaylar: [], // son N arac: { t, ad, hedef, arti, eksi, alt }
+    tur: yeniTur(), // son turun (ya da suren turun) ozeti: bitti kartinda gosterilir
+    hedef: null, // oturumun ilk anlamli istegi (bkz. istekMetni)
+    sonIstek: null, // en son anlamli istek
+    hataSerisi: 0, // ana turda ust uste hata veren arac sayisi (PostToolUseFailure)
+    sonHata: null, // { arac, metin, t }
+    takilma: null, // { tur: 'hata' | 'api', metin, ayrinti, t }
+    olaylar: [], // son N arac: { t, ad, hedef, arti, eksi, alt, hata? }
   };
+}
+
+function yeniTur() {
+  return { araclar: 0, dosyalar: [], arti: 0, eksi: 0 };
 }
 
 function kisalt(metin, n) {
@@ -141,6 +159,52 @@ function sonSoz(metin) {
   return s.length > SON_SOZ_SINIRI ? s.slice(0, SON_SOZ_SINIRI - 1) + '…' : s;
 }
 
+/**
+ * Istegin tek satirlik hali: yapistirma isaretleri ([Image #1], [Pasted text #2 +40 lines]), tirnakli
+ * yollar ve bastaki selam atilir. Oturumlarin ilk istegi cogu kez "ne durumdayiz?" (son 40 oturumun
+ * ~4'te 1'i, 2026-10-29): kisa istekler ve slash komutlari hedef sayilmaz, bkz. anlamliIstek.
+ */
+function istekMetni(prompt) {
+  if (typeof prompt !== 'string') return '';
+  const s = prompt
+    .replace(/\[(?:Image|Pasted text) #\d+[^\]]*\]/g, ' ')
+    .replace(/"[A-Za-z]:\\[^"]*"/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(?:s*selam(?:lar)?|merhaba|hey|sa)\b[\s.,!]*/i, '');
+  return kisalt(s, 160);
+}
+
+const ANLAMLI_ISTEK_SINIRI = 20;
+function anlamliIstek(metin) {
+  return metin.length >= ANLAMLI_ISTEK_SINIRI && !metin.startsWith('/');
+}
+
+/**
+ * PostToolUseFailure `error`'unun okunur ilk satiri. Bash hatasi "Exit code 2\nls: cannot access ..."
+ * seklinde gelir (olculdu): kod satiri tek basina bir sey soylemez, sonraki satir + kod.
+ */
+function hataOzeti(hata) {
+  const satirlar = String(hata ?? '')
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (satirlar.length === 0) return 'hata';
+  const kod = /^Exit code (\d+)$/.exec(satirlar[0]);
+  if (kod && satirlar[1]) return kisalt(satirlar[1] + ' (kod ' + kod[1] + ')', 140);
+  return kisalt(satirlar[0], 140);
+}
+
+/** StopFailure govdesi olculemedi (yalniz API hatasinda gelir): bilinen alanlardan ilk dolu metin. */
+function apiHatasi(govde) {
+  for (const k of ['error', 'error_message', 'message', 'reason', 'stop_reason']) {
+    const v = govde?.[k];
+    if (typeof v === 'string' && v.trim()) return kisalt(v, 160);
+    if (v && typeof v === 'object' && typeof v.message === 'string') return kisalt(v.message, 160);
+  }
+  return null;
+}
+
 /** Gosterilen arac adi: mcp araclari "MCP", gerisi oldugu gibi. */
 function aracAdi(ad) {
   return ad && ad.startsWith('mcp__') ? 'MCP' : ad || '?';
@@ -212,7 +276,7 @@ function isle(onceki, govde, simdi = Date.now()) {
       if (alt) delete d.altlar[String(govde.agent_id)];
       break;
 
-    case 'UserPromptSubmit':
+    case 'UserPromptSubmit': {
       d.durum = 'calisiyor';
       d.turBasladi = simdi;
       d.arac = null;
@@ -220,7 +284,17 @@ function isle(onceki, govde, simdi = Date.now()) {
       d.soruAyrinti = null;
       d.sonSoz = null;
       d.ozet.turlar++;
+      d.tur = yeniTur();
+      d.hataSerisi = 0;
+      d.sonHata = null;
+      d.takilma = null;
+      const istek = istekMetni(govde.prompt);
+      if (anlamliIstek(istek)) {
+        if (!d.hedef) d.hedef = istek;
+        d.sonIstek = istek;
+      }
       break;
+    }
 
     case 'PreToolUse': {
       const ad = govde.tool_name;
@@ -260,11 +334,21 @@ function isle(onceki, govde, simdi = Date.now()) {
         bitti: simdi,
       };
       d.ozet.araclar++;
+      if (!d.tur) d.tur = yeniTur();
+      d.tur.araclar++;
       if (fark) {
         d.ozet.arti += fark.arti;
         d.ozet.eksi += fark.eksi;
+        d.tur.arti += fark.arti;
+        d.tur.eksi += fark.eksi;
         const yol = govde.tool_input?.file_path || govde.tool_input?.notebook_path;
         if (yol && !d.ozet.dosyalar.includes(yol)) d.ozet.dosyalar.push(yol);
+        if (yol && !d.tur.dosyalar.includes(yol)) d.tur.dosyalar.push(yol);
+      }
+      // Basarili ana tur araci seriyi bozar; alt ajanin basarisi ana turun takilmasini ortmez.
+      if (!alt) {
+        d.hataSerisi = 0;
+        if (d.takilma?.tur === 'hata') d.takilma = null;
       }
       d.olaylar.push({ t: simdi, ad: aracAdi(ad), hedef, alt, arti: d.arac.arti, eksi: d.arac.eksi });
       if (d.olaylar.length > SON_OLAY_SINIRI) d.olaylar.splice(0, d.olaylar.length - SON_OLAY_SINIRI);
@@ -272,6 +356,41 @@ function isle(onceki, govde, simdi = Date.now()) {
         d.durum = 'calisiyor';
         d.soru = null;
         d.soruAyrinti = null;
+      }
+      break;
+    }
+
+    // v3.0: arac hata verdi (gercek claude 2.1.312: tool_name, tool_input, error, is_interrupt).
+    // Esc ile kesilen arac hata sayilmaz: onu Scryne yapti.
+    case 'PostToolUseFailure': {
+      const ad = govde.tool_name;
+      const hedef = hedefOzeti(ad, govde.tool_input);
+      d.arac = {
+        ad: aracAdi(ad),
+        hedef,
+        alt,
+        arti: null,
+        eksi: null,
+        basladi: d.arac && d.arac.ad === aracAdi(ad) && d.arac.bitti === null ? d.arac.basladi : simdi,
+        bitti: simdi,
+        hata: true,
+      };
+      d.ozet.araclar++;
+      if (!d.tur) d.tur = yeniTur();
+      d.tur.araclar++;
+      d.olaylar.push({ t: simdi, ad: aracAdi(ad), hedef, alt, arti: null, eksi: null, hata: true });
+      if (d.olaylar.length > SON_OLAY_SINIRI) d.olaylar.splice(0, d.olaylar.length - SON_OLAY_SINIRI);
+      if (!alt && govde.is_interrupt !== true) {
+        d.hataSerisi = (d.hataSerisi || 0) + 1;
+        d.sonHata = { arac: aracAdi(ad), metin: hataOzeti(govde.error), t: simdi };
+        if (d.hataSerisi >= HATA_SERISI_ESIGI) {
+          d.takilma = {
+            tur: 'hata',
+            metin: d.hataSerisi + ' araç üst üste hata verdi',
+            ayrinti: d.sonHata.arac + ': ' + d.sonHata.metin,
+            t: simdi,
+          };
+        }
       }
       break;
     }
@@ -298,6 +417,23 @@ function isle(onceki, govde, simdi = Date.now()) {
       d.soru = null;
       d.soruAyrinti = null;
       d.sonSoz = sonSoz(govde.last_assistant_message);
+      // Tur bitti: hata serisi artik "takildi" demek degil, claude kendisi durdu.
+      d.hataSerisi = 0;
+      d.takilma = null;
+      sinyal = 'bitti';
+      break;
+
+    // v3.0: tur API hatasiyla durdu (limit, asiri yuk, ag). Govde olculemedi; sira yine kullanicida.
+    case 'StopFailure':
+      if (alt) break;
+      d.durum = 'bitti';
+      d.sonTurSuresiMs = d.turBasladi !== null ? simdi - d.turBasladi : null;
+      d.turBasladi = null;
+      d.soru = null;
+      d.soruAyrinti = null;
+      d.sonSoz = sonSoz(govde.last_assistant_message);
+      d.hataSerisi = 0;
+      d.takilma = { tur: 'api', metin: 'Tur hatayla durdu', ayrinti: apiHatasi(govde), t: simdi };
       sinyal = 'bitti';
       break;
 
@@ -356,4 +492,16 @@ function durumSatiri(govde) {
   };
 }
 
-module.exports = { yeniDurum, isle, kaliciOzet, durumSatiri, hedefOzeti, farkSayilari, soruAyrintisi, sonSoz };
+module.exports = {
+  yeniDurum,
+  isle,
+  kaliciOzet,
+  durumSatiri,
+  hedefOzeti,
+  farkSayilari,
+  soruAyrintisi,
+  sonSoz,
+  istekMetni,
+  hataOzeti,
+  HATA_SERISI_ESIGI,
+};

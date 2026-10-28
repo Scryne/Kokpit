@@ -18,6 +18,9 @@ const komutlar = require('./komutlar.cjs');
 const calistir = require('./calistir.cjs');
 const limit = require('./limit.cjs');
 const { gonderIstegi } = require('./gonder-istegi.cjs');
+const { gitOzeti } = require('./git-ozet.cjs');
+const yakala = require('./yakala.cjs');
+const nobet = require('./nobet.cjs');
 const surum = require('./surum.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
@@ -196,6 +199,12 @@ function pencereKur() {
 
   // Yeni pencere acilmaz (target=_blank, window.open). Dis linkler `link:ac` yolundan gider.
   pencere.webContents.setWindowOpenHandler(({ url }) => {
+    // v3.0: Botlar sayfasindaki "son kosuyu GitHub'da ac" baglantisi. Yalniz https://github.com/,
+    // Kokpit penceresi acilmaz, varsayilan tarayici acar.
+    if (/^https:\/\/github\.com\//.test(String(url))) {
+      void shell.openExternal(url);
+      return { action: 'deny' };
+    }
     log('pencere acma engellendi: ' + String(url).slice(0, 80));
     return { action: 'deny' };
   });
@@ -299,10 +308,44 @@ function adaKur() {
     },
     // Ada odagi birakirken ana pencere bir an etkinlestirilemez olur (bkz. ada.cjs odakla).
     ana: () => pencere,
+    // v3.0: ekler (yakalanan goruntu, birakilan dosya). Ada kimlik secer, yol burada cozulur.
+    onEkGonder: (istek) => {
+      const yollar = yakala.yollar(istek.ekler);
+      if (yollar.length === 0 && !istek.metin) return;
+      log('ada: ' + yollar.length + ' ek oturuma gonderiliyor ' + istek.id + (istek.gonder ? '' : ' (yalniz yapistir)'));
+      if (pencere) pencere.webContents.send('oturuma:gonder', { id: istek.id, tur: 'ek', yollar, metin: istek.metin, gonder: istek.gonder });
+      yakala.sil(istek.ekler);
+      if (!istek.gonder) {
+        // Yalniz yapistir: Scryne metni terminalde tamamlayacak; o sekmeyle Kokpit one gelir.
+        pencereyiOneGetir();
+        if (pencere) pencere.webContents.send('oturuma:git', istek.id);
+      }
+    },
+    onEkSil: (kimlikler) => yakala.sil(kimlikler),
+    onBirak: (yollar) => yakala.birak(yollar),
   });
+  yakala.dinle((ekler, neden) => {
+    const acil = neden === 'pano' && Date.now() - yakalaIstendi < YAKALA_BEKLE_MS;
+    if (acil) yakalaIstendi = 0;
+    ada.ekler(ekler, { neden, acil, anaOdakta: !!pencere && pencere.isFocused() });
+  });
+  // Pano bekcisi: test kosucularinda yalniz istenirse (gercek Kokpit de ayni panoyu izliyor).
+  if (!TEST || process.env.KOKPIT_TEST_PANO === '1') yakala.baslat();
 }
 
-ipcMain.handle('durum:getir', async () => durumOku());
+/** v3.0: Ctrl+Alt+Shift+S anlik goruntuyu actiysa, gelen goruntu Ada'yi klavyeyle acar (hedef sec, Enter). */
+let yakalaIstendi = 0;
+const YAKALA_BEKLE_MS = 90_000;
+
+ipcMain.handle('durum:getir', async () => {
+  const r = await durumOku();
+  // v3.0: vadeler Ada'ya da (bugun/yarin/gecikmis kartta). Durum yalniz ana pencerenin istegiyle okunur.
+  if (r && r.veri) ada.vadeler(r.veri.vadeler ?? []);
+  return r;
+});
+// v3.0 bot nobeti (Botlar sayfasi + Ada). Ilk okuma acilistan 15 sn sonra; sayfa acilinca bos kalmasin.
+ipcMain.handle('nobet:getir', async () => nobet.anlik() ?? (await nobet.tazele()));
+ipcMain.handle('nobet:tazele', async () => nobet.tazele());
 ipcMain.handle('log:yol', () => LOG_DOSYA);
 ipcMain.handle('pty:bilgi', async () => {
   try {
@@ -497,7 +540,26 @@ ipcMain.on('ada:liste', (_e, liste) => {
         ...(typeof x.claude === 'string' && /^[0-9a-f-]{36}$/i.test(x.claude) ? { claude: x.claude } : {}),
       }))
   );
+  // v3.0: tur bitince git hali icin oturumun klasoru ve acilis ani (yalniz mutlak yol).
+  oturumYerleri.clear();
+  for (const x of liste.slice(0, 24)) {
+    if (x && typeof x.id === 'string' && typeof x.yol === 'string' && path.isAbsolute(x.yol)) {
+      oturumYerleri.set(x.id, { yol: x.yol, baslangic: Number(x.baslangic) || 0 });
+    }
+  }
 });
+
+/** v3.0: oturum id -> { yol, baslangic } (ada listesinden). Bitti kartinin git satiri icin. */
+const oturumYerleri = new Map();
+async function gitOlc(id) {
+  const yer = oturumYerleri.get(id);
+  if (!yer) return;
+  try {
+    kanca.gitYaz(id, await gitOzeti(yer.yol, yer.baslangic));
+  } catch (e) {
+    log('git ozeti olculemedi: ' + e.message);
+  }
+}
 // Gorev hedefleri: ana pencerenin sirali proje listesi. Ada yalniz bu adlardan birini secebilir.
 ipcMain.on('ada:projeler', (_e, liste) => {
   if (!Array.isArray(liste)) return;
@@ -792,9 +854,21 @@ app.whenReady().then(() => {
         // Durum sinyalle birlikte gider: yayin 80 ms kisiliyor, bildirim metni bayat olmasin.
         if (pencere) pencere.webContents.send('etkinlik:sinyal', { id, sinyal, durum });
         ada.sinyal(id, sinyal);
+        if (sinyal === 'bitti') void gitOlc(id);
       },
     })
     .catch((e) => logHata('kanca baslatilamadi', e));
+  // v3.0 bot nobeti: 5 dk'da bir durum.py --nobet. Test kosucularinda yalniz istenirse (gercek pwsh +
+  // GitHub API cagirir).
+  if (!TEST || process.env.KOKPIT_TEST_NOBET === '1') {
+    nobet.baslat({
+      yayin: (n) => {
+        if (pencere) pencere.webContents.send('nobet:anlik', n);
+        ada.nobet(n);
+      },
+      olay: (o) => ada.nobetOlay(o),
+    });
+  }
   // Oturumsuz limitler (v2.6): sonuc kanca koprusunun limitleriyle birlesir, ayni yoldan yayinlanir.
   limit.baslat((l, d) => kanca.disLimit(l, d));
   powerMonitor.on('resume', () => limit.uyandi());
@@ -836,6 +910,17 @@ app.whenReady().then(() => {
     const saklaKisayolu = 'Control+Alt+Shift+G';
     const saklaKayit = globalShortcut.register(saklaKisayolu, () => ada.saklaDegistir());
     log('genel kisayol ' + saklaKisayolu + (saklaKayit ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
+  }
+  // v3.0: ekran yakala -> Ada. Windows'un kendi anlik goruntu aracini acar (ms-screenclip); secilen bolge
+  // panoya duser, pano bekcisi alir, Ada hedef oturumu sorar. Win+Shift+S de ayni yoldan gelir (yalniz
+  // Ada klavyeyle acilmaz, kart bir an bakar).
+  if (process.env.KOKPIT_TEST_KABUK !== '1') {
+    const yakalaKisayolu = 'Control+Alt+Shift+S';
+    const yakalaKayit = globalShortcut.register(yakalaKisayolu, () => {
+      yakalaIstendi = Date.now();
+      shell.openExternal('ms-screenclip:').catch((e) => log('ms-screenclip acilamadi: ' + e.message));
+    });
+    log('genel kisayol ' + yakalaKisayolu + (yakalaKayit ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
   }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
 });
