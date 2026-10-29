@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, screen, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, screen, session, shell } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -335,7 +335,7 @@ function adaKur() {
     },
     // Gorev: ana pencere yeni oturumu arka planda acar ve metni claude'un ilk mesaji yapar.
     onGorev: (g) => {
-      log('ada gorevi: ' + g.ad + ' (' + g.metin.length + ' karakter)');
+      log('ada gorevi: ' + g.ad + ' (' + g.metin.length + ' karakter, ' + (g.kip ?? 'simdi') + ')');
       if (pencere) pencere.webContents.send('gorev:ac', g);
     },
     onLimitTazele: () => void limit.tazele(),
@@ -372,6 +372,17 @@ function adaKur() {
       const eylem = sesliEylem(sesKomut.komutCoz(r.metin, liste), liste);
       log('ada sesi: ' + eylem.tur + (eylem.hedef ? ' @' + eylem.hedef.ad : eylem.tur === 'not' ? ' hedefsiz' : '') + (eylem.gonder ? ' +gonder' : '') + (eylem.hata ? ' (' + eylem.hata + ')' : '') + ' (' + r.ms + ' ms)');
       return { metin: r.metin, eylem, ms: r.ms };
+    },
+    // v3.2 eller serbest: parca "Ada" ile baslamiyorsa metin burada biter (loga da yazilmaz).
+    uyanma: ayarlar.oku().adaUyanma === true,
+    onUyanmaCoz: async (wav, liste) => {
+      const r = await ses.coz(wav, 'Ada, ' + sesKomut.ipucu(liste.map((o) => o.ad)));
+      if ('hata' in r) return { uyandi: false };
+      const u = sesKomut.uyanmaAyikla(r.metin);
+      if (!u.uyandi) return { uyandi: false };
+      const eylem = u.kalan ? sesliEylem(sesKomut.komutCoz(u.kalan, liste), liste) : null;
+      log('ada uyandi' + (eylem ? ': ' + eylem.tur + (eylem.hedef ? ' @' + eylem.hedef.ad : '') : ' (komut bekleniyor)') + ' (' + r.ms + ' ms)');
+      return { uyandi: true, metin: u.kalan, eylem };
     },
     // Bildirim (oturum bekliyor/bitti): Kokpit ondeyse sus, ekran zaten gosteriyor.
     onKonus: async (metin, bildirim) => {
@@ -555,6 +566,46 @@ ipcMain.handle('paralel:at', async (_e, yol) => {
         })).response;
   if (secilen !== 0) return { tamam: false, iptal: true, cikti: 'Vazgeçildi' };
   return paralel.at(k.yol, kayip.length > 0);
+});
+
+// --- v3.2: gece vardiyasi (gece.cjs kayit; kosucu ana pencerede) ---
+ipcMain.handle('gece:oku', () => geceVardiyasi.oku());
+ipcMain.handle('gece:yaz', (e, ham) => {
+  if (!pencere || e.sender !== pencere.webContents) return geceVardiyasi.oku();
+  return geceVardiyasi.yaz(ham);
+});
+ipcMain.handle('gece:istem', (_e, metin, dal) => geceVardiyasi.gorevIstemi(String(metin ?? ''), String(dal ?? '')));
+/** Kosucunun adimi: karar saf (gece.cjs); kanca hali ve limitler main'in anligindan, oturumlar ana pencereden. */
+ipcMain.handle('gece:karar', (_e, oturumlar) => {
+  const a = kanca.anlik();
+  return geceVardiyasi.karar({
+    v: geceVardiyasi.oku(),
+    oturumlar: Array.isArray(oturumlar) ? oturumlar.filter((o) => o && typeof o.id === 'string').map((o) => ({ id: o.id, durumu: String(o.durumu) })) : [],
+    etkinlik: a.oturumlar || {},
+    simdi: Date.now(),
+    limitler: a.limitler,
+  });
+});
+/**
+ * Vardiya surerken makine uyumasin: Windows'un uyku zamanlayicisi gece calisan oturumu dondurur. Ekran
+ * kapanabilir ('prevent-app-suspension'); yalniz sistem uykusu engellenir. Vardiya bitince kalkar.
+ */
+let uyanikKilit = null;
+ipcMain.on('gece:uyanik', (e, istek) => {
+  if (!pencere || e.sender !== pencere.webContents) return;
+  if (istek === true && uyanikKilit === null) {
+    uyanikKilit = powerSaveBlocker.start('prevent-app-suspension');
+    log('gece: vardiya basladi, sistem uykusu engellendi');
+  } else if (istek !== true && uyanikKilit !== null) {
+    powerSaveBlocker.stop(uyanikKilit);
+    uyanikKilit = null;
+    log('gece: vardiya bitti, uyku serbest');
+  }
+});
+ipcMain.on('gece:not', (e, metin) => {
+  if (!pencere || e.sender !== pencere.webContents || typeof metin !== 'string') return;
+  log('gece: ' + metin.slice(0, 200));
+  ada.not(metin.slice(0, 200));
 });
 
 // --- v3.2: onizleme (isaretle-soyle) ve ana pencerede dikte ---
@@ -926,7 +977,7 @@ ipcMain.handle('not:ekle', (_e, metin, kaynak) =>
 );
 ipcMain.handle('ayar:getir', () => {
   const a = ayarlar.oku();
-  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik, ada: a.ada !== false };
+  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik, ada: a.ada !== false, telefon: a.telefon === true };
 });
 // Paletten "Kokpit'ten cik": tepsiye inmeden gercek cikis (acik oturum sorusu yine calisir).
 ipcMain.on('uygulama:cik', () => cik());
@@ -1087,6 +1138,18 @@ function tepsiMenusu() {
         ada.sesliAyarla(m.checked);
       },
     },
+    // v3.2: eller serbest. Mikrofon surekli acik, yalniz "Ada, ..." ile baslayan kisa konusma islenir (yerel).
+    {
+      label: 'Eller serbest ("Ada, …")',
+      type: 'checkbox',
+      checked: a.uyanma,
+      enabled: a.acik && ses.durum().stt,
+      click: (m) => {
+        ayarlar.yaz({ adaUyanma: m.checked });
+        ada.uyanmaAyarla(m.checked);
+        if (m.checked) void ses.hazirla();
+      },
+    },
     { label: 'Limitleri tazele', click: () => void limit.tazele() },
     { type: 'separator' },
     // v3.2: gunun brifingi. Simdi ver + her gun ilk etkinlikte kendiliginden (varsayilan acik).
@@ -1130,7 +1193,7 @@ function tepsiKur() {
 }
 ipcMain.handle('ayar:kaydet', (_e, yama) => {
   const a = ayarlar.yaz(ayarlar.rendererYamasi(yama));
-  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik, ada: a.ada !== false };
+  return { kenarAcik: a.kenarAcik, yaziBoyutu: a.yaziBoyutu, arsivAcik: a.arsivAcik, ada: a.ada !== false, telefon: a.telefon === true };
 });
 
 // Content-Security-Policy tek kaynaktan. Dev'de Vite'in HMR'i inline script ve ws
@@ -1201,6 +1264,8 @@ app.whenReady().then(() => {
   // Kokpit icin 10 dk'da bir "gun degisti mi + Scryne masada mi".
   powerMonitor.on('unlock-screen', () => brifingKontrol('kilit', 8000));
   brifingKontrol('acilis', 45_000);
+  // v3.2: gece vardiyasi kaydi nobete bildirildi (.claude/nobet.json); hic kullanilmadiysa "dosya yok" dusmesin.
+  if (!TEST && !fs.existsSync(geceVardiyasi.DOSYA)) geceVardiyasi.yaz({});
   setInterval(() => brifingKontrol('saat'), 10 * 60 * 1000).unref?.();
   pencereKur();
   adaKur();

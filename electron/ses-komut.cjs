@@ -85,9 +85,12 @@ const SIRA_SOZ = [
 const SIRA_EK = String.raw`(?:si|sı|sini|sını|yi|yı|i|ı|u|ü|nü|nu)?`;
 const SECENEK = String.raw`(?:\s+(?:seçene(?:k|ği|gi)|secene(?:k|gi)|şık(?:kı)?|sik(?:ki)?|cevap|cevabı|cevabi))?`;
 const SEC_FIIL = String.raw`(?:\s+(?:seç|sec|olsun|gönder|gonder|de|diyorum|tamam))?`;
-const SIRA_TEK = new RegExp(String.raw`^(birinci|ilk|bir|1|ikinci|iki|2|üçüncü|ucuncu|üç|uc|3|dördüncü|dorduncu|dört|dort|4)` + SIRA_EK + SECENEK + '$', 'iu');
-// "Önerileni seç", "tavsiye ettiğin": claude'un (Recommended) isaretledigi secenek.
-const ONERILEN = /^(?:önerilen|onerilen|önerileni|onerileni|tavsiye ettiğin|tavsiye ettigin|senin önerin|senin önerdiğin|önerdiğin)(?:\s+(?:seçenek|seçeneği|secenegi))?(?:\s+(?:seç|sec|olsun|gönder|tamam))?$/iu;
+// Whisper siralari rakamla da yazar (olculdu 2026-10-29: "ikinci seçenek" -> "2. Seçenek"): "2.", "2'nci", "2.si".
+const RAKAM_EK = String.raw`(?:\.|'?(?:nci|ncı|nçı|inci|ıncı|uncu|üncü|ncü))?`;
+const SIRA_TEK = new RegExp(String.raw`^(birinci|ilk|bir|ikinci|iki|üçüncü|ucuncu|üç|uc|dördüncü|dorduncu|dört|dort|[1-4]` + RAKAM_EK + ')' + SIRA_EK + SECENEK + '$', 'iu');
+// "Önerileni seç", "tavsiye ettiğin": claude'un (Recommended) isaretledigi secenek. Whisper "önerileni"yi
+// "Önerilerini" yazabiliyor (olculdu): o da kabul.
+const ONERILEN = /^(?:önerilen|onerilen|önerileni|onerileni|önerilerini|önerilerin|önerini|tavsiye ettiğin|tavsiye ettigin|senin önerin|senin önerdiğin|önerdiğin|önerdiğini)(?:\s+(?:seçenek|seçeneği|secenegi))?(?:\s+(?:seç|sec|olsun|gönder|tamam))?$/iu;
 
 /** "ikinci seçenek", "birinci, üçüncü" -> [1] / [0, 2]; sira sayisi degilse null. */
 function siraCoz(metin) {
@@ -203,10 +206,22 @@ function komutCoz(ham, oturumlar) {
   return { tur: 'not', metin: govde, hedef: h ? { id: h.id, ad: h.ad } : null, gonder };
 }
 
+/**
+ * v3.2, eller serbest: parca "Ada" ile basliyor mu? Basliyorsa geri kalani (komut; bos olabilir). Kelime siniri
+ * zorunlu: "Adana", "adam", "Ada'ya yaz" (Ada'dan soz eden cumle) uyandirmaz. "Hey Ada" de olur.
+ * @returns {{ uyandi: boolean, kalan: string }}
+ */
+function uyanmaAyikla(ham) {
+  const m = String(ham || '').normalize('NFC').replace(/^[\s"'“”.,!?…-]+/u, '');
+  const k = /^(?:hey[\s,]+)?ada(?=$|[\s,.!?:;…])[\s,.!?:;…-]*/iu.exec(m.toLocaleLowerCase('tr-TR'));
+  if (!k) return { uyandi: false, kalan: '' };
+  return { uyandi: true, kalan: m.slice(k[0].length).replace(/["”']+$/u, '').trim() };
+}
+
 /** whisper'a verilen ipucu: proje adlari + sik terimler (yazimi dogru gelsin). */
 function ipucu(adlar) {
   const terimler = ['commit', 'push', 'pull request', 'build', 'lint', 'test', 'Claude', 'GitHub', 'RunPod', 'Vercel', 'npm'];
   return [...new Set([...(adlar || []).filter(Boolean), ...terimler])].join(', ');
 }
 
-module.exports = { duzelt, anahtar, mesafe, hedefBul, komutCoz, ipucu, siraCoz };
+module.exports = { duzelt, anahtar, mesafe, hedefBul, komutCoz, ipucu, siraCoz, uyanmaAyikla };

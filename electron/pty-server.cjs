@@ -15,7 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const { spawnSync, execFile } = require('child_process');
-const { adresBul } = require('./adres.cjs');
+const { adresBul, uzakBul } = require('./adres.cjs');
 const GOREV = require('./gorev.cjs');
 
 const TOKEN = process.env.KOKPIT_PTY_TOKEN || '';
@@ -279,6 +279,8 @@ wss.on('connection', (ws, istek) => {
         claudeId,
         ayarArgumani,
         gorev: gorevMetni,
+        // v3.2: telefondan erisim acikken oturum Remote Control ile acilir (ad gorev.cjs'te suzulur).
+        uzak: typeof m.uzak === 'string' ? m.uzak : '',
       });
       // Hook basligi bu degiskeni tasir: olayin hangi sekmeye ait oldugu buradan bilinir.
       const oturumId = typeof m.oturum === 'string' && /^[\w.-]{1,160}$/.test(m.oturum) ? m.oturum : '';
@@ -332,9 +334,23 @@ wss.on('connection', (ws, istek) => {
       // Kuyruk tutulur: adres satiri iki veri parcasina bolunebiliyor.
       let kuyruk = '';
       let sonAdres = null;
+      // v3.2: claude oturumunda Remote Control baglantisi (telefon / claude.ai). Bir kez bildirilir.
+      let uzakKuyruk = '';
+      let sonUzak = null;
       p.onData((d) => {
         gonder({ t: 'veri', d });
-        if (!servis) return;
+        if (!servis) {
+          if (!claudeIle || sonUzak) return;
+          uzakKuyruk = (uzakKuyruk + d).slice(-4096);
+          if (!uzakKuyruk.includes('claude.ai/code/')) return;
+          const u = uzakBul(uzakKuyruk);
+          if (u) {
+            sonUzak = u;
+            log('uzak kontrol baglantisi pid=' + pid);
+            gonder({ t: 'uzak', url: u });
+          }
+          return;
+        }
         kuyruk = (kuyruk + d).slice(-2048);
         const adres = adresBul(kuyruk);
         if (adres && adres !== sonAdres) {

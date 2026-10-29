@@ -12,4 +12,15 @@ function adresBul(metin) {
   return m[0].replace('0.0.0.0', 'localhost').replace(/[.,;]+$/, '');
 }
 
-module.exports = { adresBul };
+/**
+ * v3.2: claude Remote Control acikken durum satirinda oturumun baglantisini yazar ("Continue here, on your
+ * phone, or at https://claude.ai/code/session_..."; olculdu 2026-10-29, claude 2.1.312). Dar terminalde satir
+ * kirpilabilir: kimlik en az 20 karakter degilse kabul edilmez (yarim baglanti yanlis oturuma gotururdu).
+ */
+function uzakBul(metin) {
+  const duz = String(metin).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+  const m = /https:\/\/claude\.ai\/code\/(session_[A-Za-z0-9]{20,})/.exec(duz);
+  return m ? 'https://claude.ai/code/' + m[1] : null;
+}
+
+module.exports = { adresBul, uzakBul };

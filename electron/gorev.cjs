@@ -20,7 +20,13 @@ function gorevMetni(ham) {
  * @param {{ devam: boolean, claudeId: string, ayarArgumani: string, gorev: string, ikili?: string }} s
  *   ikili: yalniz test (claude yerine argumanlari yazan bir program)
  */
-function claudeKomutu({ devam, claudeId, ayarArgumani, gorev, ikili = 'claude' }) {
+/** SAF: Remote Control oturum adi. pwsh tek tirnagi icinde guvenli (tirnak ve kontrol karakteri yok). */
+function uzakAdi(ham) {
+  const a = String(ham || '').replace(/[^\p{L}\p{N} ._/-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  return a;
+}
+
+function claudeKomutu({ devam, claudeId, ayarArgumani, gorev, uzak = '', ikili = 'claude' }) {
   const kimlik = UUID.test(claudeId || '') ? claudeId : '';
   const gorevli = !devam && !!gorev;
   return (
@@ -33,8 +39,10 @@ function claudeKomutu({ devam, claudeId, ayarArgumani, gorev, ikili = 'claude' }
         ? ikili + ' --session-id ' + kimlik
         : ikili) +
     (ayarArgumani || '') +
+    // v3.2: telefondan erisim (Claude mobil / claude.ai/code). Ad yoksa bayrak da yok.
+    (uzakAdi(uzak) ? " --remote-control 'Kokpit " + uzakAdi(uzak) + "'" : '') +
     (gorevli ? ' $g' : '')
   );
 }
 
-module.exports = { gorevMetni, claudeKomutu, UUID };
+module.exports = { gorevMetni, claudeKomutu, uzakAdi, UUID };

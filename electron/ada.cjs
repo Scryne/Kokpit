@@ -59,6 +59,8 @@ let ekSilDinleyici = (_kimlikler) => {};
 let birakDinleyici = (_yollar) => 0;
 let sonEkler = []; // v3.0: yakala.cjs listesi (yolsuz)
 let sesli = true; // v3.1: ayarlar.adaSesli (sesli bildirim)
+let uyanma = false; // v3.2: ayarlar.adaUyanma (eller serbest: "Ada, ...")
+let uyanmaCozDinleyici = async (_wav, _liste) => ({ uyandi: false });
 let sesHazirlaDinleyici = () => {};
 let sesCozDinleyici = async (_wav, _liste) => ({ hata: 'ses kurulu değil' });
 let konusDinleyici = async (_metin, _bildirim) => null;
@@ -110,7 +112,7 @@ function kip() {
 
 /** Renderer'a giden ayar: gorunurluk kipi + v3.1 ses (kurulu mu, sesli bildirim acik mi). */
 function ayarYuku() {
-  return { hep, kip: kip(), sesli, ses: sesDurumu() };
+  return { hep, kip: kip(), sesli, uyanma: uyanma && sesDurumu().stt, ses: sesDurumu() };
 }
 
 /** Sinemada yalniz "seni bekliyor" gosterilir: Kokpit oturumu ya da disaridaki oturum. */
@@ -283,6 +285,8 @@ function kur(s) {
   konusDinleyici = s.onKonus ?? konusDinleyici;
   sesDurumu = s.sesDurumu ?? sesDurumu;
   sesli = s.sesli !== false;
+  uyanma = s.uyanma === true;
+  uyanmaCozDinleyici = s.onUyanmaCoz ?? uyanmaCozDinleyici;
   ayarDinleyici = s.onAyar ?? (() => {});
   anaPencere = s.ana;
   sakli = s.sakli === true;
@@ -412,7 +416,9 @@ ipcMain.on('ada:gorev', (e, ham) => {
     log('ada gorevi reddedildi (' + (p ? 'metin' : 'proje') + ')');
     return;
   }
-  gorevDinleyici({ ad: p.ad, yol: p.yol, metin });
+  // v3.2: kip (simdi | paralel | gece); bilinmeyen deger "simdi".
+  const kip = ham.kip === 'paralel' || ham.kip === 'gece' ? ham.kip : 'simdi';
+  gorevDinleyici({ ad: p.ad, yol: p.yol, metin, kip });
 });
 ipcMain.on('ada:sakla', (e, istek) => {
   if (!ada || e.sender !== ada.webContents) return;
@@ -469,6 +475,14 @@ ipcMain.handle('ada:ses-coz', async (e, ham) => {
   const liste = sonListe.map((o) => ({ id: String(o.id), ad: String(o.ad ?? '') })).filter((o) => o.ad);
   return sesCozDinleyici(wav, liste);
 });
+// v3.2: eller serbest. Kisa konusma parcasi -> "Ada" ile basliyor mu (main) -> eylem. Metin baska yere gitmez.
+ipcMain.handle('ada:uyanma-coz', async (e, ham) => {
+  if (!ada || e.sender !== ada.webContents || !uyanma) return { uyandi: false };
+  if (!(ham instanceof Uint8Array) && !(ham instanceof ArrayBuffer)) return { uyandi: false };
+  const wav = Buffer.from(ham instanceof ArrayBuffer ? new Uint8Array(ham) : ham);
+  const liste = sonListe.map((o) => ({ id: String(o.id), ad: String(o.ad ?? '') })).filter((o) => o.ad);
+  return uyanmaCozDinleyici(wav, liste);
+});
 ipcMain.handle('ada:konus', async (e, metin, bildirim) => {
   if (!ada || e.sender !== ada.webContents || typeof metin !== 'string') return null;
   if (bildirim === true && !sesli) return null;
@@ -511,7 +525,7 @@ module.exports = {
     ayarDinleyici({ adaKonum: null });
     if (ada && !ada.isDestroyed()) ada.setBounds(konum());
   },
-  durum: () => ({ acik, hep, sakli, tamEkran: tamEkranAyar, ortada: oran === 0.5, sesli }),
+  durum: () => ({ acik, hep, sakli, tamEkran: tamEkranAyar, ortada: oran === 0.5, sesli, uyanma }),
   /** Gorev hedefleri: ana pencerenin sirali proje listesi (ad + yol). */
   projeler(liste) {
     sonProjeler = Array.isArray(liste) ? liste : [];
@@ -625,6 +639,11 @@ module.exports = {
     }
     gonder('ada:dinle', true);
     return true;
+  },
+  /** v3.2: eller serbest acik/kapali (tepsi menusu). */
+  uyanmaAyarla(acikMi) {
+    uyanma = acikMi === true;
+    gonder('ada:ayar', ayarYuku());
   },
   /** v3.1: sesli bildirim acik/kapali (tepsi menusu). */
   sesliAyarla(acikMi) {

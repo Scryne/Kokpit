@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Bot,
   PackageCheck,
+  Smartphone,
   GitFork,
   Eye,
   SquareTerminal,
@@ -42,6 +43,7 @@ import Envanter from './Envanter';
 import Botlar from './Nobet';
 import Teslim from './Teslim';
 import Onizleme from './Onizleme';
+import { GeceKutusu, useGeceVardiyasi } from './Gece';
 import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
@@ -151,6 +153,13 @@ export default function App() {
   etkinlikRef.current = etkinlik;
   // Ada (Kokpit arka plandayken ust ortadaki serit) acik mi; komut paletinden degisir.
   const [adaAcik, setAdaAcik] = useState(true);
+  // v3.2: telefondan erisim. Acikken yeni claude oturumlari Remote Control ile acilir (paletten degisir).
+  const [telefon, setTelefon] = useState(false);
+  const telefonRef = useRef(telefon);
+  telefonRef.current = telefon;
+  const onUzak = useCallback((id: string, url: string) => {
+    setOturumlar((l) => l.map((x) => (x.id === id ? { ...x, uzak: url } : x)));
+  }, []);
   // Ayarlar diskten gelene kadar yazma; yoksa varsayilan degerler ustune yazilir.
   const ayarHazir = useRef(false);
 
@@ -190,6 +199,7 @@ export default function App() {
       setYaziBoyutu(a.yaziBoyutu);
       setArsivAcik(a.arsivAcik === true);
       setAdaAcik(a.ada !== false);
+      setTelefon(a.telefon === true);
       ayarHazir.current = true;
     });
     return () => {
@@ -379,13 +389,14 @@ export default function App() {
     if (secenek?.arkaPlan) {
       setAktifGrupId((g) => g ?? grupId);
       setAktifOturumId((x) => x ?? id);
-      return;
+      return id;
     }
     setAktifGrupId(grupId);
     setAktifOturumId(id);
     // Kenar terminale gecerken otomatik daralir; alani terminale birakir (Ctrl+B geri acar).
     setGorunum('terminal');
     setKenarAcik(false);
+    return id;
   }, []);
 
   /** Bolme: aktif sekmenin icine yan yana ikinci (ucuncu...) terminal. */
@@ -837,6 +848,17 @@ export default function App() {
     setOturumlar((l) => (l.some((x) => x.id === istek.id && x.dikkat) ? l.map((x) => (x.id === istek.id ? { ...x, dikkat: false } : x)) : l));
     return null;
   }, []);
+  // v3.2: gece vardiyasi (Gece.tsx). Kosucu burada yasar: oturumlari acar, kanca halini okur.
+  const [geceAcik, setGeceAcik] = useState(false);
+  const gece = useGeceVardiyasi({
+    oturumlar: () => oturumlarRef.current,
+    sekmeAc: (p, gorev) => sekmeAc(p, false, null, { gorev, arkaPlan: true }),
+    gonder: oturumaGonder,
+    yaz: (id, veri) => oturumApileri.current.get(id)?.yaz(veri) ?? false,
+  });
+  const geceRef = useRef(gece);
+  geceRef.current = gece;
+
   // Ada'dan gelen gonderme istekleri (main dogruladi, burada oturum ve soru denetlenir).
   useEffect(() => window.kokpit.oturumaGonderDinle((istek) => void oturumaGonder(istek)), [oturumaGonder]);
   // v3.2: Ctrl+Alt+Shift+C Kokpit ondeyken main tus gondermez, secimi buradan okur (executeJavaScript):
@@ -1097,10 +1119,24 @@ export default function App() {
           console.warn('[gorev] hedef listede yok: ' + g.ad);
           return;
         }
+        // v3.2: kip. Paralel: ayri dalda (calisma agaci); gece: vardiyanin sirasina (ayri dalda calisir).
+        if (g.kip === 'paralel' && p.grup !== 'vault') {
+          console.info('[gorev] ' + p.ad + ': paralel dalda yeni oturum');
+          void paralelAc({ ad: p.ad, yol: p.yol }, { gorev: g.metin, arkaPlan: true });
+          return;
+        }
+        if (g.kip === 'gece' && p.grup !== 'vault') {
+          console.info('[gorev] ' + p.ad + ': gece vardiyasina eklendi');
+          void geceRef.current.guncelle((v) => ({
+            ...v,
+            gorevler: [...v.gorevler, { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), proje: p.ad, projeYol: p.yol, metin: g.metin.slice(0, 3000), durum: 'bekliyor' }],
+          }));
+          return;
+        }
         console.info('[gorev] ' + p.ad + ': arka planda yeni oturum');
         sekmeAc({ ad: p.ad, yol: p.yol }, false, null, { gorev: g.metin, arkaPlan: true });
       }),
-    [gorevHedefleri, sekmeAc]
+    [gorevHedefleri, sekmeAc, paralelAc]
   );
   // Tepsi menusunden "Ada'yi goster" degisti: paletteki etiket ayni kalsin.
   useEffect(() => window.kokpit.adaAyarDegistiDinle(setAdaAcik), []);
@@ -1165,6 +1201,19 @@ export default function App() {
       { id: 'e-not', grup: 'Eylem', baslik: "Inbox'a not", ipucu: 'Ctrl+Shift+N', calistir: () => setNotAcik(true) },
       // v3.2: gunun brifingi Ada'da (kart + ses); Kokpit ondeyken Ada gizliyse once arka plana alinir.
       { id: 'e-brifing', grup: 'Eylem', baslik: 'Günün brifingi', ipucu: 'Ada söyler', calistir: () => window.kokpit.brifingVer() },
+      { id: 'e-gece', grup: 'Eylem', baslik: 'Gece vardiyası', ipucu: 'görev sırası', calistir: () => setGeceAcik(true) },
+      {
+        id: 'e-telefon',
+        grup: 'Eylem',
+        baslik: telefon ? 'Telefondan erişimi kapat (yeni oturumlar)' : 'Telefondan erişimi aç (yeni oturumlar)',
+        ipucu: 'Remote Control',
+        calistir: () => {
+          const yeni = !telefon;
+          setTelefon(yeni);
+          void window.kokpit.ayarKaydet({ telefon: yeni });
+          setNotBildirimi(yeni ? 'Yeni claude oturumları telefondan da erişilebilir (Claude uygulaması → Code)' : 'Telefondan erişim kapandı (yeni oturumlar)');
+        },
+      },
       { id: 'e-tazele', grup: 'Eylem', baslik: 'Durumu tazele', calistir: () => void tazele('elle') },
       { id: 'e-kenar', grup: 'Eylem', baslik: 'Kenar çubuğunu aç/kapat', ipucu: 'Ctrl+B', calistir: () => setKenarAcik((a) => !a) },
       { id: 'e-arsiv', grup: 'Eylem', baslik: arsivAcik ? 'Arşivi gizle' : 'Arşivi göster', calistir: () => setArsivAcik((a) => !a) },
@@ -1222,7 +1271,7 @@ export default function App() {
     }
     k.push({ id: 'e-komutlar', grup: 'Eylem', baslik: 'Hızlı komutları düzenle', ipucu: 'komutlar.json', calistir: () => void window.kokpit.komutlarDuzenle() });
     return k;
-  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur, sonKapananiAc]);
+  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur, sonKapananiAc, telefon]);
 
   // Bağlam: statusline'dan (kesin, her turda) varsa o; yoksa transcript yoklamasi (20 sn).
   const baglamOku = (id: string) => {
@@ -1816,6 +1865,16 @@ export default function App() {
           />
         </section>
 
+        <GeceKutusu
+          acik={geceAcik}
+          onKapat={() => setGeceAcik(false)}
+          gece={gece.gece}
+          durum={gece.durum}
+          guncelle={gece.guncelle}
+          projeler={gorevHedefleri.filter((p) => p.grup !== 'vault')}
+          simdi={simdi}
+        />
+
         {/* v3.2: Teslim (Ctrl+6). Yalniz gorunurken baglanir: her acilista secili projenin git'i okunur. */}
         <section
           aria-label="Teslim"
@@ -1827,6 +1886,8 @@ export default function App() {
               simdi={simdi}
               onTazele={() => tazele('elle')}
               onClaude={(p, gorev) => sekmeAc(p, false, null, { gorev })}
+              onGece={() => setGeceAcik(true)}
+              geceAktif={gece.gece?.aktif === true}
               onAgacaGit={(a) => {
                 const acik = oturumlar.find((o) => !o.servis && o.durumu === 'acik' && o.yol.toLowerCase() === a.yol.toLowerCase());
                 if (acik) grubaGit(acik.grupId, acik.id);
@@ -2200,13 +2261,33 @@ export default function App() {
                             e={etkinlik.oturumlar[o.id]}
                             simdi={simdi}
                             sag={
-                              hizliKomutlar.length > 0 && (
-                                <HizliKomutMenusu
-                                  komutlar={hizliKomutlar}
-                                  oturumAdi={o.ad}
-                                  onSec={(hk) => void oturumaGonder({ id: o.id, tur: 'metin', metin: hk.metin })}
-                                />
-                              )
+                              <>
+                                {/* v3.2: telefon. Baglanti varsa acar (telefondaki Claude uygulamasinda da ayni oturum);
+                                    yoksa oturuma /rc gonderir: claude Remote Control'u acar, baglanti buraya duser. */}
+                                <button
+                                  type="button"
+                                  data-telefon
+                                  onClick={() =>
+                                    o.uzak ? void window.kokpit.linkAc(o.uzak) : void oturumaGonder({ id: o.id, tur: 'metin', metin: '/rc' })
+                                  }
+                                  aria-label={o.uzak ? o.ad + ' oturumunu claude.ai\'de aç (telefondan da erişilir)' : o.ad + ' oturumunu telefona aç (Remote Control)'}
+                                  title={o.uzak ? 'Telefonda ve claude.ai\'de açık: ' + o.uzak.replace('https://', '') : 'Telefona aç: claude Remote Control\'u başlatır (/rc)'}
+                                  className={
+                                    'flex shrink-0 cursor-pointer items-center self-stretch border-l border-kenar px-2 transition-colors duration-[120ms] hover:bg-yuzey-guclu hover:text-metin ' +
+                                    (o.uzak ? 'text-metin-ikincil' : 'text-metin-soluk')
+                                  }
+                                >
+                                  <Smartphone className="size-3.5" aria-hidden="true" />
+                                  {o.uzak && <span className="sr-only">telefondan erişilebilir</span>}
+                                </button>
+                                {hizliKomutlar.length > 0 && (
+                                  <HizliKomutMenusu
+                                    komutlar={hizliKomutlar}
+                                    oturumAdi={o.ad}
+                                    onSec={(hk) => void oturumaGonder({ id: o.id, tur: 'metin', metin: hk.metin })}
+                                  />
+                                )}
+                              </>
                             }
                           />
                         )}
@@ -2237,6 +2318,8 @@ export default function App() {
                             claudeId={o.claude}
                             gorev={o.gorev}
                             servis={o.servis?.komut}
+                            uzak={!o.servis && telefonRef.current ? o.ad : undefined}
+                            onUzak={onUzak}
                             onAdres={onAdres}
                             yaziBoyutu={yaziBoyutu}
                             onDurum={oturumDurumu}

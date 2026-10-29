@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('kokpit', {
   },
   adaSesHazirla: () => ipcRenderer.send('ada:ses-hazirla'),
   adaSesCoz: (wav) => ipcRenderer.invoke('ada:ses-coz', wav),
+  adaUyanmaCoz: (wav) => ipcRenderer.invoke('ada:uyanma-coz', wav),
   adaKonus: (metin, bildirim) => ipcRenderer.invoke('ada:konus', metin, bildirim === true),
   // v3.2: gunun brifingi (Ada'da kart + ses). Ana pencerenin paleti main'e "ver" der, Ada dinler.
   adaBrifing: () => ipcRenderer.invoke('ada:brifing'),
@@ -92,6 +93,13 @@ contextBridge.exposeInMainWorld('kokpit', {
   paralelFark: (yol) => ipcRenderer.invoke('paralel:fark', yol),
   paralelBirlestir: (yol) => ipcRenderer.invoke('paralel:birlestir', yol),
   paralelAt: (yol) => ipcRenderer.invoke('paralel:at', yol),
+  // v3.2: gece vardiyasi. Kayit main'de (~/.kokpit/gece.json), kosucu ana pencerede.
+  geceOku: () => ipcRenderer.invoke('gece:oku'),
+  geceYaz: (v) => ipcRenderer.invoke('gece:yaz', v),
+  geceIstem: (metin, dal) => ipcRenderer.invoke('gece:istem', metin, dal),
+  geceKarar: (oturumlar) => ipcRenderer.invoke('gece:karar', oturumlar),
+  geceUyanik: (istek) => ipcRenderer.send('gece:uyanik', istek === true),
+  geceNot: (metin) => ipcRenderer.send('gece:not', metin),
   // v3.2: onizleme (isaretlenen ogenin kirpigi) ve ana pencerede dikte (yalniz metin).
   onizlemeYakala: (wcId, alan) => ipcRenderer.invoke('onizleme:yakala', wcId, alan),
   sesMetin: (wav) => ipcRenderer.invoke('ses:metin', wav),

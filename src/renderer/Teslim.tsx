@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowUpFromLine, FolderOpen, GitBranch, GitCommitHorizontal, GitFork, GitMerge, Globe, Lock, RefreshCw, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react';
+import { ArrowUpFromLine, FolderOpen, GitBranch, GitCommitHorizontal, GitFork, GitMerge, Globe, Lock, Moon, RefreshCw, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { ParalelAgac, Proje, TeslimDetayi, TeslimFarki } from './types';
 import { sureMetni } from './parcalar';
 
@@ -34,6 +34,8 @@ export default function Teslim({
   onTazele,
   onClaude,
   onAgacaGit,
+  onGece,
+  geceAktif,
 }: {
   projeler: Proje[];
   simdi: number;
@@ -42,6 +44,9 @@ export default function Teslim({
   onClaude: (p: Pick<Proje, 'ad' | 'yol'>, gorev: string) => void;
   /** Paralel agacin oturumuna gider (yoksa acar). */
   onAgacaGit: (a: ParalelAgac) => void;
+  /** Gece vardiyasi kutusunu acar. */
+  onGece: () => void;
+  geceAktif: boolean;
 }) {
   const liste = useMemo(() => teslimBekleyenler(projeler), [projeler]);
   const [secili, setSecili] = useState<string | null>(null);
@@ -119,6 +124,14 @@ export default function Teslim({
         </p>
         <button
           type="button"
+          onClick={onGece}
+          className="ml-auto flex cursor-pointer items-center gap-1.5 rounded-kontrol border border-kenar px-2.5 py-1 text-xs text-metin-ikincil transition-colors duration-[120ms] hover:border-kenar-guclu hover:text-metin"
+        >
+          <Moon className="size-3.5" aria-hidden="true" />
+          Gece vardiyası{geceAktif ? ' · açık' : ''}
+        </button>
+        <button
+          type="button"
           disabled={tazeleniyor}
           onClick={() => {
             setTazeleniyor(true);
@@ -126,7 +139,7 @@ export default function Teslim({
               .then(() => seciliProje && oku(seciliProje.yol))
               .finally(() => setTazeleniyor(false));
           }}
-          className="ml-auto flex cursor-pointer items-center gap-1.5 rounded-kontrol border border-kenar px-2.5 py-1 text-xs text-metin-ikincil transition-colors duration-[120ms] hover:border-kenar-guclu hover:text-metin disabled:cursor-wait disabled:opacity-60"
+          className="flex cursor-pointer items-center gap-1.5 rounded-kontrol border border-kenar px-2.5 py-1 text-xs text-metin-ikincil transition-colors duration-[120ms] hover:border-kenar-guclu hover:text-metin disabled:cursor-wait disabled:opacity-60"
         >
           <RefreshCw className={'size-3.5 ' + (tazeleniyor ? 'animate-spin motion-reduce:animate-none' : '')} aria-hidden="true" />
           {tazeleniyor ? 'Okunuyor' : 'Tazele'}
@@ -340,7 +353,7 @@ export default function Teslim({
                                 {c.kisa}
                               </button>
                             </td>
-                            <td className="max-w-0 px-2 py-1.5">
+                            <td className="w-full max-w-0 px-2 py-1.5">
                               <button type="button" onClick={() => void farkAc(c.kisa + ' ' + c.konu, { commit: c.tam })} className="block w-full cursor-pointer truncate text-left text-metin hover:underline" title={c.konu}>
                                 {c.konu}
                               </button>

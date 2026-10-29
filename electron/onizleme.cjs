@@ -4,7 +4,7 @@
 //
 // Neden: 10-04..28 arasi 1.184 prompt'un 197'si ekran goruntusuydu (v3.0 olcumu); cogu "su dugmeyi duzelt"
 // turunden bir UI geri bildirimi. Ekran goruntusu + tarif yerine oge kendisi isaretlenir: model hangi
-// ogeden soz edildigini secici ve bilesen adiyla bilir (spike 2026-10-30: webview Kokpit'in CSP'si ve
+// ogeden soz edildigini secici ve bilesen adiyla bilir (spike 2026-10-29: webview Kokpit'in CSP'si ve
 // sandbox'iyla calisti, `capturePage` ogenin dikdortgenini 1,25 olcekte 120x55 px verdi).
 //
 // Guvenlik: konuk sayfa yalniz yerel adres (localhost / 127.0.0.1 / ::1 / 0.0.0.0); preload ve Node almaz

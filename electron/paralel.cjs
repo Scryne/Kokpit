@@ -151,6 +151,7 @@ async function liste() {
       const m = /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/.exec(fark.cikti);
       return {
         ...k,
+        gece: k.ad.startsWith('gece'),
         ileride: Number(ileri.cikti.trim()) || 0,
         geride: Number(tabanIleri.cikti.trim()) || 0,
         kirli: kirli.cikti.split(/\r?\n/).filter(Boolean).length,

@@ -28,7 +28,7 @@ import { DurumIsareti, etkinlikCumlesi, sifirlanmaMetni, takilmaDurumu } from '.
 import { sureMetni } from './parcalar';
 import { AdaGoz, gozPozu, type GozHali } from './AdaGoz';
 import { VadeMetni, vadeEtiketi } from './Nobet';
-import { kayitBaslat, sesCal, type Kayit } from './sesKayit';
+import { kayitBaslat, sesCal, uyanmaBaslat, type Kayit, type UyanmaDinleyici } from './sesKayit';
 
 // Ada: Kokpit arka plandayken ekranin ust ortasindaki serit (electron/ada.cjs).
 // Kapali: tek satirlik hap — en onemli tek sey. Acik: oturum basina satir + limitler.
@@ -180,6 +180,10 @@ export default function Ada() {
   const [sesNotu, setSesNotu] = useState<{ metin: string; t: number } | null>(null);
   const [sesKurulu, setSesKurulu] = useState({ stt: false, tts: false });
   const [sesli, setSesli] = useState(true);
+  // v3.2: eller serbest ("Ada, ..."). Ada konusurken ve bas-konus dinlerken dinleyici duraklar (kendi sesini duymasin).
+  const [uyanma, setUyanma] = useState(false);
+  const konusuyor = useRef(false);
+  const uyanmaDinleyici = useRef<UyanmaDinleyici | null>(null);
   const [tepsiHedef, setTepsiHedef] = useState<string | null>(null);
   const [tepsiKaynak, setTepsiKaynak] = useState<'ses' | null>(null);
   const kayit = useRef<Kayit | null>(null);
@@ -206,6 +210,7 @@ export default function Ada() {
     const k7 = window.kokpit.adaAyarDinle((a) => {
       setKip(a.kip ?? 'normal');
       setSesli(a.sesli !== false);
+      setUyanma(a.uyanma === true);
       if (a.ses) setSesKurulu(a.ses);
     });
     const k9 = window.kokpit.nobetDinle(setNobet);
@@ -347,7 +352,7 @@ export default function Ada() {
     (document.activeElement as HTMLElement | null)?.blur();
   }, []);
 
-  const gorevGonder = useCallback((g: { ad: string; metin: string }) => {
+  const gorevGonder = useCallback((g: { ad: string; metin: string; kip?: 'simdi' | 'paralel' | 'gece' }) => {
     window.kokpit.adaGorev(g);
     setOnay((n) => n + 1);
   }, []);
@@ -452,7 +457,18 @@ export default function Ada() {
   const sesNotuGoster = useCallback((metin: string) => setSesNotu({ metin, t: Date.now() }), []);
   const konus = useCallback(async (metin: string, bildirim = false) => {
     const b = await window.kokpit.adaKonus(metin, bildirim);
-    if (b) await sesCal(b);
+    if (!b) return;
+    konusuyor.current = true;
+    uyanmaDinleyici.current?.duraklat(true);
+    try {
+      await sesCal(b);
+    } finally {
+      konusuyor.current = false;
+      // Hoparlorun yankisi bir an daha surer: dinleyici biraz sonra doner.
+      setTimeout(() => {
+        if (!konusuyor.current && dinlemeRef.current === 'yok') uyanmaDinleyici.current?.duraklat(false);
+      }, 400);
+    }
   }, []);
 
   /** Tepsiyi (ekler + not) hedef oturuma yollar: "Gönder" ya da "Yalnız yapıştır". */
@@ -578,6 +594,47 @@ export default function Ada() {
   }, [bak, sesNotuGoster]);
 
   useEffect(() => window.kokpit.adaDinleDinle(() => void dinleDegistir()), [dinleDegistir]);
+
+  // v3.2: eller serbest. Acikken mikrofon kisa konusma parcalarini main'e yollar; "Ada" ile baslayan parca
+  // eyleme doner (ayni sesEyle yolu), yalniz "Ada" denirse bas-konus acilir. Sinemada (tam ekran video) kapali.
+  const uyanmaAcik = uyanma && sesKurulu.stt && kip !== 'sinema';
+  useEffect(() => {
+    if (!uyanmaAcik) return;
+    let iptal = false;
+    let cozuluyor = false;
+    void uyanmaBaslat({
+      parca: (wav) => {
+        if (cozuluyor || konusuyor.current || dinlemeRef.current !== 'yok') return;
+        cozuluyor = true;
+        void window.kokpit
+          .adaUyanmaCoz(wav)
+          .then((r) => {
+            if (!r.uyandi || iptal) return;
+            if (r.eylem) {
+              bak(SES_BAKIS_MS);
+              sesEyleRef.current(r.eylem);
+            } else void dinleDegistir();
+          })
+          .finally(() => {
+            cozuluyor = false;
+          });
+      },
+    })
+      .then((d) => {
+        if (iptal) d.durdur();
+        else uyanmaDinleyici.current = d;
+      })
+      .catch(() => sesNotuGoster('Mikrofon açılamadı (eller serbest)'));
+    return () => {
+      iptal = true;
+      uyanmaDinleyici.current?.durdur();
+      uyanmaDinleyici.current = null;
+    };
+  }, [uyanmaAcik, bak, dinleDegistir, sesNotuGoster]);
+  // Bas-konus dinlerken uyanma dinleyicisi duraklar (ayni sesi iki kez islemesin).
+  useEffect(() => {
+    uyanmaDinleyici.current?.duraklat(dinleme !== 'yok');
+  }, [dinleme]);
 
   /** v3.2: brifingi karta koy, karti ac (saklida yalniz acik istekte), istenirse konus. */
   const brifingGoster = useCallback(
@@ -1715,14 +1772,23 @@ const SECILI_PROJE = 'ada-gorev-proje';
  * <select> degil: odak almayan saydam pencerede acilir liste guvenilmez, satir icinde liste acilir.
  * Arsiv projeleri listede yok (eski projelere donulmuyor).
  */
+/** v3.2: gorevin nasil calisacagi. Paralel: ayri git dalinda (Teslim'de birlestir); gece: vardiya sirasina. */
+type GorevKipi = 'simdi' | 'paralel' | 'gece';
+const GOREV_KIPI: { kip: GorevKipi; ad: string; ipucu: string }[] = [
+  { kip: 'simdi', ad: 'Şimdi', ipucu: 'Projenin kendisinde yeni oturum' },
+  { kip: 'paralel', ad: 'Paralel', ipucu: 'Ayrı git dalında (çalışma ağacı); Teslim sayfasında birleştirilir' },
+  { kip: 'gece', ad: 'Geceye', ipucu: 'Gece vardiyasının sırasına eklenir; kendi dalında çalışır' },
+];
+
 function GorevKutusu({
   projeler,
   onGonder,
 }: {
   projeler: AdaProjesi[];
-  onGonder: (g: { ad: string; metin: string }) => void;
+  onGonder: (g: { ad: string; metin: string; kip: GorevKipi }) => void;
 }) {
   const hedefler = projeler.filter((p) => p.grup !== 'arsiv');
+  const [kip, setKip] = useState<GorevKipi>('simdi');
   const [secili, setSecili] = useState(() => {
     try {
       return localStorage.getItem(SECILI_PROJE) ?? '';
@@ -1783,17 +1849,45 @@ function GorevKutusu({
           ))}
         </ul>
       )}
+      {/* v3.2: kip. Vault (ScryneOS) paralel/gece almaz: bilgi tabani tek agacta yasar. */}
+      {p.grup !== 'vault' && (
+        <div role="radiogroup" aria-label="Görev nasıl çalışsın" className="mb-1.5 flex gap-1">
+          {GOREV_KIPI.map((k) => (
+            <button
+              key={k.kip}
+              type="button"
+              role="radio"
+              aria-checked={kip === k.kip}
+              title={k.ipucu}
+              onClick={() => setKip(k.kip)}
+              className={
+                'cursor-pointer rounded-full border px-2 py-0.5 text-[0.6875rem] transition-colors duration-[120ms] ' +
+                (kip === k.kip ? 'border-kenar-guclu bg-yuzey-guclu text-metin' : 'border-kenar text-metin-soluk hover:border-kenar-guclu hover:text-metin')
+              }
+            >
+              {k.ad}
+            </button>
+          ))}
+        </div>
+      )}
       {bildirim ? (
         <p role="status" className="py-1 text-xs text-metin-soluk">
           {bildirim}
         </p>
       ) : (
         <YanitKutusu
-          placeholder={p.ad + ' için ne yapılsın?'}
-          etiket={p.ad + ' projesinde yeni oturuma görev'}
+          placeholder={p.ad + (kip === 'gece' ? ' için gece ne yapılsın?' : ' için ne yapılsın?')}
+          etiket={p.ad + ' projesinde ' + (kip === 'paralel' ? 'paralel dalda ' : kip === 'gece' ? 'gece vardiyasına ' : 'yeni oturuma ') + 'görev'}
           onGonder={(m) => {
-            onGonder({ ad: p.ad, metin: m });
-            setBildirim(p.ad + ' oturumu açılıyor, görev ilk mesaj olarak gidiyor.');
+            const k = p.grup === 'vault' ? 'simdi' : kip;
+            onGonder({ ad: p.ad, metin: m, kip: k });
+            setBildirim(
+              k === 'gece'
+                ? p.ad + ' görevi gece vardiyasının sırasına eklendi.'
+                : k === 'paralel'
+                  ? p.ad + ' için ayrı dalda oturum açılıyor; sonuç Teslim sayfasında.'
+                  : p.ad + ' oturumu açılıyor, görev ilk mesaj olarak gidiyor.'
+            );
             (document.activeElement as HTMLElement | null)?.blur();
           }}
         />

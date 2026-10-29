@@ -4,7 +4,7 @@
 //
 // Nasil: kisayolun tuslari birakilinca on plandaki uygulamaya Ctrl+Insert gonderilir (klasik "kopyala").
 // Ctrl+C DEGIL: terminalde (VS Code terminali, Windows Terminal, conhost) secim yoksa Ctrl+C calisan isi
-// keser (SIGINT); Ctrl+Insert her yerde yalniz kopyalar (spike 2026-10-30: Notepad'de pano 0 ms'de degisti;
+// keser (SIGINT); Ctrl+Insert her yerde yalniz kopyalar (spike 2026-10-29: Notepad'de pano 0 ms'de degisti;
 // Chromium, VS Code ve Windows Terminal'in varsayilan kopya tusu). Pano once her turuyle yedeklenir, metin
 // okununca geri yazilir: Scryne'in panosu degismez (v3.0 kurali). Kokpit'in kendi penceresi ondeyse tus
 // gonderilmez; secim xterm'den alinir (main.cjs).

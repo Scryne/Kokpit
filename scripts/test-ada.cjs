@@ -193,6 +193,18 @@ async function gorevTesti() {
     kontrol('pwsh -> exe: gorev ' + (i + 1) + ' tek arguman, birebir', !!s && JSON.stringify(s.argv) === JSON.stringify(beklenen), s ? s.argv : ekran.slice(-300));
     kontrol('pwsh -> exe: KOKPIT_GOREV cocuga sizmadi (' + (i + 1) + ')', !!s && s.gorev === null, s && s.gorev);
   }
+  // v3.2: --remote-control <ad>. Ad suzulur (tirnak, $, ; atilir); gercek pwsh'ta tek arguman.
+  kontrol('uzak: ad suzgeci', G.uzakAdi("Matbaa'; rm $x") === 'Matbaa rm x' && G.uzakAdi('Kokpit/p1') === 'Kokpit/p1' && G.uzakAdi('') === '');
+  kontrol('uzak: ad yoksa bayrak yok', !G.claudeKomutu({ devam: false, claudeId: id, ayarArgumani: '', gorev: '', uzak: "'" }).includes('remote-control'));
+  const cikti = path.join(GECICI, 'cikti-uzak.json');
+  const komut = G.claudeKomutu({ devam: true, claudeId: id, ayarArgumani: '', gorev: '', uzak: "Kokpit/p1 'x' $y", ikili: 'node "' + betik + '"' });
+  const p = pty.spawn('pwsh.exe', ['-NoLogo', '-NoProfile', '-Command', komut], { cols: 120, rows: 30, cwd: GECICI, env: { ...process.env, CIKTI: cikti } });
+  await new Promise((r) => p.onExit(r));
+  const s = fs.existsSync(cikti) ? JSON.parse(fs.readFileSync(cikti, 'utf8')) : null;
+  kontrol('uzak: pwsh -> exe: --remote-control "Kokpit Kokpit/p1 x y" tek arguman (devamda da)', !!s && JSON.stringify(s.argv) === JSON.stringify(['--resume', id, '--remote-control', 'Kokpit Kokpit/p1 x y']), s && s.argv);
+  const { uzakBul } = require(path.join(KOK, 'electron', 'adres.cjs'));
+  kontrol('uzak: baglanti ANSI icinden (claude 2.1.312 durum satiri)', uzakBul('\x1b[2m/remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_012tYRZYo7B54XT7vcWb8GEv\x1b[0m') === 'https://claude.ai/code/session_012tYRZYo7B54XT7vcWb8GEv');
+  kontrol('uzak: kirpilmis baglanti kabul edilmez', uzakBul('or at https://claude.ai/code/session_012tY…') === null);
 }
 
 // v2.7: Ada tam ekranda cekilir, kenar boyunca tasinir. Karar ve yer saf; Win32 okumasi test:ui'da.
@@ -414,6 +426,21 @@ function v32SesTesti() {
   r = n('İptal.');
   kontrol('v32: "İptal" (buyuk İ) vazgec (v3.1 hatasi)', r.tur === 'vazgec', j(r));
   kontrol('v32: siraCoz bes parca reddedilir', siraCoz('bir, iki, üç, dört, bir') === null);
+  // Gercek whisper ciktilari (test:ses, 2026-10-29): rakamli sira ve "Önerilerini".
+  r = n('2. Seçenek');
+  kontrol('v32: whisper "2. Seçenek" -> cevap [1]', r.tur === 'cevap' && j(r.secimler) === '[1]', j(r));
+  r = n('1. ve 3. seçenek');
+  kontrol('v32: "1. ve 3. seçenek" -> [0,2]', r.tur === 'cevap' && j(r.secimler) === '[0,2]', j(r));
+  r = n('Önerilerini Seç');
+  kontrol('v32: whisper "Önerilerini Seç" -> onerilen', r.tur === 'cevap' && r.onerilen === true, j(r));
+  r = n('2. el araba al');
+  kontrol('v32: "2. el araba al" nottur', r.tur === 'not', j(r));
+  const { uyanmaAyikla } = require('../electron/ses-komut.cjs');
+  const u = (m) => j(uyanmaAyikla(m));
+  kontrol('v32 uyanma: "Ada, ..." komutu ayirir', u('Ada, Matbaa ne yaptı?') === '{"uyandi":true,"kalan":"Matbaa ne yaptı?"}');
+  kontrol('v32 uyanma: yalniz "Ada." -> komutsuz uyanma', u('Ada.') === '{"uyandi":true,"kalan":""}');
+  kontrol('v32 uyanma: "Hey Ada" ve tirnakli whisper ciktisi', uyanmaAyikla('Hey Ada günaydın').kalan === 'günaydın' && uyanmaAyikla('"Ada, ikinci seçenek."').kalan === 'ikinci seçenek.');
+  kontrol('v32 uyanma: Adana / adam / Ada\'ya / cumle ortasi uyandirmaz', ['Adana çok sıcak', 'adam gibi', "Ada'ya yaz bunu", 'İyi akşamlar Ada', 'Altyazı M.K.'].every((m) => !uyanmaAyikla(m).uyandi));
   // Sesli ozet
   const simdi = 1_800_000_000_000;
   const soru = {
@@ -458,11 +485,11 @@ function v32SesTesti() {
   // Brifing
   const { brifingKur, brifingGunu } = require('../electron/brifing.cjs');
   const sabah = new Date(2026, 9, 30, 9, 0).getTime();
-  kontrol('v32: brifing gunu 05:00 sinirli', brifingGunu(new Date(2026, 9, 30, 3, 0).getTime()) === '2026-10-29' && brifingGunu(sabah) === '2026-10-30');
+  kontrol('v32: brifing gunu 05:00 sinirli', brifingGunu(new Date(2026, 9, 30, 3, 0).getTime()) === '2026-10-29' && brifingGunu(sabah) === '2026-10-29');
   const durum = {
     vadeler: [
       { proje: 'Matbaa', tarih: '2026-10-29', saat: null, metin: 'matbaa kiyas', kalan_gun: -1 },
-      { proje: 'GridGrade', tarih: '2026-10-30', saat: '14:00', metin: 'alan adı', kalan_gun: 0 },
+      { proje: 'GridGrade', tarih: '2026-10-29', saat: '14:00', metin: 'alan adı', kalan_gun: 0 },
       { proje: 'Otomat', tarih: '2026-11-05', saat: null, metin: 'uzak', kalan_gun: 6 },
     ],
     projeler: [
@@ -631,8 +658,58 @@ async function v32ParalelTesti() {
   }
 }
 
+// v3.2, Faz 55: gece vardiyasi (saf karar + kayit suzgeci + sabah ozeti).
+function v32GeceTesti() {
+  const gece = require('../electron/gece.cjs');
+  const ist = gece.gorevIstemi('Teslim sayfasina test yaz', 'kokpit/gece1');
+  kontrol('gece: istem sinirlari ve gorevi tasir', /push/.test(ist) && /YASAK/.test(ist) && /kokpit\/gece1/.test(ist) && ist.endsWith('Görev: Teslim sayfasina test yaz'));
+  const s = gece.suz({ aktif: true, baslaZamani: 5, gorevler: [{ id: 'a', proje: 'P', metin: 'x\u0007y', durum: 'uydurma', zararli: 1 }, { proje: 'eksik' }], tehlike: true });
+  kontrol('gece: suzgec (bilinmeyen durum -> bekliyor, kontrol karakteri, eksik gorev, rastgele alan)', s.gorevler.length === 1 && s.gorevler[0].durum === 'bekliyor' && s.gorevler[0].metin === 'xy' && !('zararli' in s.gorevler[0]) && !('tehlike' in s) && s.baslaZamani === 5, JSON.stringify(s));
+  const T = 1_800_000_000_000;
+  const v = (gorevler, ek = {}) => ({ aktif: true, baslaZamani: null, gorevler, ...ek });
+  const k = (vv, oturumlar = [], etkinlik = {}, limitler = null, simdi = T) => gece.karar({ v: vv, oturumlar, etkinlik, simdi, limitler });
+  let e = k(v([{ id: 'a', durum: 'bekliyor' }]));
+  kontrol('gece: bos vardiyada ilk gorev baslar', e.length === 1 && e[0].tur === 'baslat' && e[0].id === 'a', JSON.stringify(e));
+  e = k(v([{ id: 'a', durum: 'bekliyor' }], { baslaZamani: T + 60_000 }));
+  kontrol('gece: baslangic saatinden once bekler', e[0]?.tur === 'bekle', JSON.stringify(e));
+  e = k(v([{ id: 'a', durum: 'bekliyor' }]), [], {}, { besSaat: { yuzde: 95, sifirlanma: T + 3600_000 }, hafta: { yuzde: 50 } });
+  kontrol('gece: 5 saat limiti doluyken baslamaz, bekler', e[0]?.tur === 'bekle' && /limit/.test(e[0].neden), JSON.stringify(e));
+  e = k(v([{ id: 'a', durum: 'bekliyor' }]), [], {}, { besSaat: { yuzde: 95, sifirlanma: T - 1 } });
+  kontrol('gece: sifirlanma gectiyse limit 0 sayilir, baslar', e[0]?.tur === 'baslat', JSON.stringify(e));
+  e = k(v([{ id: 'a', durum: 'bekliyor' }]), [], {}, { hafta: { yuzde: 98 } });
+  kontrol('gece: haftalik limit doluyken vardiya biter', e[0]?.tur === 'bitir', JSON.stringify(e));
+  const calisan = { id: 'a', durum: 'calisiyor', oturumId: 'o1', basladi: T - 60_000 };
+  e = k(v([calisan, { id: 'b', durum: 'bekliyor' }]), [{ id: 'o1', durumu: 'acik' }], { o1: { durum: 'calisiyor', degisti: T - 1000 } });
+  kontrol('gece: calisan varken ikinci gorev baslamaz', e.length === 0, JSON.stringify(e));
+  e = k(v([calisan, { id: 'b', durum: 'bekliyor' }]), [{ id: 'o1', durumu: 'acik' }], { o1: { durum: 'bitti', degisti: T - 500, durumZamani: T - 500, sonSoz: 'Bitti: 3 test.' } });
+  kontrol('gece: Stop -> bitti + ozet, sonra siradaki baslar', e[0]?.tur === 'isaretle' && e[0].durum === 'bitti' && e[0].ozet === 'Bitti: 3 test.' && e[1]?.tur === 'baslat' && e[1].id === 'b', JSON.stringify(e));
+  e = k(v([calisan]), [{ id: 'o1', durumu: 'acik' }], { o1: { durum: 'bitti', degisti: T - 120_000, durumZamani: T - 120_000 } });
+  kontrol('gece: gorev baslamadan onceki "bitti" sayilmaz', !e.some((x) => x.tur === 'isaretle'), JSON.stringify(e));
+  const soru = { durum: 'bekliyor', degisti: T - 2000, soruZamani: T - 2000, soruAyrinti: { cevaplanabilir: true, sorular: [{ secenekler: [{ etiket: 'A' }, { etiket: 'B (Recommended)' }] }, { secenekler: [{ etiket: 'X' }] }] } };
+  e = k(v([calisan]), [{ id: 'o1', durumu: 'acik' }], { o1: soru });
+  kontrol('gece: soruya onerilen secenek, onerilen yoksa "sen karar ver"', e[0]?.tur === 'cevapla' && JSON.stringify(e[0].istek.cevaplar) === JSON.stringify([1, 'Sen karar ver: en mantıklı seçeneği uygula, gerekçeni özette yaz.']) && e[0].istek.damga === T - 2000, JSON.stringify(e));
+  e = k(v([{ ...calisan, cevapDamga: T - 2000, cevaplanan: 1 }]), [{ id: 'o1', durumu: 'acik' }], { o1: soru });
+  kontrol('gece: ayni soruya ikinci kez cevap gitmez', e.length === 0, JSON.stringify(e));
+  e = k(v([{ ...calisan, cevaplanan: 6 }]), [{ id: 'o1', durumu: 'acik' }], { o1: soru });
+  kontrol('gece: cevap siniri asilinca takildi', e[0]?.durum === 'takildi', JSON.stringify(e));
+  e = k(v([calisan]), [{ id: 'o1', durumu: 'acik' }], { o1: { durum: 'bekliyor', degisti: T, soruAyrinti: null } });
+  kontrol('gece: izin istemi -> takildi (cevaplanmaz)', e[0]?.durum === 'takildi' && /izin/.test(e[0].neden), JSON.stringify(e));
+  e = k(v([calisan]), [{ id: 'o1', durumu: 'acik' }], { o1: { durum: 'calisiyor', degisti: T - 26 * 60_000 } });
+  kontrol('gece: 25 dk sessizlik -> Esc + takildi', e[0]?.tur === 'kes' && e[0].oturumId === 'o1' && e[1]?.durum === 'takildi', JSON.stringify(e));
+  e = k(v([{ ...calisan, basladi: T - 151 * 60_000 }]), [{ id: 'o1', durumu: 'acik' }], { o1: { durum: 'calisiyor', degisti: T } });
+  kontrol('gece: 150 dk -> Esc + sure', e[0]?.tur === 'kes' && e[1]?.durum === 'sure', JSON.stringify(e));
+  e = k(v([calisan]), [], {});
+  kontrol('gece: oturum kapandiysa hata, sira bossa bitir', e[0]?.durum === 'hata' && e[1]?.tur === 'bitir', JSON.stringify(e));
+  e = k({ ...v([{ id: 'a', durum: 'bekliyor' }]), aktif: false });
+  kontrol('gece: aktif degilse hicbir sey', e.length === 0);
+  const oz = gece.ozetKur({ gorevler: [{ durum: 'bitti', basladi: T - 5e6, bitti: T - 4e6 }, { durum: 'takildi', basladi: T - 3e6, bitti: T - 2e6 }, { durum: 'bekliyor' }, { durum: 'bitti', basladi: T - 30 * 3600_000, bitti: T - 29 * 3600_000 }] }, T);
+  kontrol('gece: sabah ozeti son vardiyayi sayar (eski gorev disarida)', oz?.sayi === 2 && /2 görevden 1 bitti, 1 takıldı, 1 sırada/.test(oz.ozet), JSON.stringify(oz));
+  kontrol('gece: vardiya yoksa ozet yok', gece.ozetKur({ gorevler: [{ durum: 'bekliyor' }] }, T) === null);
+}
+
 (async () => {
   try {
+    v32GeceTesti();
     await v32ParalelTesti();
     await v32TeslimTesti();
     v32SecimTesti();

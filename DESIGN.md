@@ -312,6 +312,30 @@ vardı) değil, **yolundan çekilmek** istendi. Yeni renk yok, yeni cam yok; amb
   Merkeze 28 px yaklaşınca tam ortaya oturur (mıknatıs). Yer çalışma alanı genişliğinin oranı olarak saklanır
   (`adaKonum`; orta = `null`). Tepside ortada değilse "Ada'yı ortala". İmleç sürükleme boyunca `grabbing`.
 
+## Atölye yüzeyleri (2026-10-29, v3.2)
+
+Yeni renk yok, yeni cam yok. Amber yine yalnız "seni bekliyor": takılan gece görevi, noreply olmayan commit e-postası,
+önizlemedeki konsol hata sayacı, uzakta yeni commit (↓). Gerisi biçimle okunur.
+
+- **Teslim sayfası** — Botlar'ın düzeni: üstte ölçüm şeridi (mono büyük sayılar), altta solda proje listesi (17rem, satır =
+  mono ad + `↑N` + `±N`), sağda ayrıntı. Kart değil tablo. Diff bir terminal ailesi yüzeyi (`bg-terminal`): **satırlar
+  boyanmaz** (etkinlik şeridinin +/− kuralı): eklenen satır `metin` + ince `yuzey-guclu` zemin, silinen `metin-soluk`, hunk
+  başlığı `metin-ikincil`, dosya ayracı ince kenar. Push düğmesi birincil gümüş, tek birincil eylem.
+- **Paralel dallar** — Teslim'in üstünde tablo; satırda `proje/ad` mono, `dal ← taban`, sayılar mono. Birleştir birincil
+  (kirli ya da boşsa pasif + nedeni `title`'da), At yalnız ikon (çöp kutusu), onayı yerel diyalog verir.
+- **Önizleme** — servis bölmesinin gövdesi; araç şeridi servis başlığıyla aynı aile (`yuzey`, mono adres). Konuk sayfa beyaz
+  zemin üzerinde (uygulamanın kendi rengi; Kokpit'in tonu bastırılmaz). İşaretleme çerçevesi sayfanın içinde `aksan` (buz-
+  gümüş) 2 px + %12 dolgu, etiket gümüş zemin üstünde grafit mono: Kokpit'in sesi konuk sayfada da tanınsın. İşaret kartı
+  bölmenin altında `yuzey-guclu` + halka; kırpık soldaki küçük resim, yazı kutusu terminal ailesi (`bg-terminal/60`).
+- **Ada: brifing ve sesli cevap** — "Bugün" bölümünün yerine geçen brifing: başlık `etiket` + selam + mono madde sayısı;
+  maddelerin solunda mono tür etiketi (vade, bot, push…), amber yalnız dikkat isteyen maddede; en altta "Önerim:". Uzun
+  sesli cevap kartın başında düz `metin-ikincil` paragraf (20 sn), markdown yok.
+- **Ada: Görev ver kipi** — üç küçük `rounded-full` çip (Şimdi / Paralel / Geceye), seçili olan `kenar-guclu` + `yuzey-guclu`;
+  renk değil biçim. Vault'ta çip yok.
+- **Gece vardiyası kutusu** — not kutusuyla aynı desen (yerel `<dialog>`, opak taban). Görev satırında sıra numarası mono,
+  durum soluk metin (takıldı/süre/açılamadı amber), özet üç satır soluk. Tek birincil düğme "Başlat (01:00)".
+- **Telefon** — etkinlik şeridinin sağında ⚡'nin solunda ikon düğme; bağlantı varsa `metin-ikincil` (etkin), yoksa soluk.
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;

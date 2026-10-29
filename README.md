@@ -53,6 +53,37 @@ araç. Kenarın altında **limit** (5 saat, hafta). Statusline Kokpit oturumlar�
 gelince oturum listesi açılır; bir oturum bitince ya da soru sorunca 5 sn kendiliğinden açılır.
 Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
 
+**v3.2, atölye (vibe coding):**
+- **Sesli cevap ve özet.** "Matbaa ne yaptı?" → Ada son turu söyler (dosya/satır, commit, push bekleyen, son söz; soru varsa
+  seçenekleri sırayla okur). "İkinci seçenek", "birinci ve üçüncü", "önerileni seç" → soru cevaplanır. "Kokpit'i aç" → o
+  sekme. "Son mesajı oku" → claude'un son sözü.
+- **Günün brifingi.** "Günaydın Ada", paletten "Günün brifingi", tepsiden ya da günün ilk etkinliğinde (açılış, kilit açma,
+  uykudan dönüş; günde bir kez, tepsiden kapanır): gecikmiş/bugünkü vadeler, düşen botlar, seni bekleyen oturumlar, push
+  bekleyen commit'ler, limit zamanlaması, beyne düşmeyen oturumlar, gece vardiyasının sonucu ve önerilen ilk iş.
+- **Seçili metni gönder: Ctrl+Alt+Shift+C.** Herhangi bir uygulamadaki seçim (hata, log, paragraf) Ada'nın tepsisine düşer,
+  kaynağıyla (pencere başlığı) oturuma yapıştırılır. Kopyalama Ctrl+Insert ile: terminalde çalışan işi kesmez. Panon değişmez
+  (her türüyle yedeklenip geri yazılır). Kokpit öndeyken aktif terminalin seçimi alınır.
+- **Teslim sayfası (Ctrl+6).** Push bekleyen commit'ler, commit edilmemiş dosyalar, her birinin diff'i. **Push et** her zaman
+  onay ister; public depoda önce yayın kapısı (`yayin_tara.py --gecmis`) koşar, bulgu varsa diyalog listeler. Noreply olmayan
+  commit e-postası amber uyarı. "Claude commit etsin": projede claude açılır, değişiklikleri inceleyip commit eder (push etmez).
+- **Canlı önizleme + işaretle-söyle.** ▷ Çalıştır'ın bölmesi adres gelince uygulamanın kendisini gösterir (yalnız yerel adres;
+  "Çıktı" ile sunucu çıktısına dönülür). **İşaretle** → sayfada öğeye tıkla → kırpık + seçici + React/Vue bileşeni + notun
+  (yaz ya da mikrofon) yandaki claude oturumuna gider. Konsol hataları sayılır, tek tıkla oturuma gider.
+- **Paralel oturum.** Sekme çubuğundaki çatal düğmesi (ya da Ada'da "Görev ver → Paralel"): projede ayrı bir git çalışma
+  ağacı (`.claude/worktrees/<ad>`, dal `kokpit/<ad>`), claude orada çalışır, ana ağaç etkilenmez. Teslim'de "Paralel dallar":
+  diff, **Birleştir** (`--no-ff`; kirli ağaçta ve çakışmada güvenli geri alır), **At** (onaylı). `node_modules`/`.venv`
+  ana ağaca bağlanır, `.env` kopyalanır.
+- **Gece vardiyası.** Palet ya da Teslim → "Gece vardiyası" (ya da Ada'da "Görev ver → Geceye"): görev sırası + başlangıç
+  saati. Görevler sırayla, her biri kendi paralel dalında çalışır. Soru gelirse önerilen seçenek seçilir; takılan (25 dk
+  sessiz, izin istemi) ve süresi dolan (150 dk) görev atlanır; 5 saatlik limit doluysa sıfırlanma beklenir. Push, silme,
+  dışarı mesaj yasak (istemde). Vardiya sürerken makine uyumaz. Sabah brifingi özetler, sonuçlar Teslim'de.
+- **Eller serbest ("Ada, …").** Tepsi → "Eller serbest". Mikrofon açık kalır ama yalnız kısa konuşma parçaları yerel
+  whisper'a gider; "Ada" ile başlamayan metin hiçbir yere yazılmaz (log dahil). Uzun ses (video, müzik) süzgeçte düşer,
+  tam ekranda kapalı. "Ada" deyip susarsan bas-konuş açılır.
+- **Telefondan erişim.** Etkinlik şeridindeki telefon düğmesi oturumda Remote Control'u açar (`/rc`); bağlantı yakalanınca
+  düğme o oturumu claude.ai'de açar, Claude mobil uygulamasında da aynı oturum görünür. Paletten "Telefondan erişimi aç":
+  yeni oturumlar baştan `--remote-control` ile açılır.
+
 **v3.1, Ada'nın sesi:**
 - **Bas-konuş: Ctrl+Alt+Shift+Space** (ya da Ada'nın açık kartındaki mikrofon). Ada dinler, sen susunca kendiliğinden
   bırakır. Konuşma bu makinede metne döner (whisper.cpp, GPU, ~0,2 sn); ses dışarı gitmez.

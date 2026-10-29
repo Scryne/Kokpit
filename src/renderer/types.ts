@@ -179,6 +179,8 @@ export interface Oturum {
   surdurulebilir?: boolean;
   /** Ada'dan gorev (v2.6): claude bu metinle acilir (ilk mesaj). */
   gorev?: string;
+  /** v3.2: Remote Control baglantisi (claude.ai/code/session_...): telefonda / tarayicida ayni oturum. */
+  uzak?: string;
   /**
    * Servis bolmesi (Calistir): claude degil, projenin kendi komutu (npm run dev...). Deftere,
    * ada'ya ve kapatma onayina girmez; kapaninca surec agaci oldurulur.
@@ -237,6 +239,8 @@ export interface Ayarlar {
   yaziBoyutu: number;
   arsivAcik: boolean;
   ada?: boolean;
+  /** v3.2: yeni claude oturumlari Remote Control ile acilir (telefondan / claude.ai'den erisim). */
+  telefon?: boolean;
 }
 
 // --- Kanca koprusu (electron/etkinlik.cjs ile ayni sekil) ---
@@ -448,7 +452,7 @@ export interface DisOturum {
 export type AdaKipi = 'normal' | 'sakli' | 'sinema';
 
 /** v3.1: Ada'nin sesi. Ayar: kurulu mu (stt/tts) ve sesli bildirim acik mi. */
-export type AdaAyari = { hep: boolean; kip?: AdaKipi; sesli?: boolean; ses?: { stt: boolean; tts: boolean } };
+export type AdaAyari = { hep: boolean; kip?: AdaKipi; sesli?: boolean; uyanma?: boolean; ses?: { stt: boolean; tts: boolean } };
 
 /** v3.1: konusmadan cikan eylem (electron/ses-komut.cjs komutCoz). */
 export type SesEylemi =
@@ -556,6 +560,39 @@ export interface ParalelAgac {
   gece?: boolean;
 }
 
+/** v3.2: gece vardiyasi (electron/gece.cjs). */
+export type GeceDurumu = 'bekliyor' | 'calisiyor' | 'bitti' | 'takildi' | 'sure' | 'hata' | 'iptal';
+export interface GeceGorevi {
+  id: string;
+  proje: string;
+  projeYol: string;
+  metin: string;
+  durum: GeceDurumu;
+  agacYol?: string;
+  agacAd?: string;
+  oturumId?: string;
+  basladi?: number;
+  bitti?: number;
+  neden?: string;
+  ozet?: string;
+  cevaplanan?: number;
+  cevapDamga?: number;
+}
+export type GeceEylemi =
+  | { tur: 'isaretle'; id: string; durum: GeceDurumu; neden?: string; ozet?: string }
+  | { tur: 'cevapla'; id: string; istek: { id: string; tur: 'cevap'; cevaplar: SoruCevabi[]; damga: number } }
+  | { tur: 'kes'; id: string; oturumId: string }
+  | { tur: 'baslat'; id: string }
+  | { tur: 'bekle'; neden: string }
+  | { tur: 'bitir'; neden: string };
+export interface GeceVardiyasi {
+  baslangic: string | null;
+  baslaZamani: number | null;
+  aktif: boolean;
+  gorevler: GeceGorevi[];
+  son: number | null;
+}
+
 /** v3.2: gunun brifingi (electron/brifing.cjs). */
 export interface BrifingMaddesi {
   tur: 'gece' | 'vade' | 'bot' | 'oturum' | 'push' | 'kirli' | 'limit' | 'beyin' | 'saglik' | (string & {});
@@ -635,7 +672,7 @@ declare global {
       adaProjelerDinle: (cb: (l: AdaProjesi[]) => void) => () => void;
       adaDisDinle: (cb: (l: DisOturum[]) => void) => () => void;
       adaAyarDinle: (cb: (a: AdaAyari) => void) => () => void;
-      adaGorev: (gorev: { ad: string; metin: string }) => void;
+      adaGorev: (gorev: { ad: string; metin: string; kip?: 'simdi' | 'paralel' | 'gece' }) => void;
       adaEklerDinle: (cb: (e: AdaEkleri) => void) => () => void;
       adaEkGonder: (istek: { id: string; ekler: string[]; metin: string; gonder: boolean }) => void;
       adaEkSil: (kimlikler: string[] | 'hepsi') => void;
@@ -643,12 +680,19 @@ declare global {
       adaDinleDinle: (cb: () => void) => () => void;
       adaSesHazirla: () => void;
       adaSesCoz: (wav: ArrayBuffer) => Promise<SesSonucu>;
+      adaUyanmaCoz: (wav: ArrayBuffer) => Promise<{ uyandi: boolean; metin?: string; eylem?: SesEylemi | null }>;
       adaKonus: (metin: string, bildirim?: boolean) => Promise<Uint8Array | null>;
       adaBrifing: () => Promise<Brifing>;
       adaBrifingDinle: (cb: (v: { brifing: Brifing; konus: boolean; acil: boolean }) => void) => () => void;
       brifingVer: () => void;
       adaNotDinle: (cb: (metin: string) => void) => () => void;
       teslimDetay: (yol: string) => Promise<TeslimDetayi>;
+      geceOku: () => Promise<GeceVardiyasi>;
+      geceYaz: (v: GeceVardiyasi) => Promise<GeceVardiyasi>;
+      geceIstem: (metin: string, dal: string) => Promise<string>;
+      geceKarar: (oturumlar: { id: string; durumu: string }[]) => Promise<GeceEylemi[]>;
+      geceUyanik: (istek: boolean) => void;
+      geceNot: (metin: string) => void;
       paralelAc: (yol: string, ad?: string) => Promise<{ kayit: ParalelAgac; notlar: string[] } | { hata: string }>;
       paralelListe: () => Promise<ParalelAgac[]>;
       paralelFark: (yol: string) => Promise<TeslimFarki>;
@@ -667,7 +711,7 @@ declare global {
       adaLimitTazele: () => void;
       adaSakla: (istek: boolean) => void;
       adaTasi: (asama: 'basla' | 'surukle' | 'bit') => void;
-      gorevAcDinle: (cb: (g: { ad: string; yol: string; metin: string }) => void) => () => void;
+      gorevAcDinle: (cb: (g: { ad: string; yol: string; metin: string; kip?: 'simdi' | 'paralel' | 'gece' }) => void) => () => void;
       adaAyarDegistiDinle: (cb: (acik: boolean) => void) => () => void;
       uygulamaCik: () => void;
       uygulamaYenidenBaslat: () => void;

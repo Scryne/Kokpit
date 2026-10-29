@@ -45,6 +45,10 @@ interface Props {
   gorev?: string;
   /** Servis ciktisinda yerel adres goruldu (pty-server bildirir). */
   onAdres?: (id: string, adres: string) => void;
+  /** v3.2: Remote Control adi (telefondan erisim acikken); verilirse claude --remote-control ile acilir. */
+  uzak?: string;
+  /** v3.2: claude'un yazdigi Remote Control baglantisi (claude.ai/code/session_...). */
+  onUzak?: (id: string, url: string) => void;
   yaziBoyutu: number;
   onDurum: (id: string, durumu: OturumDurumu, mesaj?: string) => void;
   /** Terminal zili: claude bitti ya da soru soruyor. */
@@ -98,6 +102,8 @@ export default function TerminalOturumu({
   onZil,
   onKayit,
   onAdres,
+  uzak,
+  onUzak,
 }: Props) {
   const kutuRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -112,6 +118,8 @@ export default function TerminalOturumu({
   onKayitRef.current = onKayit;
   const onAdresRef = useRef(onAdres);
   onAdresRef.current = onAdres;
+  const onUzakRef = useRef(onUzak);
+  onUzakRef.current = onUzak;
   const gorunurRef = useRef(gorunur);
   gorunurRef.current = gorunur;
   // Sunucuya sorulan sorularin bekleyen cevaplari, istek kimligine gore (cocuk, cik).
@@ -352,6 +360,7 @@ export default function TerminalOturumu({
                   komut: devam ? 'claude-devam' : 'claude',
                   claude: claudeId,
                   ...(gorev && !devam ? { gorev } : {}),
+                  ...(uzak ? { uzak } : {}),
                   // Kanca koprusu bu kimlikle olaylari sekmeye baglar (KOKPIT_OTURUM).
                   oturum: id,
                   cols: term.cols,
@@ -383,6 +392,7 @@ export default function TerminalOturumu({
         else if (m.t === 'bitti') sonDurum('bitti', 'Oturum kapandı (çıkış kodu ' + m.kod + ')');
         else if (m.t === 'hata') sonDurum('hata', m.mesaj);
         else if (m.t === 'adres' && typeof m.adres === 'string') onAdresRef.current?.(id, m.adres);
+        else if (m.t === 'uzak' && typeof m.url === 'string' && m.url.startsWith('https://claude.ai/code/')) onUzakRef.current?.(id, m.url);
         else if (m.t === 'cocuklar' || m.t === 'cikis') {
           const b = bekleyenRef.current.get(m.n);
           bekleyenRef.current.delete(m.n);

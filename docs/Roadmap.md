@@ -64,6 +64,15 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 46 | Ada'nın sesi: bas-konuş | ✅ Tamamlandı | Ctrl+Alt+Shift+Space / kart düğmesi; 16 kHz WAV renderer'da, sessizlikte kendiliğinden biter; yerel whisper.cpp (GPU) metne çevirir; gerçek mikrofon Electron'da açıldı |
 | 47 | Ada'nın sesi: sesli komut | ✅ Tamamlandı | "X'e yaz …" hedefli not tepsiye, "gönder / yalnız yapıştır / vazgeç / durum ne"; terim düzeltmesi; bulanık adda bağlaç şartı; gerçek whisper ile 8 cümle uçtan uca doğru |
 | 48 | Ada'nın sesi: sesli bildirim | ✅ Tamamlandı | Oturum seni bekleyince / bitince Ada adını söyler (edge-tts Türkçe, iki ses yedekli); Kokpit öndeyken susar; tepsiden kapanır |
+| 49 | Sesli cevap + sesli özet | ✅ Tamamlandı | "Matbaa ne yaptı?" kanca halinden cümle (soru varsa seçenekleri okur); "ikinci seçenek" / "önerileni seç" soruyu cevaplar (damga denetimi ana pencerede); "Kokpit'i aç"; gerçek whisper ile doğrulandı |
+| 50 | Günün brifingi | ✅ Tamamlandı | "Günaydın Ada", palet, tepsi ya da günün ilk etkinliği: vadeler, düşen botlar, bekleyen oturumlar, push bekleyen, limit zamanlaması, beyin; Ada kartında maddeler + sesli cümle + önerilen ilk iş |
+| 51 | Seçili metni gönder | ✅ Tamamlandı | Ctrl+Alt+Shift+C: herhangi bir uygulamanın seçimi (Ctrl+Insert, SIGINT yok) Ada tepsisine, oturuma bracketed paste; Scryne'ın panosu her türüyle geri yazılıyor (gerçek Notepad + pano, `test:secim`) |
+| 52 | Teslim sayfası | ✅ Tamamlandı | Ctrl+6: push bekleyen commit'ler, kirli dosyalar, diff; onaylı push, public depoda yayın kapısı (`yayin_tara.py --gecmis`), noreply olmayan e-posta uyarısı; "Claude commit etsin" |
+| 53 | Canlı önizleme + işaretle-söyle | ✅ Tamamlandı | Servis bölmesi adres gelince uygulamayı gösterir (webview, yalnız yerel, Node'suz); öğe işaretlenir → kırpık + seçici + bileşen + not (yazı/ses) claude'a; konsol hataları sayılır ve gönderilir (gerçek fare olayıyla `test:ui`) |
+| 54 | Paralel oturumlar | ✅ Tamamlandı | Ayrı git çalışma ağacında oturum (`.claude/worktrees/<ad>`, dal `kokpit/<ad>`); Teslim'de diff / Birleştir (--no-ff, kirli ve çakışmada güvenli) / At (onaylı); gerçek git ile sınandı |
+| 55 | Gece vardiyası | ✅ Tamamlandı | Görev sırası + başlangıç saati; her görev kendi dalında sırayla; soru → önerilen seçenek, takılma / süre / limit kuralları (saf karar, 20 senaryo); makine uyumaz; sabah brifingi özetler; nöbete bildirildi |
+| 56 | Eller serbest ("Ada, …") | ✅ Tamamlandı | İsteğe bağlı sürekli dinleme: yalnız kısa konuşma parçası whisper'a, "Ada" ile başlamayan metin hiçbir yere yazılmaz; video/müzik uzunluk süzgecinde düşer; sinemada kapalı |
+| 57 | Telefondan erişim | ✅ Tamamlandı | Oturumda telefon düğmesi `/rc` (Remote Control) açar, bağlantı yakalanır; isteğe bağlı yeni oturumlar `--remote-control` ile (gerçek claude 2.1.312'de bypass ile çalıştı) |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -872,3 +881,59 @@ Global ayarda `/voice` da açıldı (`voice.mode: tap`, `language: turkish`).
 - **Kontrol edilemeyen:** gerçek insan sesiyle tanıma (test sesi edge-tts'in sesi; gece, Scryne uyurken), gerçek
   kısayolla Ada'nın dinlemesi (test düğmeyle), hoparlörden çıkan bildirim sesi (test kabuğu sessiz). Çalışan Kokpit
   yeniden başlatılınca gelir.
+
+### v3.2 — Atölye: vibe coding (Faz 49–57, 2026-10-29)
+
+Scryne (v3.1'i denerken): "başka neler eklenebilir? bilgisayarımı yaşayan bir vibe coding sistemine çeviriyorum." Dokuz öneri
+sunuldu (v3.0'da reddedilen dördü dahil: diff/inceleme, worktree'li paralel ajan, zamanlanmış görev, telefon; bas-konuş da v3.0'da
+reddedilip v3.1'de istenmişti). Cevap: "her şeyi sana bırakıyorum, sınır tanımıyorum, hepsini yap, ekstra da ekle." 09-06'daki
+"gözetimsiz ajan yok" çizgisi gece vardiyasında sınırlarla gevşedi: push, silme, dışarı mesaj yok; ana dal yok; limit beklenir.
+
+- **Faz 49, sesli cevap + özet** (✅): `sesli-ozet.cjs` (saf): kanca halinden kulak için cümle (sembolsüz, markdown ve tam yol
+  atılır, cümle sınırında kesilir; soru varsa "bir, X; iki, Y" diye okur). `cevapCoz`: sıra sayısı ya da "(Recommended)" →
+  `cevap` isteği; hedefsizse soru soran ilk oturum; çoklu seçim / soru sayısı uyuşmazlığı / olmayan seçenek konuşulur, gitmez.
+  Damga denetimi yine ana pencerede. **Gerçek ses bulguları (test:ses):** whisper "ikinci seçenek"i "2. Seçenek",
+  "önerileni"yi "Önerilerini" yazıyor; ikisi de kabul. **v3.1 hatası:** "İptal" (büyük İ) kontrol sözüne eşleşmiyordu
+  (JS `/i` U+0130'u i saymıyor); Türkçe küçük harfle karşılaştırılıyor.
+- **Faz 50, brifing** (✅): `brifing.cjs` (saf; Katman 3'ün ilk gerçek adımı): vadeler (gecikmiş/bugün/yarın), düşen/geciken
+  botlar, bekleyen oturumlar, push bekleyen + kirli (arşiv projeleri dışarıda), limit zamanlaması (haftalık ≥ %70, sıfırlanma
+  günü), beyne düşmeyen, derleyici gerisi, sağlık alarmları, gece vardiyası; önerilen ilk iş. Gün 05:00 sınırlı. Tetik: "Günaydın
+  Ada", palet, tepsi, açılış (45 sn), kilit açma, uykudan dönüş, gece açık kalan Kokpit'te 10 dk'da bir (Scryne masadaysa).
+- **Faz 51, seçili metin** (✅): `secim.cjs`. **Karar: Ctrl+Insert, Ctrl+C değil** (terminalde seçim yokken Ctrl+C çalışan işi
+  keser). Kısayolun tuşları bırakılmadan gönderilmez (Alt+Shift basılıyken Ctrl+Insert başka bir şeydir). Pano her türüyle
+  yedeklenir ve geri yazılır; pano bekçisi o arada susar. Metin eki tepside kaynak + ilk satırlarla; oturuma bracketed paste,
+  satır sonları korunur. Kokpit öndeyse aktif terminalin seçimi. `test:secim` (elle; gerçek Notepad + pano, görüntülü pano dahil)
+  11/11, 96 ms. **Olay:** ilk spike panoyu yalnız metin olarak yedekledi; panoda metin dışı bir şey vardıysa kayboldu
+  (14:50'den beri panoya görüntü düşmemişti). Test o yüzden Scryne'ın panosunu her türüyle yedekliyor; Windows 11 Notepad tek
+  süreç olduğundan test yalnız kendi penceresine WM_CLOSE yolluyor (başlık denetimiyle).
+- **Faz 52, Teslim** (✅): `teslim.cjs`: `status --porcelain=v2/-z`, `log @{u}..HEAD`, numstat, diff (400 KB sınır, satır
+  sınırında), izlenmeyen dosya tamamı eklenen; depo dışı yol ve geçersiz commit reddedilir. Görünürlük GitHub REST + IPv4
+  (0,9 sn, 6 sa önbellek). Push: onay diyaloğu; public/bilinmeyen depoda `yayin_tara.py --gecmis --json` (Kokpit'te 1,9 sn);
+  `--force` hiç yok. Gerçek git testi: geçici depo + yerel bare uzak.
+- **Faz 53, önizleme + işaretle** (✅): spike: `<webview>` Kokpit'in CSP'siyle (`frame-src 'none'`) çalıştı, `capturePage`
+  öğeyi 1,25 ölçekte verdi. `will-attach-webview` preload/Node'u siler, sandbox, `persist:onizleme` bölümü, yalnız yerel adres;
+  yeni pencere ve yerel dışı gezinme varsayılan tarayıcıya. İşaretçi sayfaya enjekte, Promise döner; tıklama yakalama evresinde
+  yutulur; React fiber / Vue bileşen adı. **Bulgu:** CDP'nin ölçekli ekranda `<webview>` görüntüsü kayık birleşiyor (yalnız
+  CDP çekimi; işletim sistemi görüntüsünde doğru); `ekran:v32` bu yüzden `EKRAN_OS=1` ile ekranı da çeker.
+- **Faz 54, paralel** (✅): `paralel.cjs`: `git worktree add -b kokpit/<ad>`, `.git/info/exclude`, junction + `.env` kopyası;
+  Birleştir: paralel ve ana ağaç temiz, ana ağaç taban dalda, `--no-ff`, çakışmada `--abort`; At: junction önce sökülür (ana
+  `node_modules` silinmesin), birleştirilmemiş dal zorlamasız silinmez. Teslim'de tablo; açık oturumu olan ağaç atılamaz.
+- **Faz 55, gece vardiyası** (✅): `gece.cjs` kayıt + saf `karar`; koşucu ana pencerede (`Gece.tsx`), 15 sn'de bir. Tek görev
+  aynı anda. Soru → önerilen seçenek ya da "Sen karar ver…" (aynı soruya ikinci kez gitmez, görev başı 6), izin istemi → takıldı,
+  25 dk sessizlik → Esc + takıldı, 150 dk → Esc + süre, oturum kapandı → hata, 5 saat ≥ %92 → bekle, hafta ≥ %97 → bitir.
+  `powerSaveBlocker` (uygulama askıya alınmasın). Nöbete bildirildi (`.claude/nobet.json`, `~/.kokpit/gece.json`; `nobet.py`
+  artık `~` yolunu açıyor).
+- **Faz 56, eller serbest** (✅): `sesKayit.uyanmaBaslat`: kayan gürültü tabanı, 0,35–6,5 sn arası parça whisper'a ("Ada, "
+  ipucuyla); uzun ses (video, müzik) GPU'ya gitmez. `uyanmaAyikla` (saf): kelime sınırı zorunlu ("Adana", "Ada'ya yaz" uyandırmaz).
+  Uyanmayan metin hiçbir yere yazılmaz. Ada konuşurken ve bas-konuş dinlerken duraklar; sinemada kapalı; varsayılan kapalı.
+- **Faz 57, telefon** (✅): spike (gerçek claude 2.1.312, bypass): `--remote-control <ad>` çalışıyor, durum satırı
+  `https://claude.ai/code/session_…` yazıyor; açık oturumda `/rc`. pty-server bağlantıyı yakalar (≥ 20 karakter kimlik: dar
+  terminalde kırpılan bağlantı kabul edilmez). Ad pwsh tek tırnağı için süzülür (gerçek pwsh'ta tek argüman).
+- **Ekstra:** Ada "Görev ver" kipi (Şimdi / Paralel / Geceye); Teslim'de "Claude commit etsin"; "Kokpit'i aç" sesli.
+- **Testler:** `test:ada` 222 (110'dan), `test:ses` 18/18 (gerçek GPU + edge-tts; v3.2 6 cümle), `test:secim` 11/11 (elle),
+  `test:ui` yeni 32 kontrol yeşil (231 geçti; iki eski odak ön koşulu düştü, aşağıda), `test:pty` ve `test:kanca` 124 yeşil, vault
+  `sistem_test.py` 16/16. **Mutasyon 9/9 yakalandı:** büyük İ, uyanma kelime sınırı, gece çift cevap, gece limit, paralel ana
+  ağaç kirli, Teslim yol kaçışı, brifing arşiv süzgeci, cevap seçenek sınırı, kırpık uzak bağlantı.
+- **Kontrol edilemeyen:** gerçek insan sesiyle eller serbest (VAD gerçek mikrofonla), gerçek bir gece vardiyası (gerçek claude,
+  saatlerce), gerçek `/rc` düğmesi (oturumu dışarı açar; spike'ta bayrak ölçüldü), public depoya gerçek push (onaysız yapılmadı).
+  Çalışan Kokpit eski kodla açık: yeni sürüm yeniden başlatınca gelir.

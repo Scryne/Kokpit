@@ -101,6 +101,93 @@ export async function kayitBaslat(cb: { seviye: (s: number) => void; bitti: (wav
   return { durdur: () => kapat(true), iptal: () => kapat(false) };
 }
 
+// --- v3.2: eller serbest ("Ada, ...") ---
+// Mikrofon surekli acik, ama metne yalniz KISA konusma parcalari gider: ortam gurultusunun uzerinde baslayip
+// SEGMENT_SESSIZLIK_MS sessizlikle biten, UYANMA_EN_AZ..UYANMA_AZAMI_MS uzunlugunda parca. Video/muzik gibi
+// kesintisiz ses azami sureyi asar ve atilir (GPU'ya hic gitmez). Parca main'de whisper'a gider; "Ada" ile
+// baslamiyorsa metin hicbir yere yazilmaz (log dahil). Gurultu tabani kayan ortalamayla izlenir.
+const SEGMENT_SESSIZLIK_MS = 700;
+const UYANMA_EN_AZ_MS = 350;
+const UYANMA_AZAMI_MS = 6500;
+const ON_TAMPON = 3; // konusmanin basi kesilmesin: esikten onceki 3 blok (~380 ms) parcaya katilir
+
+export type UyanmaDinleyici = { durdur: () => void; duraklat: (d: boolean) => void };
+
+export async function uyanmaBaslat(cb: { parca: (wav: ArrayBuffer) => void }): Promise<UyanmaDinleyici> {
+  const akis = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  const ctx = new AudioContext({ sampleRate: ORNEK_HIZI });
+  const kaynak = ctx.createMediaStreamSource(akis);
+  const islem = ctx.createScriptProcessor(2048, 1, 1);
+  const blokMs = (2048 / ctx.sampleRate) * 1000;
+  let taban = 0.01;
+  let duraklat = false;
+  let bitti = false;
+  let parcalar: Float32Array[] = [];
+  const once: Float32Array[] = [];
+  let konusuyor = false;
+  let sure = 0;
+  let sessiz = 0;
+  let asti = false;
+
+  islem.onaudioprocess = (ev) => {
+    if (bitti || duraklat) return;
+    const veri = new Float32Array(ev.inputBuffer.getChannelData(0));
+    let t = 0;
+    for (let i = 0; i < veri.length; i++) t += veri[i] * veri[i];
+    const rms = Math.sqrt(t / veri.length);
+    const esik = Math.min(0.08, Math.max(0.02, taban * 3.2));
+    if (!konusuyor) {
+      // Taban yalniz sessizken guncellenir (yavas: ~5 sn).
+      taban = taban * 0.97 + rms * 0.03;
+      once.push(veri);
+      if (once.length > ON_TAMPON) once.shift();
+      if (rms > esik) {
+        konusuyor = true;
+        parcalar = [...once];
+        sure = parcalar.length * blokMs;
+        sessiz = 0;
+        asti = false;
+      }
+      return;
+    }
+    parcalar.push(veri);
+    sure += blokMs;
+    if (sure > UYANMA_AZAMI_MS) asti = true; // uzun ses (video, muzik, uzun konusma): atilacak
+    if (rms > esik) sessiz = 0;
+    else sessiz += blokMs;
+    if (sessiz >= SEGMENT_SESSIZLIK_MS) {
+      const konusmaMs = sure - sessiz;
+      konusuyor = false;
+      once.length = 0;
+      if (!asti && konusmaMs >= UYANMA_EN_AZ_MS) cb.parca(wavYap(parcalar, ctx.sampleRate));
+      parcalar = [];
+    }
+  };
+  kaynak.connect(islem);
+  islem.connect(ctx.destination);
+  return {
+    durdur: () => {
+      if (bitti) return;
+      bitti = true;
+      islem.onaudioprocess = null;
+      islem.disconnect();
+      kaynak.disconnect();
+      akis.getTracks().forEach((tr) => tr.stop());
+      void ctx.close();
+    },
+    duraklat: (d) => {
+      duraklat = d;
+      if (d) {
+        konusuyor = false;
+        parcalar = [];
+        once.length = 0;
+      }
+    },
+  };
+}
+
 /** mp3 baytlarini calar; bitince URL birakilir. */
 export function sesCal(mp3: Uint8Array): Promise<void> {
   return new Promise((coz) => {

@@ -830,6 +830,37 @@ async function v3Testi(cdp, adaCdp) {
   kontrol('ada karti "Bugün": bugunku vade', await adaCdp.bekle(`document.querySelector('[data-ada-bugun]')?.textContent.includes('GP2 teslim')`, 8000, 'ada vade').catch(() => false));
   await adaKapat();
   fs.writeFileSync(path.join(TEST_DIZIN, 'vadeler-fikstur.json'), '[]');
+
+  console.log('v3.2 Teslim sayfasi (Ctrl+6) + gece vardiyasi kutusu');
+  await cdp.tus('6', 2, 'Digit6');
+  kontrol('Ctrl+6 Teslim sayfasi: ozet seridi', await cdp.bekle(`(() => { const s = document.querySelector('section[aria-label="Teslim"]'); return !!s && !s.classList.contains('hidden') && s.textContent.includes('Push bekleyen'); })()`, 8000, 'teslim').catch(() => false));
+  const teslimProje = await cdp.js(`document.querySelector('[data-teslim-proje]')?.getAttribute('data-teslim-proje') ?? null`);
+  if (teslimProje) {
+    kontrol('Teslim: secili projenin dali okundu', await cdp.bekle(`document.querySelector('section[aria-label$="teslim ayrıntısı"] header')?.innerText.includes('→')`, 15000, 'teslim detay').catch(() => false), teslimProje);
+  } else {
+    console.log('  (teslim bekleyen gercek proje yok: liste kontrolu atlandi)');
+  }
+  await cdp.js(`(() => { [...document.querySelectorAll('section[aria-label="Teslim"] button')].find(b => b.textContent.includes('Gece vardiyası'))?.click(); return true; })()`);
+  kontrol('gece kutusu acildi (bos sira)', await cdp.bekle(`!!document.querySelector('dialog[open][data-gece-kutusu]') && document.querySelector('[data-gece-kutusu]').innerText.includes('Sıra boş')`, 4000, 'gece kutusu').catch(() => false));
+  await cdp.js(`(() => { const t = document.querySelector('[data-gece-kutusu] textarea'); const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; set.call(t, 'deneme gorevi: README yazim hatalarini duzelt'); t.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  await cdp.js(`(() => { [...document.querySelectorAll('[data-gece-kutusu] button')].find(b => b.textContent.includes('Sıraya ekle')).click(); return true; })()`);
+  kontrol('gece: gorev siraya girdi ve diske yazildi', await cdp.bekle(`!!document.querySelector('[data-gece-gorev="bekliyor"]')`, 4000, 'gece gorev').catch(() => false) && JSON.parse(fs.readFileSync(path.join(TEST_DIZIN, 'gece.json'), 'utf8')).gorevler.length === 1);
+  // Baslangic saati ileride: kosucu bekler, hicbir gercek projede agac acilmaz.
+  const ileri = new Date(Date.now() + 3 * 3600_000);
+  const ileriSaat = String(ileri.getHours()).padStart(2, '0') + ':' + String(ileri.getMinutes()).padStart(2, '0');
+  await cdp.js(`(() => { const i = document.querySelector('[data-gece-kutusu] input[type=time]'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, ${JSON.stringify(ileriSaat)}); i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await cdp.js(`(() => { document.querySelector('[data-gece-baslat]').click(); return true; })()`);
+  await uyu(1500);
+  const geceKaydi = JSON.parse(fs.readFileSync(path.join(TEST_DIZIN, 'gece.json'), 'utf8'));
+  kontrol('gece: ileri saatle baslatildi, gorev hala sirada (kosucu bekliyor)', geceKaydi.aktif === true && geceKaydi.baslangic === ileriSaat && geceKaydi.baslaZamani > Date.now() && geceKaydi.gorevler[0].durum === 'bekliyor', JSON.stringify(geceKaydi).slice(0, 300));
+  kontrol('gece: kutuda "başlıyor" saati', await cdp.js(`document.querySelector('[data-gece-kutusu]').innerText.includes('başlıyor')`));
+  await cdp.js(`(() => { [...document.querySelectorAll('[data-gece-kutusu] button')].find(b => b.textContent.includes('Vardiyayı durdur')).click(); return true; })()`);
+  await uyu(800);
+  kontrol('gece: durdurulunca aktif degil', JSON.parse(fs.readFileSync(path.join(TEST_DIZIN, 'gece.json'), 'utf8')).aktif === false);
+  await cdp.js(`(() => { document.querySelector('[data-gece-kutusu] button[aria-label$="sıradan çıkar"]').click(); return true; })()`);
+  kontrol('gece: gorev siradan cikarildi', await cdp.bekle(`document.querySelector('[data-gece-kutusu]').innerText.includes('Sıra boş')`, 3000, 'sira bos').catch(() => false));
+  await cdp.js(`(() => { document.querySelector('dialog[open][data-gece-kutusu]')?.close(); return true; })()`);
+  await cdp.tus('1', 2, 'Digit1');
   fs.rmSync(path.join(TEST_DIZIN, 'nobet-fikstur.json'), { force: true });
   await cdp.tus('2', 2);
 }

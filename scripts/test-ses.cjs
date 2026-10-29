@@ -86,6 +86,42 @@ function isabet(beklenen, gelen) {
     );
     if (cumle.endsWith('gönder.')) ok(e.tur === 'not' && e.gonder === true, 'sondaki "gönder" cumleyi yollar');
   }
+  // v3.2: sesli ozet / cevap / git / brifing ve eller serbest ("Ada, ..."). Uyandirma parcasi whisper'a
+  // "Ada, " ipucuyla gider (main.cjs onUyanmaCoz ile ayni).
+  const { uyanmaAyikla } = require('../electron/ses-komut.cjs');
+  const V32 = [
+    // [cumle, uyandirma mi, beklenen eylem, beklenen hedef, ek kontrol]
+    ['Ada, Matbaa ne yaptı?', true, 'ozet', 'm1'],
+    ['Ada, ikinci seçenek.', true, 'cevap', null, (e) => JSON.stringify(e.secimler) === '[1]'],
+    ["Ada, Kokpit'i aç.", true, 'git', 'k1'],
+    ['Günaydın Ada.', false, 'brifing', null],
+    ['Önerileni seç.', false, 'cevap', null, (e) => e.onerilen === true],
+    ["Adana'ya yarın gidiyoruz.", false, 'not', null],
+  ];
+  for (const [i, [cumle, uyandirma, tur, hedef, ek]] of V32.entries()) {
+    const mp3 = await ses.konus(cumle);
+    if (!mp3) {
+      ok(false, 'sentez: ' + cumle);
+      continue;
+    }
+    const mp3Yol = path.join(GECICI, 'v32-' + i + '.mp3');
+    const wavYol = path.join(GECICI, 'v32-' + i + '.wav');
+    fs.writeFileSync(mp3Yol, mp3);
+    execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-i', mp3Yol, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wavYol]);
+    const r = await ses.coz(fs.readFileSync(wavYol), 'Ada, ' + ipucu(OTURUMLAR.map((o) => o.ad)));
+    if ('hata' in r) {
+      ok(false, 'cozum: ' + cumle, r.hata);
+      continue;
+    }
+    const u = uyanmaAyikla(r.metin);
+    const e = komutCoz(uyandirma ? u.kalan : r.metin, OTURUMLAR);
+    const hedefGelen = e.hedef ? e.hedef.id : null;
+    ok(
+      u.uyandi === uyandirma && e.tur === tur && hedefGelen === hedef && (!ek || ek(e)),
+      'v3.2 ' + JSON.stringify(cumle),
+      r.ms + ' ms · "' + r.metin + '" -> uyandi=' + u.uyandi + ' ' + e.tur + (hedefGelen ? ' @' + hedefGelen : '')
+    );
+  }
   // Isinmis sunucuda cumle basina sure: konusmanin bitmesiyle tepsinin dolmasi arasindaki bekleme.
   const sicak = sureler.slice(1);
   const ort = sicak.length ? Math.round(sicak.reduce((a, b) => a + b, 0) / sicak.length) : 0;
