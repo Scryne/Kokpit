@@ -548,7 +548,7 @@ function v32SecimTesti() {
 async function v32TeslimTesti() {
   const t = require('../electron/teslim.cjs');
   const { execFileSync } = require('child_process');
-  kontrol('teslim: githubDepo https/ssh', JSON.stringify(t.githubDepo('https://github.com/Scryne/Kokpit.git')) === '{"sahip":"Scryne","depo":"Kokpit"}' && t.githubDepo('git@github.com:a-b/c.d.git')?.depo === 'c.d' && t.githubDepo('https://gitlab.com/a/b') === null);
+  kontrol('teslim: githubDepo https/ssh', JSON.stringify(t.githubDepo('https://github.com/Scryne/Kokpit.git')) === '{"sahip":"Scryne","depo":"Kokpit"}' && t.githubDepo('git@github.com:a-b/c.d.git')?.depo === 'c.d' && t.githubDepo('https://gitlab.com/a/b') === null && t.githubDepo('https://evil.com/github.com/o/r') === null && t.githubDepo('https://tok@github.com/o/r.git')?.depo === 'r');
   kontrol('teslim: farkKes satir sinirinda', t.farkKes('aaa\nbbb\nccc', 6).metin === 'aaa\n' && t.farkKes('kisa', 10).kesildi === false);
   const ns = t.sayilariAyristir('3\t1\ta.txt\0-\t-\tlogo.png\0' + '2\t0\t\0eski.txt\0yeni.txt\0');
   kontrol('teslim: numstat (ikili ve yeniden adlandirma)', ns['a.txt']?.arti === 3 && ns['logo.png']?.arti === null && ns['yeni.txt']?.arti === 2, JSON.stringify(ns));
@@ -571,8 +571,11 @@ async function v32TeslimTesti() {
     g(depo, 'remote', 'add', 'origin', uzak);
     let d = await t.detay(depo);
     kontrol('teslim: uzak dalsiz depo: commit listesi son commitler, uzak yok', d.uzak === null && d.commitler.length === 1 && d.commitler[0].konu === 'ilk', JSON.stringify(d).slice(0, 200));
-    let p = await t.push(depo);
-    kontrol('teslim: uzak dal yokken push -u origin main', p.tamam && /main/.test(g(uzak, 'branch')), p.cikti);
+    // v3.5: onaydan sonra HEAD degistiyse (oturum yeni commit atti) push edilmez.
+    let p = await t.push(depo, '0'.repeat(40));
+    kontrol('teslim: onaydaki HEAD degistiyse push edilmez', !p.tamam && /yeni commit/.test(p.cikti) && !/main/.test(g(uzak, 'branch')), p.cikti);
+    p = await t.push(depo, d.head);
+    kontrol('teslim: uzak dal yokken push -u origin main', p.tamam && /main/.test(g(uzak, 'branch')) && /^[0-9a-f]{40}$/.test(d.head), p.cikti);
     fs.writeFileSync(path.join(depo, 'a.txt'), 'bir\niki\n');
     g(depo, 'commit', '-am', 'ikinci: satır ekle');
     fs.writeFileSync(path.join(depo, 'a.txt'), 'bir\niki\nüç\n');

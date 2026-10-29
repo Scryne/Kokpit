@@ -18,13 +18,20 @@ function logDevret(dosya) {
     if (fs.statSync(dosya).size > DEVIR_ESIGI) fs.renameSync(dosya, dosya + '.1');
   } catch { /* dosya yok ya da kilitli: sonraki acilista */ }
 }
+process.stdout.on?.('error', () => {});
 logDevret(LOG_DOSYA);
 logDevret(path.join(path.dirname(LOG_DOSYA), 'pty-server.log'));
 
 // Teshis kablosu: spike'ta iki sessiz hata sinifi cikti, ucuncusune hazirlikli olunuyor.
 function log(mesaj) {
   const satir = `[${new Date().toISOString()}] ${mesaj}`;
-  console.log(satir);
+  // stdout kapali bir boruysa (baslatan terminal kapandi) console.log EPIPE atar; o hata da log'a gelip
+  // ayni hatayi tekrar uretirdi.
+  try {
+    console.log(satir);
+  } catch {
+    /* stdout yok */
+  }
   try { fs.appendFileSync(LOG_DOSYA, satir + '\n'); } catch { /* log yazamamak uygulamayi durdurmaz */ }
   if (++yazim % DEVIR_YAZIM === 0) logDevret(LOG_DOSYA);
 }

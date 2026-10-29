@@ -30,14 +30,36 @@ function yerelAdres(url) {
 
 /** Konuk webContents: yeni pencere yok, yerel disi gezinme varsayilan tarayicida. */
 function konukKur(wc, disariAc) {
+  // Dis tarayiciya gonderme sinirli: dongude window.open cagiran bir sayfa sekme yagdiramaz (30 sn'de en fazla 3).
+  let disariZamanlari = [];
+  const sinirliAc = (url) => {
+    const simdi = Date.now();
+    disariZamanlari = disariZamanlari.filter((t) => simdi - t < 30_000);
+    if (disariZamanlari.length >= 3) {
+      log('onizleme: dis adres sinirda, acilmadi: ' + String(url).slice(0, 80));
+      return;
+    }
+    disariZamanlari.push(simdi);
+    disariAc(url);
+  };
   wc.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) disariAc(url);
+    if (/^https?:\/\//.test(url)) sinirliAc(url);
     return { action: 'deny' };
   });
   wc.on('will-navigate', (olay, url) => {
     if (yerelAdres(url)) return;
     olay.preventDefault();
-    if (/^https?:\/\//.test(url)) disariAc(url);
+    if (/^https?:\/\//.test(url)) sinirliAc(url);
+  });
+  // Sunucu yonlendirmesi (302) ve alt cerceve gezinmesi de ayni kapidan: yerel sunucu dis siteye yonlendiremez.
+  wc.on('will-redirect', (olay, url) => {
+    if (yerelAdres(url)) return;
+    olay.preventDefault();
+    log('onizleme: yerel disi yonlendirme engellendi: ' + String(url).slice(0, 80));
+  });
+  wc.on('will-frame-navigate', (olay) => {
+    if (olay.isMainFrame || yerelAdres(olay.url) || /^(about|data|blob):/.test(String(olay.url))) return;
+    olay.preventDefault();
   });
   // Konuk sayfa izin istemez (kamera, bildirim ...): onizleme bir gelistirme gorunumu.
   try {

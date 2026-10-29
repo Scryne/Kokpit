@@ -184,14 +184,17 @@ function pencereKur() {
 
   // --- Teshis kablolari (Faz 0 karari: v1'de kalir) ---
   pencere.webContents.on('console-message', (e) => {
-    // Electron 44: tek event nesnesi. Eski uc-argumanli imza deprecated.
-    log(`renderer[${e.level}] ${e.message}`);
+    // Electron 44: tek event nesnesi. Eski uc-argumanli imza deprecated. PTY jetonu (ws://...?token=) loga
+    // dusmesin: basarisiz WebSocket mesaji URL'yi icerir. Uzun mesaj kirpilir.
+    log(`renderer[${e.level}] ${String(e.message).replace(/token=[0-9a-f]+/gi, 'token=***').slice(0, 2000)}`);
   });
   pencere.webContents.on('did-fail-load', (_e, kod, aciklama, url) => {
     log(`FAIL sayfa yuklenmedi: ${kod} ${aciklama} (${url})`);
   });
   pencere.webContents.on('render-process-gone', (_e, detay) => {
     log(`FAIL renderer coktu: ${JSON.stringify(detay)}`);
+    // Gece vardiyasinin uyku kilidi renderer'in "bitti" mesajina bagli; renderer olunce birakilir.
+    geceUyanik(false);
   });
   pencere.webContents.on('preload-error', (_e, dosya, err) => {
     logHata(`preload ${dosya}`, err);
@@ -495,7 +498,8 @@ async function brifingHazirla() {
 /** Brifingi Ada'da gosterir; `konus` acik istekte (ses, palet) her zaman, gunun ilkinde sesli ayara bagli. */
 async function brifingVer(neden) {
   const b = await brifingHazirla();
-  ayarlar.yaz({ sonBrifing: b.gun });
+  // Gunun brifingi Ada kapaliysa "verildi" sayilmaz (gosterilmemis brifing gunu tuketmesin); elle istenen her zaman.
+  if (neden !== 'gun' || ada.durum().acik) ayarlar.yaz({ sonBrifing: b.gun });
   log('brifing (' + neden + '): ' + b.maddeler.length + ' madde');
   ada.brifing(b, { konus: neden !== 'gun' || ayarlar.oku().adaSesli !== false, neden });
   // v3.3 Faz 63: gunun ilk brifingi Aria'nin notunu da tetikler (ayar acikken; gunde bir, limit harcar).
@@ -534,7 +538,11 @@ ipcMain.handle('paralel:fark', async (_e, yol) => paralel.fark(yol));
 /** Paralel agacta acik oturum var mi (ada listesinin yollari): varken birlestirme/atma yapilmaz. */
 function agactaOturum(yol) {
   const n = path.resolve(String(yol)).toLowerCase();
-  return [...oturumYerleri.values()].some((o) => path.resolve(o.yol).toLowerCase() === n);
+  // Agacin alt klasorunde acilmis oturum da sayilir (At o klasoru silerdi).
+  return [...oturumYerleri.values()].some((o) => {
+    const y = path.resolve(o.yol).toLowerCase();
+    return y === n || y.startsWith(n + path.sep);
+  });
 }
 ipcMain.handle('paralel:birlestir', async (_e, yol) => {
   const k = paralel.bul(yol);
@@ -751,8 +759,7 @@ ipcMain.handle('gece:karar', (_e, oturumlar) => {
  * kapanabilir ('prevent-app-suspension'); yalniz sistem uykusu engellenir. Vardiya bitince kalkar.
  */
 let uyanikKilit = null;
-ipcMain.on('gece:uyanik', (e, istek) => {
-  if (!pencere || e.sender !== pencere.webContents) return;
+function geceUyanik(istek) {
   if (istek === true && uyanikKilit === null) {
     uyanikKilit = powerSaveBlocker.start('prevent-app-suspension');
     log('gece: vardiya basladi, sistem uykusu engellendi');
@@ -761,6 +768,10 @@ ipcMain.on('gece:uyanik', (e, istek) => {
     uyanikKilit = null;
     log('gece: vardiya bitti, uyku serbest');
   }
+}
+ipcMain.on('gece:uyanik', (e, istek) => {
+  if (!pencere || e.sender !== pencere.webContents) return;
+  geceUyanik(istek);
 });
 ipcMain.on('gece:not', (e, metin) => {
   if (!pencere || e.sender !== pencere.webContents || typeof metin !== 'string') return;
@@ -814,11 +825,14 @@ ipcMain.handle('teslim:push', async (_e, yol) => {
   if (!y || !pencere) return { tamam: false, cikti: 'bilinmeyen proje yolu' };
   const d = await teslim.detay(y);
   if ('hata' in d) return { tamam: false, cikti: d.hata };
-  const gor = d.github ? await teslim.gorunurluk(d.remote) : 'bilinmiyor';
+  // Gorunurluk push aninda taze sorulur (onbellekteki 'private' ile kapi atlanmasin).
+  const gor = d.github ? await teslim.gorunurluk(d.remote, { taze: true }) : 'bilinmiyor';
   const disari = gor !== 'private';
   let kapiSonucu = null;
   if (disari) kapiSonucu = await teslim.kapi(y);
   const bulgu = kapiSonucu?.bulgular?.length ?? 0;
+  // Kapi calismadiysa (betik yok, python yok, cikti okunamadi) public depoda varsayilan Vazgec'tir.
+  const kapisiz = disari && (!kapiSonucu || !!kapiSonucu.hata);
   const hedef = d.uzak ?? 'origin/' + d.dal + ' (yeni uzak dal)';
   const ayrinti = [
     d.commitler.length + ' commit → ' + hedef + (d.github ? ' · ' + d.github.sahip + '/' + d.github.depo + ' (' + gor + ')' : ''),
@@ -836,24 +850,24 @@ ipcMain.handle('teslim:push', async (_e, yol) => {
               kapiSonucu.bulgular.slice(0, 6).map((b) => '  • ' + [b.ciddiyet, b.tur, b.yer, b.ayrinti].filter(Boolean).join(' · ').slice(0, 140)).join('\n')
       : 'Depo private: yayın kapısı gerekmiyor.',
   ].join('\n');
-  const dugmeler = bulgu > 0 ? ['Yine de push et', 'Vazgeç'] : ['Push et', 'Vazgeç'];
+  const dugmeler = bulgu > 0 ? ['Yine de push et', 'Vazgeç'] : kapisiz ? ['Taramasız push et', 'Vazgeç'] : ['Push et', 'Vazgeç'];
   let secilen;
   if (TEST_SECIM !== null) secilen = TEST_SECIM;
   else {
     const { response } = await dialog.showMessageBox(pencere, {
-      type: bulgu > 0 || (disari && !kapiSonucu) ? 'warning' : 'question',
+      type: bulgu > 0 || kapisiz ? 'warning' : 'question',
       title: 'Push: ' + path.basename(y),
-      message: bulgu > 0 ? 'Yayın kapısı bulgu verdi. Yine de push edilsin mi?' : path.basename(y) + ' push edilsin mi?',
+      message: bulgu > 0 ? 'Yayın kapısı bulgu verdi. Yine de push edilsin mi?' : kapisiz ? 'Yayın kapısı çalışmadı. Taranmadan push edilsin mi?' : path.basename(y) + ' push edilsin mi?',
       detail: ayrinti,
       buttons: dugmeler,
-      defaultId: bulgu > 0 ? 1 : 0,
+      defaultId: bulgu > 0 || kapisiz ? 1 : 0,
       cancelId: 1,
       noLink: true,
     });
     secilen = response;
   }
   if (secilen !== 0) return { tamam: false, iptal: true, cikti: 'Vazgeçildi' };
-  return teslim.push(y);
+  return teslim.push(y, d.head);
 });
 ipcMain.on('brifing:ver', () => void brifingVer('palet').catch((e) => logHata('brifing', e)));
 // v3.0 bot nobeti (Botlar sayfasi + Ada). Ilk okuma acilistan 15 sn sonra; sayfa acilinca bos kalmasin.
@@ -873,6 +887,11 @@ ipcMain.handle('pty:bilgi', async () => {
 });
 ipcMain.handle('klasor:ac', async (_e, yol) => {
   if (typeof yol !== 'string' || !yol) return false;
+  // Ag yolu (\\sunucu\pay) reddedilir: yanit vermeyen sunucuda statSync ana sureci kilitler, NTLM ozeti sizabilir.
+  if (/^[\\/]{2}/.test(yol)) {
+    log('klasor acma reddedildi (ag yolu): ' + yol.slice(0, 80));
+    return false;
+  }
   // Yalniz klasor: shell.openPath bir .exe/.bat yolunu CALISTIRIR. Renderer'dan gelen yol
   // bu kapidan bir dosya olarak gecmez.
   try {
@@ -912,6 +931,21 @@ function pencereyiOneGetir() {
 ipcMain.handle('pencere:odakla', pencereyiOneGetir);
 // Ikinci `kokpit` calistirildi (tek ornek kilidi): mevcut pencere one gelir.
 // Kapanirken gelen istek yeniden baslayan ornegin kilit denemesidir (`--yeniden`): yok sayilir.
+// v3.5: gezinme ve yeni pencere korumasi BUTUN pencerelerde (Ada dahil; ikisi de tam preload yuzeyini aliyor).
+// Ana pencerenin kendi, daha ozel isleyicileri pencereKur'da sonra kurulur (setWindowOpenHandler onu degistirir).
+app.on('web-contents-created', (_e, wc) => {
+  if (wc.getType() !== 'window') return;
+  wc.setWindowOpenHandler(({ url }) => {
+    log('pencere acma engellendi: ' + String(url).slice(0, 80));
+    return { action: 'deny' };
+  });
+  wc.on('will-navigate', (olay, url) => {
+    if (pencere && wc === pencere.webContents) return; // ana pencerenin kendi isleyicisi var
+    log('gezinme engellendi (' + wc.id + '): ' + String(url).slice(0, 80));
+    olay.preventDefault();
+  });
+});
+
 app.on('second-instance', () => {
   if (!uygulamaKapaniyor && !yenidenBaslatIstendi) pencereyiOneGetir();
 });
@@ -1254,6 +1288,8 @@ function tepsiMenusu() {
         ayarlar.yaz({ ada: m.checked });
         ada.ayar(m.checked);
         if (pencere) pencere.webContents.send('ada:ayar-degisti', m.checked);
+        // Bagli secenekler (etkin/pasif) yeni duruma gore yeniden kurulur; bayat menu Ada'yi geri acabiliyordu.
+        tepsiMenusu();
       },
     },
     {
@@ -1263,7 +1299,8 @@ function tepsiMenusu() {
       enabled: a.acik,
       click: (m) => {
         ayarlar.yaz({ adaHep: m.checked });
-        ada.ayar(a.acik, m.checked);
+        ada.ayar(ada.durum().acik, m.checked);
+        tepsiMenusu();
       },
     },
     {
@@ -1296,6 +1333,7 @@ function tepsiMenusu() {
       click: (m) => {
         ayarlar.yaz({ adaSesli: m.checked });
         ada.sesliAyarla(m.checked);
+        tepsiMenusu();
       },
     },
     // v3.2: eller serbest. Mikrofon surekli acik, yalniz "Ada, ..." ile baslayan kisa konusma islenir (yerel).
@@ -1308,6 +1346,7 @@ function tepsiMenusu() {
         ayarlar.yaz({ adaUyanma: m.checked });
         ada.uyanmaAyarla(m.checked);
         if (m.checked) void ses.hazirla();
+        tepsiMenusu();
       },
     },
     { label: 'Limitleri tazele', click: () => void limit.tazele() },

@@ -103,6 +103,8 @@ function temizOrtam() {
 }
 
 const ORTAM = temizOrtam();
+// v3.5: sunucunun kendi jetonu claude'a ve calistirdigi komutlara gecmez (kancalarinki gerekir, o kalir).
+delete ORTAM.KOKPIT_PTY_TOKEN;
 
 /** Sabit zamanli karsilastirma: token icerigi zamanlamadan sizmasin. */
 function tokenGecerli(gelen) {
@@ -157,6 +159,9 @@ const CIKIS_BEKLEME_MS = 90_000;
  * taskkill /T kabugun torunlarini da alir. Senkron: cikis yolunda da calisabilsin.
  */
 const servisler = new Set(); // canli servis kabuklarinin pid'leri
+// v3.5: butun canli kabuklar (claude oturumlari dahil). Ebeveyn olurse (gorev yoneticisi, cokme) claude'un
+// arka planda baslattigi dev sunuculari da agaciyla olur; ws.close'daki asenkron taskkill'lere sira gelmiyordu.
+const canli = new Set();
 /** true: agac olduruldu. Basarisizsa cagiran p.kill()'e duser. */
 function agaciOldur(pid) {
   try {
@@ -177,13 +182,15 @@ function agaciOldur(pid) {
 function agaciOldurAsenkron(pid, yedek, tur = 'servis') {
   execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 8000 }, (hata) => {
     servisler.delete(pid);
+    canli.delete(pid);
     log(tur + ' agaci olduruldu pid=' + pid + ' kod=' + (hata ? hata.code ?? 'hata' : 0));
     if (hata) yedek();
   });
 }
 function servisleriOldur() {
-  for (const pid of servisler) agaciOldur(pid);
+  for (const pid of new Set([...servisler, ...canli])) agaciOldur(pid);
   servisler.clear();
+  canli.clear();
 }
 
 const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -217,6 +224,8 @@ wss.on('connection', (ws, istek) => {
 
   let p = null;
   let servis = false;
+  // Kopan baglanti 'error' ile gelirse yakalanmamis istisna olmasin; 'close' zaten ardindan gelir.
+  ws.on('error', (e) => log('ws hatasi: ' + e.message));
 
   const gonder = (nesne) => {
     if (ws.readyState === ws.OPEN) {
@@ -315,6 +324,7 @@ wss.on('connection', (ws, istek) => {
       const pid = p.pid;
       servis = Boolean(servisKomutu);
       if (servis) servisler.add(pid);
+      canli.add(pid);
       log(`pty acildi pid=${pid} cwd=${cwd} komut=${servis ? 'servis: ' + servisKomutu : claudeIle ? claudeKomutu : 'kabuk'} kabuk=${path.basename(dosya)}`);
       gonder({ t: 'hazir', pid });
 
@@ -325,8 +335,25 @@ wss.on('connection', (ws, istek) => {
       // v3.2: claude oturumunda Remote Control baglantisi (telefon / claude.ai). Bir kez bildirilir.
       let uzakKuyruk = '';
       let sonUzak = null;
+      // Geri basinc: renderer yavas kalirsa (buyuk `cat`, gizli sekme) ws tamponu sinirsiz buyumesin; PTY durur,
+      // tampon bosalinca devam eder.
+      let duraklatildi = false;
+      const geriBasinc = () => {
+        if (!p || duraklatildi || ws.bufferedAmount < 2 * 1024 * 1024) return;
+        duraklatildi = true;
+        const hedef = p;
+        try { hedef.pause(); } catch { /* destek yok */ }
+        const t = setInterval(() => {
+          if (ws.readyState !== ws.OPEN || ws.bufferedAmount < 256 * 1024) {
+            clearInterval(t);
+            duraklatildi = false;
+            try { hedef.resume(); } catch { /* kapandi */ }
+          }
+        }, 50);
+      };
       p.onData((d) => {
         gonder({ t: 'veri', d });
+        geriBasinc();
         if (!servis) {
           if (!claudeIle || sonUzak) return;
           uzakKuyruk = (uzakKuyruk + d).slice(-4096);
@@ -349,6 +376,7 @@ wss.on('connection', (ws, istek) => {
       });
       p.onExit(({ exitCode }) => {
         servisler.delete(pid);
+        canli.delete(pid);
         log(`pty kapandi pid=${pid} kod=${exitCode}`);
         gonder({ t: 'bitti', kod: exitCode });
         p = null;

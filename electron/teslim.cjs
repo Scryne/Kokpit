@@ -20,6 +20,8 @@ const AZAMI_FARK = 400 * 1024;
 const GIT_MS = 15_000;
 const PUSH_MS = 120_000;
 const GORUNURLUK_OMRU_MS = 6 * 3600_000;
+// 'private' kisa tutulur: depo sonradan public yapilirsa (10-27'de 18 depo) kapi 6 saat atlanmasin.
+const GORUNURLUK_PRIVATE_OMRU_MS = 60_000;
 const KAPI = path.join(os.homedir(), '.claude', 'skills', 'yayin-oncesi', 'scripts', 'yayin_tara.py');
 
 function git(cwd, args, { ms = GIT_MS, buyuk = false, kabul = [0] } = {}) {
@@ -91,7 +93,8 @@ function farkKes(metin, sinir = AZAMI_FARK) {
 
 /** Remote URL'den GitHub sahibi/depo. SAF. https, ssh ve scp bicimleri. */
 function githubDepo(url) {
-  const m = /github\.com[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(String(url || '').trim());
+  // Capali: `https://evil.com/github.com/o/r` GitHub sayilmaz.
+  const m = /^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(String(url || '').trim());
   return m ? { sahip: m[1], depo: m[2] } : null;
 }
 
@@ -115,12 +118,12 @@ function ghToken() {
  * @returns {Promise<'public' | 'private' | 'bilinmiyor'>} Bilinmiyorsa kapi public gibi davranir.
  * IPv4 zorlanir: api.github.com'un AAAA'siz cozumu bu makinede ~12 sn suruyor (dns-aaaa-tuzagi).
  */
-async function gorunurluk(url) {
+async function gorunurluk(url, { taze = false } = {}) {
   const d = githubDepo(url);
   if (!d) return 'bilinmiyor';
   const anahtar = (d.sahip + '/' + d.depo).toLowerCase();
   const o = gorunurlukOnbellek.get(anahtar);
-  if (o && Date.now() - o.t < GORUNURLUK_OMRU_MS) return o.deger;
+  if (!taze && o && Date.now() - o.t < (o.deger === 'private' ? GORUNURLUK_PRIVATE_OMRU_MS : GORUNURLUK_OMRU_MS)) return o.deger;
   const tk = await ghToken();
   const deger = await new Promise((coz) => {
     const istek = https.request(
@@ -181,7 +184,9 @@ async function detay(yol) {
   const dosyalar = ds.tamam ? durumAyristir(ds.cikti).slice(0, 500) : [];
   const ns = await git(yol, ['diff', '--numstat', '-z', 'HEAD']);
   const sayilar = ns.tamam ? sayilariAyristir(ns.cikti) : {};
-  const rm = await git(yol, ['remote', 'get-url', 'origin']);
+  // Push adresi (pushurl ayriysa o): kapinin karari gercekten itilen depoya gore verilir.
+  const rm = await git(yol, ['remote', 'get-url', '--push', 'origin']);
+  const bas = await git(yol, ['rev-parse', 'HEAD']);
   const remote = rm.tamam ? rm.cikti.trim() : null;
   return {
     yol,
@@ -193,6 +198,7 @@ async function detay(yol) {
     dosyalar: dosyalar.map((d) => ({ ...d, ...(sayilar[d.yol] ?? { arti: null, eksi: null }) })),
     remote: remote ? remote.replace(/\/\/[^@/]+@/, '//') : null,
     github: githubDepo(remote),
+    head: bas.tamam ? bas.cikti.trim() : null,
   };
 }
 
@@ -205,8 +211,14 @@ async function fark(yol, istek) {
   }
   if (istek && typeof istek.dosya === 'string') {
     const tam = path.resolve(yol, istek.dosya);
-    // Depo disina cikan yol (.. ile) reddedilir.
+    // Depo disina cikan yol (.. ile ya da depo icindeki junction/symlink uzerinden) reddedilir.
     if (!tam.toLowerCase().startsWith(path.resolve(yol).toLowerCase() + path.sep)) return { hata: 'geçersiz yol' };
+    try {
+      const gercek = fs.realpathSync.native(tam).toLowerCase();
+      if (!gercek.startsWith(fs.realpathSync.native(yol).toLowerCase() + path.sep)) return { hata: 'geçersiz yol' };
+    } catch {
+      /* dosya yok (silinmis): git diff yolu denetler */
+    }
     const izli = await git(yol, ['ls-files', '--error-unmatch', '--', istek.dosya]);
     if (izli.tamam) {
       const r = await git(yol, ['diff', 'HEAD', '--', istek.dosya], { buyuk: true });
@@ -252,10 +264,12 @@ function kapi(yol) {
  * Push. Uzak dal varsa `git push`, yoksa `git push -u origin <dal>` (origin varsa). Zorlama yok (--force
  * hic yok); reddedilirse (geride) git'in mesaji doner.
  */
-async function push(yol) {
+async function push(yol, beklenenHead = null) {
   const d = await detay(yol);
   if ('hata' in d) return { tamam: false, cikti: d.hata };
   if (!d.dal) return { tamam: false, cikti: 'Dal yok (detached HEAD)' };
+  // Onay diyalogu acikken bir oturum yeni commit attiysa (taranmamis, gorulmemis) push edilmez.
+  if (beklenenHead && d.head !== beklenenHead) return { tamam: false, cikti: 'Onaydan sonra yeni commit geldi; push edilmedi. Teslim sayfasında yeniden bak.' };
   const args = d.uzak ? ['push'] : d.remote ? ['push', '-u', 'origin', d.dal] : null;
   if (!args) return { tamam: false, cikti: 'origin tanımlı değil' };
   const t0 = Date.now();

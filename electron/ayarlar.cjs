@@ -39,7 +39,15 @@ function oku() {
     const ham = JSON.parse(fs.readFileSync(DOSYA, 'utf8'));
     bellek = { ...VARSAYILAN, ...(ham && typeof ham === 'object' ? ham : {}) };
   } catch (e) {
-    if (e.code !== 'ENOENT') log('ayarlar okunamadi, varsayilan: ' + e.message);
+    if (e.code !== 'ENOENT') {
+      log('ayarlar okunamadi, varsayilan: ' + e.message);
+      // Bozuk dosya bir sonraki yazimla ezilmeden once yedeklenir (elle kurtarilabilsin).
+      try {
+        fs.copyFileSync(DOSYA, DOSYA + '.bozuk');
+      } catch {
+        /* kopyalanamadi */
+      }
+    }
     bellek = { ...VARSAYILAN };
   }
   return bellek;
@@ -55,6 +63,11 @@ function yaz(yama) {
     fs.renameSync(gecici, DOSYA);
   } catch (e) {
     log('ayarlar yazilamadi: ' + e.message);
+    try {
+      fs.unlinkSync(DOSYA + '.' + process.pid + '.tmp');
+    } catch {
+      /* yok */
+    }
   }
   return yeni;
 }

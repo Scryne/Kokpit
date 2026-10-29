@@ -85,6 +85,10 @@ cocuk.stdout.on('data', async (d) => {
   ws.send(JSON.stringify({ t: 'veri', d: 'echo MERHABA-PROTOKOL\r' }));
   await bekle(1500);
   kontrol('yazma -> okuma calisiyor', /MERHABA-PROTOKOL/.test(ekran));
+  // v3.5: sunucunun jetonu kabuga (claude'a ve calistirdigi komutlara) gecmez. cmd'de tanimsiz degisken oldugu gibi kalir.
+  ws.send(JSON.stringify({ t: 'veri', d: 'echo JETON=[%KOKPIT_PTY_TOKEN%]\r' }));
+  await bekle(1200);
+  kontrol('PTY jetonu kabuk ortaminda yok', /JETON=\[%KOKPIT_PTY_TOKEN%\]/.test(ekran) && !ekran.includes(TOKEN), ekran.slice(-200));
 
   ws.send(JSON.stringify({ t: 'boyut', cols: 120, rows: 40 }));
   await bekle(600);

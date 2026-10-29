@@ -31,7 +31,11 @@ function kayitlar() {
     const ham = JSON.parse(fs.readFileSync(DOSYA, 'utf8'));
     return ham && typeof ham === 'object' && !Array.isArray(ham) ? ham : {};
   } catch (e) {
-    if (e.code !== 'ENOENT') log('calistir.json okunamadi: ' + e.message);
+    if (e.code !== 'ENOENT') {
+      log('calistir.json okunamadi: ' + e.message);
+      // Okunamayan (kilitli, yarim yazilmis) dosya "bos" sayilmaz: kaydet bunun ustune yazip butun tarifleri silerdi.
+      return null;
+    }
     return {};
   }
 }
@@ -48,7 +52,7 @@ function komutTemizle(komut) {
  */
 function tarif(yol) {
   if (typeof yol !== 'string' || !yol) return { komut: null, neden: 'Klasör yok' };
-  const kayit = kayitlar();
+  const kayit = kayitlar() ?? {};
   for (const [k, v] of Object.entries(kayit)) {
     if (anahtar(k) === anahtar(yol)) {
       const komut = komutTemizle(v);
@@ -78,6 +82,7 @@ function kaydet(yol, komut) {
     return false;
   }
   const kayit = kayitlar();
+  if (!kayit) return false;
   for (const eski of Object.keys(kayit)) if (anahtar(eski) === anahtar(yol)) delete kayit[eski];
   kayit[path.resolve(yol)] = k;
   try {
