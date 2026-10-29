@@ -321,7 +321,7 @@ export type GonderIstegi =
   | { id: string; tur: 'metin'; metin: string }
   | { id: string; tur: 'cevap'; cevaplar: SoruCevabi[]; damga: number }
   /** v3.0: ekler (main yollari cozdu). gonder false: yalniz yapistir, Enter Scryne'da. */
-  | { id: string; tur: 'ek'; yollar: string[]; metin: string; gonder: boolean };
+  | { id: string; tur: 'ek'; yollar: string[]; metin: string; gonder: boolean; metinler?: { kaynak: string; metin: string }[] };
 
 /** v3.0: bot nobetindeki bir is (durum.py --nobet; ScryneOS/.claude/scripts/nobet.py). */
 export interface BotIsi {
@@ -365,16 +365,21 @@ export interface Vade {
 /** v3.0: Ada'nin ek tepsisindeki oge (electron/yakala.cjs; yol renderer'a gelmez). */
 export interface AdaEki {
   id: string;
-  tur: 'goruntu' | 'dosya';
+  /** v3.2 'metin': secili metin (Ctrl+Alt+Shift+C); `ad` kaynak (pencere basligi). */
+  tur: 'goruntu' | 'dosya' | 'metin';
   ad: string;
   /** Kucuk onizleme (yalniz goruntu). */
   onizleme: string | null;
   t: number;
+  /** v3.2, metin eki: ilk 280 karakter, satir ve karakter sayisi (metnin tamami main'de kalir). */
+  ozet?: string;
+  satir?: number;
+  uzunluk?: number;
 }
 
 export interface AdaEkleri {
   ekler: AdaEki[];
-  neden: 'pano' | 'birak' | 'sil' | 'yukleme';
+  neden: 'pano' | 'birak' | 'sil' | 'yukleme' | 'secim';
   /** Ctrl+Alt+Shift+S ile istendi: Ada klavyeyle acik, ilk hedef odakta. */
   acil: boolean;
 }
@@ -446,8 +451,19 @@ export type AdaAyari = { hep: boolean; kip?: AdaKipi; sesli?: boolean; ses?: { s
 
 /** v3.1: konusmadan cikan eylem (electron/ses-komut.cjs komutCoz). */
 export type SesEylemi =
-  | { tur: 'gonder' | 'yapistir' | 'vazgec' | 'durum' | 'bos' }
-  | { tur: 'not'; metin: string; hedef: { id: string; ad: string } | null; gonder: boolean };
+  | { tur: 'gonder' | 'yapistir' | 'vazgec' | 'durum' | 'brifing' | 'bos' }
+  | { tur: 'not'; metin: string; hedef: { id: string; ad: string } | null; gonder: boolean }
+  /** v3.2: main cumleyi kanca halinden kurdu; Ada yazar ve konusur. */
+  | { tur: 'ozet'; hedef: { id: string; ad: string } | null; cumle: string }
+  | { tur: 'git'; hedef: { id: string; ad: string } }
+  /** v3.2: sesli cevap. `istek` varsa gider (ana pencere damgayi yeniden denetler); yoksa `hata` soylenir. */
+  | {
+      tur: 'cevap';
+      hedef: { id: string; ad: string } | null;
+      istek?: { id: string; tur: 'cevap'; cevaplar: number[]; damga: number };
+      cumle?: string;
+      hata?: string;
+    };
 export type SesSonucu = { metin: string; eylem: SesEylemi; ms: number } | { hata: string };
 
 /** Ada'dan gorev hedefi: ana pencerenin proje listesi. */
@@ -487,6 +503,52 @@ export interface AdaOturumu {
   claude?: string;
   /** v3.0: oturumun klasoru (git hali icin; main mutlak yol ister). */
   yol?: string;
+}
+
+/** v3.2: Teslim sayfasi (electron/teslim.cjs). */
+export interface TeslimCommiti {
+  kisa: string;
+  tam: string;
+  konu: string;
+  zaman: number | null;
+  yazar: string;
+  eposta: string;
+}
+export interface TeslimDosyasi {
+  durum: string;
+  yol: string;
+  arti: number | null;
+  eksi: number | null;
+}
+export type TeslimDetayi =
+  | {
+      yol: string;
+      dal: string | null;
+      uzak: string | null;
+      ileride: number;
+      geride: number;
+      commitler: TeslimCommiti[];
+      dosyalar: TeslimDosyasi[];
+      remote: string | null;
+      github: { sahip: string; depo: string } | null;
+      gorunurluk: 'public' | 'private' | 'bilinmiyor' | null;
+    }
+  | { hata: string };
+export type TeslimFarki = { metin: string; kesildi: boolean } | { hata: string };
+
+/** v3.2: gunun brifingi (electron/brifing.cjs). */
+export interface BrifingMaddesi {
+  tur: 'gece' | 'vade' | 'bot' | 'oturum' | 'push' | 'kirli' | 'limit' | 'beyin' | 'saglik' | (string & {});
+  metin: string;
+  onem: 'dikkat' | 'normal';
+  proje?: string;
+}
+export interface Brifing {
+  gun: string;
+  selam: string;
+  maddeler: BrifingMaddesi[];
+  cumle: string;
+  oneri: string | null;
 }
 
 declare global {
@@ -562,6 +624,13 @@ declare global {
       adaSesHazirla: () => void;
       adaSesCoz: (wav: ArrayBuffer) => Promise<SesSonucu>;
       adaKonus: (metin: string, bildirim?: boolean) => Promise<Uint8Array | null>;
+      adaBrifing: () => Promise<Brifing>;
+      adaBrifingDinle: (cb: (v: { brifing: Brifing; konus: boolean; acil: boolean }) => void) => () => void;
+      brifingVer: () => void;
+      adaNotDinle: (cb: (metin: string) => void) => () => void;
+      teslimDetay: (yol: string) => Promise<TeslimDetayi>;
+      teslimFark: (yol: string, istek: { commit: string } | { dosya: string }) => Promise<TeslimFarki>;
+      teslimPush: (yol: string) => Promise<{ tamam: boolean; iptal?: boolean; cikti: string }>;
       nobetGetir: () => Promise<BotNobeti | null>;
       nobetTazele: () => Promise<BotNobeti>;
       nobetDinle: (cb: (n: BotNobeti) => void) => () => void;

@@ -74,6 +74,23 @@ contextBridge.exposeInMainWorld('kokpit', {
   adaSesHazirla: () => ipcRenderer.send('ada:ses-hazirla'),
   adaSesCoz: (wav) => ipcRenderer.invoke('ada:ses-coz', wav),
   adaKonus: (metin, bildirim) => ipcRenderer.invoke('ada:konus', metin, bildirim === true),
+  // v3.2: gunun brifingi (Ada'da kart + ses). Ana pencerenin paleti main'e "ver" der, Ada dinler.
+  adaBrifing: () => ipcRenderer.invoke('ada:brifing'),
+  adaBrifingDinle: (cb) => {
+    const d = (_e, v) => cb(v);
+    ipcRenderer.on('ada:brifing', d);
+    return () => ipcRenderer.removeListener('ada:brifing', d);
+  },
+  brifingVer: () => ipcRenderer.send('brifing:ver'),
+  // v3.2: Teslim sayfasi. Yol main'de bilinen projelerle denetlenir; push main'de onay diyalogu ister.
+  teslimDetay: (yol) => ipcRenderer.invoke('teslim:detay', yol),
+  teslimFark: (yol, istek) => ipcRenderer.invoke('teslim:fark', yol, istek),
+  teslimPush: (yol) => ipcRenderer.invoke('teslim:push', yol),
+  adaNotDinle: (cb) => {
+    const d = (_e, v) => cb(v);
+    ipcRenderer.on('ada:not', d);
+    return () => ipcRenderer.removeListener('ada:not', d);
+  },
   // v3.0: bot nobeti.
   nobetGetir: () => ipcRenderer.invoke('nobet:getir'),
   nobetTazele: () => ipcRenderer.invoke('nobet:tazele'),

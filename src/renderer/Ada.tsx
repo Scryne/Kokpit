@@ -3,6 +3,7 @@ import { ArrowDownFromLine, ArrowUpToLine, Camera, Check, ChevronDown, CornerDow
 import type {
   AdaEki,
   AdaKipi,
+  Brifing,
   BotIsi,
   BotNobeti,
   NobetOlayi,
@@ -76,6 +77,11 @@ const HABER_MS = 60_000;
 const SES_BAKIS_MS = 12_000;
 /** v3.1: Ada'nin kisa sesli cevabi ("Duyamadım") hapta bu kadar durur. */
 const SES_NOTU_MS = 4000;
+/** v3.2: uzun sesli cevap (ozet, brifing) kartta bu kadar kalir. */
+const SES_CEVAP_MS = 20_000;
+/** v3.2: brifing karti acik kalir (okumaya vakit), kartta "Tamam" diyene ya da bu sure dolana kadar durur. */
+const BRIFING_BAKIS_MS = 25_000;
+const BRIFING_MS = 30 * 60 * 1000;
 /** v3.1: ayni oturum icin iki sesli bildirim arasi en az. */
 const BILDIRIM_ARASI_MS = 20_000;
 
@@ -148,6 +154,8 @@ export default function Ada() {
   const [acilis] = useState(() => Date.now());
   // v2.7: normal | sakli | sinema (main belirler). Sakli/sinemada kapali Ada yalniz cenedir.
   const [kip, setKip] = useState<AdaKipi>('normal');
+  const kipRef = useRef(kip);
+  kipRef.current = kip;
   const sarkmaZamani = useRef<ReturnType<typeof setTimeout> | null>(null);
   const surukleme = useRef<{ sx: number; aktif: boolean; kare: number } | null>(null);
   const tiklamaYut = useRef(false);
@@ -179,6 +187,8 @@ export default function Ada() {
   dinlemeRef.current = dinleme;
   const oncekiDurum = useRef<Record<string, string>>({});
   const sonBildirim = useRef<Record<string, number>>({});
+  // v3.2: gunun brifingi (ses, palet ya da gunun ilk ani). "Tamam" ya da BRIFING_MS sonra kalkar.
+  const [brifing, setBrifing] = useState<{ b: Brifing; t: number } | null>(null);
 
   const bak = useCallback((ms: number = BAKIS_MS) => {
     setBakis(true);
@@ -503,6 +513,31 @@ export default function Ada() {
         void konus(cumle);
         return;
       }
+      // v3.2: "Matbaa ne yaptı?" -> main'in kurdugu cumle; satir da gorunsun diye kart acilir.
+      case 'ozet':
+        sesNotuGoster(e.cumle);
+        bak(SES_CEVAP_MS);
+        void konus(e.cumle);
+        return;
+      case 'git':
+        window.kokpit.adaGit(e.hedef.id);
+        return sesNotuGoster(e.hedef.ad);
+      case 'brifing':
+        sesNotuGoster('Bakıyorum…');
+        void window.kokpit.adaBrifing().then((b) => {
+          setSesNotu(null);
+          brifingGoster(b, true, true);
+        });
+        return;
+      // v3.2: "ikinci seçenek": istek ana pencereye gider, orada soru damgasiyla yeniden denetlenir.
+      case 'cevap':
+        if (e.istek) {
+          gonder(e.istek);
+          return sesNotuGoster(e.cumle ?? 'Gönderildi');
+        }
+        sesNotuGoster(e.hata ?? 'Cevap gönderilemedi');
+        void konus(e.hata ?? 'Cevap gönderilemedi');
+        return;
       default:
         sesNotuGoster('Duyamadım');
     }
@@ -543,6 +578,19 @@ export default function Ada() {
   }, [bak, sesNotuGoster]);
 
   useEffect(() => window.kokpit.adaDinleDinle(() => void dinleDegistir()), [dinleDegistir]);
+
+  /** v3.2: brifingi karta koy, karti ac (saklida yalniz acik istekte), istenirse konus. */
+  const brifingGoster = useCallback(
+    (b: Brifing, konusMu: boolean, acil: boolean) => {
+      setBrifing({ b, t: Date.now() });
+      if (acil || kipRef.current === 'normal') bak(BRIFING_BAKIS_MS);
+      if (konusMu) void konus(b.cumle);
+    },
+    [bak, konus]
+  );
+  useEffect(() => window.kokpit.adaBrifingDinle((v) => brifingGoster(v.brifing, v.konus, v.acil)), [brifingGoster]);
+  // v3.2: main'den kisa not (secili metin bulunamadi gibi): hapta birkac saniye.
+  useEffect(() => window.kokpit.adaNotDinle((m) => sesNotuGoster(m)), [sesNotuGoster]);
 
   // v3.1 sesli bildirim: bir oturum seni beklemeye gecince ya da bitince Ada adini soyler. Kokpit ondeyse
   // main susturur; dinlerken ve ayni oturum icin 20 sn icinde tekrar soylemez.
@@ -795,6 +843,12 @@ export default function Ada() {
         {!genis && bes !== null && <LimitKenari kart={kart} yuzde={bes} />}
         {genis && (
           <div className="max-h-[440px] overflow-y-auto border-t border-kenar px-1.5 pb-1.5 pt-1">
+            {/* v3.2: Ada'nin uzun sesli cevabi (ozet, brifing) hapa sigmaz; kartin basinda tam hali. */}
+            {sesNotu && sesNotu.metin.length > 48 && simdi - sesNotu.t < SES_CEVAP_MS && (
+              <p data-ada-cevap role="status" className="mb-1 border-b border-kenar px-2 pb-2 pt-1 text-xs leading-relaxed text-metin-ikincil">
+                {sesNotu.metin}
+              </p>
+            )}
             {(tepsiVar || birakiliyor) && (
               <EkTepsisi
                 ekler={ekler}
@@ -816,7 +870,13 @@ export default function Ada() {
                 }}
               />
             )}
-            {(dusenBot.length > 0 || yakinVade.length > 0 || (haber && simdi - haber.t < HABER_MS)) && (
+            {brifing && simdi - brifing.t < BRIFING_MS && (
+              <AdaBrifing b={brifing.b} onKapat={() => setBrifing(null)} onGit={(ad) => {
+                const o = liste.find((x) => x.ad === ad);
+                window.kokpit.adaGit(o ? o.id : '');
+              }} />
+            )}
+            {!(brifing && simdi - brifing.t < BRIFING_MS) && (dusenBot.length > 0 || yakinVade.length > 0 || (haber && simdi - haber.t < HABER_MS)) && (
               <AdaBugun dusen={dusenBot} vadeler={yakinVade} haber={haber && simdi - haber.t < HABER_MS ? haber : null} />
             )}
             {toplam === 0 && <p className="px-2 py-1.5 text-xs text-metin-soluk">Açık claude oturumu yok.</p>}
@@ -995,6 +1055,80 @@ function AdaBugun({ dusen, vadeler, haber }: { dusen: BotIsi[]; vadeler: Vade[];
 }
 
 /**
+ * v3.2: gunun brifingi. Baslik selam + madde sayisi, maddeler onem sirasiyla (amber yalniz seni bekleyen:
+ * gecikmis/bugunku vade, dusen bot, bekleyen oturum, ≥ %90 limit), en altta onerilen ilk is. "Bugün"
+ * bolumunun yerine gecer (ayni bilgiyi tasir, fazlasiyla). Satir tiklanmaz; proje adi olan satir o projenin
+ * acik oturumuna gider.
+ */
+function AdaBrifing({ b, onKapat, onGit }: { b: Brifing; onKapat: () => void; onGit: (proje: string) => void }) {
+  const dikkat = b.maddeler.filter((m) => m.onem === 'dikkat').length;
+  return (
+    <section aria-label="Günün brifingi" data-ada-brifing className="mb-1 space-y-1.5 border-b border-kenar px-2 pb-2 pt-1 text-xs">
+      <div className="flex items-baseline gap-2">
+        <span className="etiket">Brifing</span>
+        <span className="text-metin">{b.selam}</span>
+        {b.maddeler.length > 0 && (
+          <span className="enstruman text-metin-soluk">
+            {b.maddeler.length} madde{dikkat > 0 ? ' · ' + dikkat + ' dikkat' : ''}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onKapat}
+          className="ml-auto cursor-pointer px-1 text-metin-soluk transition-colors duration-[120ms] hover:text-metin"
+        >
+          Tamam
+        </button>
+      </div>
+      {b.maddeler.length === 0 ? (
+        <p className="text-metin-ikincil">Bekleyen bir şey yok: vade, düşen bot, push bekleyen commit yok.</p>
+      ) : (
+        <ul className="space-y-1">
+          {b.maddeler.slice(0, 9).map((m, i) => (
+            <li key={i} className="flex min-w-0 items-baseline gap-2">
+              <span className="enstruman w-11 shrink-0 text-[0.6875rem] text-metin-soluk">{BRIFING_TUR[m.tur] ?? m.tur}</span>
+              {m.proje ? (
+                <button
+                  type="button"
+                  onClick={() => onGit(m.proje!)}
+                  title={m.metin}
+                  className={'min-w-0 cursor-pointer truncate text-left hover:underline ' + (m.onem === 'dikkat' ? 'text-dikkat-metin' : 'text-metin')}
+                >
+                  {m.metin}
+                </button>
+              ) : (
+                <span title={m.metin} className={'min-w-0 truncate ' + (m.onem === 'dikkat' ? 'text-dikkat-metin' : 'text-metin')}>
+                  {m.metin}
+                </span>
+              )}
+            </li>
+          ))}
+          {b.maddeler.length > 9 && <li className="text-metin-soluk">+{b.maddeler.length - 9} madde daha</li>}
+        </ul>
+      )}
+      {b.oneri && (
+        <p className="text-metin-ikincil">
+          <span className="text-metin-soluk">Önerim: </span>
+          {b.oneri}
+        </p>
+      )}
+    </section>
+  );
+}
+
+const BRIFING_TUR: Record<string, string> = {
+  gece: 'gece',
+  vade: 'vade',
+  bot: 'bot',
+  oturum: 'oturum',
+  push: 'push',
+  kirli: 'kirli',
+  limit: 'limit',
+  beyin: 'beyin',
+  saglik: 'sağlık',
+};
+
+/**
  * v3.0: Ada'nin ek tepsisi. Yakalanan goruntuler / birakilan dosyalar + hedef oturum + not.
  * "Gönder" yollari yapistirir, notu yazar, Enter'a basar. "Yalnız yapıştır" Enter'a basmaz ve Kokpit'i o
  * sekmeyle one getirir (uzun mesaji terminalde yazmak icin). Hedef: siradaki oturum (soru > bitti >
@@ -1038,6 +1172,7 @@ function EkTepsisi({
   }, [odakIstegi]);
 
   const goruntu = ekler.filter((x) => x.tur === 'goruntu').length;
+  const secimler = ekler.filter((x) => x.tur === 'metin');
   const baslik =
     ekler.length === 0
       ? birakiliyor
@@ -1047,7 +1182,11 @@ function EkTepsisi({
           : 'Bırakılan metin'
       : goruntu === ekler.length
         ? goruntu + ' görüntü'
-        : ekler.length + ' ek';
+        : secimler.length === ekler.length
+          ? secimler.length === 1
+            ? 'Seçili metin'
+            : secimler.length + ' seçim'
+          : ekler.length + ' ek';
   const gonder = (enter: boolean) => {
     if (!secili || (ekler.length === 0 && !metin.trim())) return;
     onGonder(secili.id, enter, metin.trim());
@@ -1058,6 +1197,8 @@ function EkTepsisi({
       <div className="flex items-center gap-2 text-xs">
         {kaynak === 'ses' && ekler.length === 0 ? (
           <Mic className="size-3.5 shrink-0 text-metin-ikincil" aria-hidden="true" />
+        ) : secimler.length > 0 && secimler.length === ekler.length ? (
+          <FileText className="size-3.5 shrink-0 text-metin-ikincil" aria-hidden="true" />
         ) : (
           <Camera className="size-3.5 shrink-0 text-metin-ikincil" aria-hidden="true" />
         )}
@@ -1072,9 +1213,29 @@ function EkTepsisi({
           </button>
         )}
       </div>
-      {ekler.length > 0 && (
+      {/* v3.2: secili metin eki: kaynak + ilk satirlar (mono, olculmus deger degil ama alintidir). */}
+      {secimler.map((x) => (
+        <figure key={x.id} data-secim-eki className="group relative rounded-md border border-kenar px-2 py-1.5">
+          <figcaption className="flex items-baseline gap-2 text-[0.6875rem] text-metin-soluk">
+            <span className="min-w-0 truncate">{x.ad}</span>
+            <span className="enstruman ml-auto shrink-0">
+              {x.satir} satır · {x.uzunluk} kr
+            </span>
+            <button
+              type="button"
+              onClick={() => onSil([x.id])}
+              aria-label={x.ad + ' seçimini çıkar'}
+              className="cursor-pointer text-metin-soluk transition-colors duration-[120ms] hover:text-metin"
+            >
+              <X className="size-3" aria-hidden="true" />
+            </button>
+          </figcaption>
+          <pre className="enstruman mt-1 line-clamp-3 whitespace-pre-wrap break-words text-[0.6875rem] text-metin-ikincil">{x.ozet}</pre>
+        </figure>
+      ))}
+      {ekler.length > secimler.length && (
         <ul aria-label="Ekler" className="flex gap-1.5 overflow-x-auto pb-0.5">
-          {ekler.map((x) => (
+          {ekler.filter((x) => x.tur !== 'metin').map((x) => (
             <li key={x.id} className="group relative shrink-0">
               {x.onizleme ? (
                 <img src={x.onizleme} alt={x.ad} title={x.ad} className="h-14 max-w-[7.5rem] rounded-md border border-kenar object-cover" />

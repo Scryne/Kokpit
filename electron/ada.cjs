@@ -472,7 +472,7 @@ ipcMain.handle('ada:ses-coz', async (e, ham) => {
 ipcMain.handle('ada:konus', async (e, metin, bildirim) => {
   if (!ada || e.sender !== ada.webContents || typeof metin !== 'string') return null;
   if (bildirim === true && !sesli) return null;
-  const b = await konusDinleyici(metin.slice(0, 300), bildirim === true);
+  const b = await konusDinleyici(metin.slice(0, 700), bildirim === true);
   return b ? new Uint8Array(b) : null;
 });
 // Ada'ya birakilan dosyalar: yollar yakala.cjs'te denetlenir (var mi, dosya mi, boyut).
@@ -546,6 +546,27 @@ module.exports = {
   /** v3.0: nobet gecisi (yeni dusen is, yeni siparis): Ada bir an bakar, goz endise / para. */
   nobetOlay(o) {
     gonder('ada:nobet-olay', o);
+  },
+  /** v3.2: Ada'daki oturumlar (sesli ozet, brifing, gece vardiyasi). */
+  oturumListesi: () => sonListe.map((o) => ({ id: String(o.id), ad: String(o.ad ?? '') })).filter((o) => o.ad),
+  /**
+   * v3.2: gunun brifingi. Ada gorunur olur (sinemada da: acik istek ya da gunun ilk ani) ve karti acar;
+   * `konus` ise kisa cumleyi soyler. Saklida kart sarkmaz, cene bakar (v2.7 kurali: saklida araya girme),
+   * ama acik istekte (ses, palet) Scryne istedi: kart acilir.
+   */
+  brifing(b, { konus, neden } = {}) {
+    if (!ada || ada.isDestroyed() || !acik) return;
+    if (neden !== 'gun' && !ada.isVisible()) {
+      ada.setBounds(konum());
+      ada.showInactive();
+      ustteTut();
+    }
+    gonder('ada:brifing', { brifing: b, konus: konus === true, acil: neden !== 'gun' });
+  },
+  /** v3.2: kisa bilgi notu hapta (secim bulunamadi, vardiya basladi ...). */
+  not(metin) {
+    if (!ada || ada.isDestroyed() || !acik) return;
+    gonder('ada:not', String(metin || '').slice(0, 200));
   },
   /**
    * v3.0: ek tepsisi degisti. `acil` (Ctrl+Alt+Shift+S ile istendi): Ada klavyeyle acilir, hedef secilip

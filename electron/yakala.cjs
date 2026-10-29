@@ -42,8 +42,10 @@ let sonSira = null;
 let sonOzet = null;
 let okunuyor = false; // pano okumasi asenkron: biri bitmeden digeri baslamaz
 let dinleyici = (_ekler, _neden) => {};
-/** @type {Map<string, { id: string, tur: 'goruntu' | 'dosya', yol: string, ad: string, onizleme: string | null, t: number }>} */
+/** @type {Map<string, { id: string, tur: 'goruntu' | 'dosya' | 'metin', yol: string, ad: string, onizleme: string | null, t: number, metin?: string }>} */
 const ekler = new Map();
+// v3.2: secili metin gonderilirken pano bir an degisip eski haline doner; bekci bu arada okumaz.
+let sessizBitis = 0;
 
 function yukle() {
   if (win32 || yuklenemedi) return win32;
@@ -77,7 +79,15 @@ function goruntuMu(yol) {
 function liste() {
   const simdi = Date.now();
   for (const [k, e] of ekler) if (simdi - e.t > EK_OMRU_MS) ekler.delete(k);
-  return [...ekler.values()].map(({ id, tur, ad, onizleme, t }) => ({ id, tur, ad, onizleme, t }));
+  // Metin ekinin kendisi Ada'ya gitmez (20 KB'a kadar olabilir); kart icin ilk satirlar yeter.
+  return [...ekler.values()].map(({ id, tur, ad, onizleme, t, metin }) => ({
+    id,
+    tur,
+    ad,
+    onizleme,
+    t,
+    ...(metin ? { ozet: metin.slice(0, 280), satir: metin.split('\n').length, uzunluk: metin.length } : {}),
+  }));
 }
 
 function ekle(ek, neden) {
@@ -134,6 +144,7 @@ function yokla() {
   }
   if (n === sonSira || okunuyor) return;
   sonSira = n;
+  if (Date.now() < sessizBitis) return;
   okunuyor = true;
   panoyuOku()
     .catch((e) => log('yakala: pano okunamadi: ' + e.message))
@@ -223,14 +234,33 @@ module.exports = {
     if (n) dinleyici(liste(), 'birak');
     return n;
   },
-  /** Kimliklerden yollar; bilinmeyen kimlik atlanir. Silinmis dosya da atlanir. */
+  /** Kimliklerden yollar; bilinmeyen kimlik atlanir. Silinmis dosya da atlanir. Metin ekinin yolu yok. */
   yollar(kimlikler) {
     const sonuc = [];
     for (const k of Array.isArray(kimlikler) ? kimlikler : []) {
       const e = ekler.get(k);
-      if (e && fs.existsSync(e.yol)) sonuc.push(e.yol);
+      if (e && e.tur !== 'metin' && fs.existsSync(e.yol)) sonuc.push(e.yol);
     }
     return sonuc;
+  },
+  /** v3.2: secili metin eki (Ctrl+Alt+Shift+C). `kaynak` pencere basligindan ("Chrome: …"). */
+  metinEkle(metin, kaynak) {
+    const id = crypto.createHash('sha1').update(metin + ':' + Date.now()).digest('hex').slice(0, 12);
+    ekle({ id, tur: 'metin', yol: '', ad: String(kaynak || 'seçim').slice(0, 80), onizleme: null, t: Date.now(), metin }, 'secim');
+    return id;
+  },
+  /** v3.2: kimliklerden metin ekleri (kaynak + metin); oturuma bracketed paste ile gider. */
+  metinler(kimlikler) {
+    const sonuc = [];
+    for (const k of Array.isArray(kimlikler) ? kimlikler : []) {
+      const e = ekler.get(k);
+      if (e && e.tur === 'metin' && e.metin) sonuc.push({ kaynak: e.ad, metin: e.metin });
+    }
+    return sonuc;
+  },
+  /** v3.2: pano bekcisini `ms` boyunca susturur (secim kopyalanip geri yazilirken). */
+  sessiz(ms) {
+    sessizBitis = Date.now() + ms;
   },
   /** Tepsiden dusur (gonderildi ya da Scryne vazgecti). Dosya diskte kalir. */
   sil(kimlikler) {

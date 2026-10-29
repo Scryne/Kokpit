@@ -23,6 +23,8 @@ export interface OturumApi {
    * Baglanti yoksa false.
    */
   yaz: (d: string) => boolean;
+  /** v3.2: terminaldeki secili metin (Ctrl+Alt+Shift+C Kokpit ondeyken: tus gondermeden). */
+  secim: () => string;
 }
 
 // Sunucu tarafi 90 sn bekliyor; ustune ag/olcum payi.
@@ -306,6 +308,7 @@ export default function TerminalOturumu({
         ws.send(JSON.stringify({ t: 'veri', d }));
         return true;
       },
+      secim: () => term.getSelection(),
     });
 
     void (async () => {

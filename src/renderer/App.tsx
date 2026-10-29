@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   Bot,
+  PackageCheck,
   Boxes,
   ChevronRight,
   ExternalLink,
@@ -36,6 +37,7 @@ import Pano from './Pano';
 import Saglik from './Saglik';
 import Envanter from './Envanter';
 import Botlar from './Nobet';
+import Teslim from './Teslim';
 import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
@@ -69,13 +71,14 @@ function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat' | 'kapaniyor'>) {
   return 'bg-metin-soluk';
 }
 
-type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter' | 'botlar';
+type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter' | 'botlar' | 'teslim';
 const GORUNUM_BASLIK: Record<Gorunum, string> = {
   pano: 'Pano',
   terminal: 'Terminaller',
   saglik: 'Sağlık',
   envanter: 'Envanter',
   botlar: 'Botlar',
+  teslim: 'Teslim',
 };
 
 /** Onceki calismadan kalan oturumlar icin tek satirlik teklif. Bir kez gorunur. */
@@ -752,6 +755,14 @@ export default function App() {
           await bekle(250);
           api.yaz(' ');
         }
+        // v3.2: secili metin bloklari. Bracketed paste satir sonlarini korur (Enter sayilmaz); claude uzun
+        // blogu "[Pasted text #N]" yapar. Kaynak ilk satirda: model metnin nereden geldigini bilsin.
+        for (const m of istek.metinler ?? []) {
+          const blok = (m.kaynak ? 'Kaynak: ' + m.kaynak + '\n' : '') + m.metin.replace(/\x1b/g, '');
+          if (!api.yaz('\x1b[200~' + blok + '\x1b[201~')) return 'Terminal bağlantısı yok';
+          await bekle(300);
+          api.yaz(' ');
+        }
         if (istek.metin && !api.yaz(istek.metin)) return 'Terminal bağlantısı yok';
         if (istek.gonder) {
           await bekle(350);
@@ -800,6 +811,19 @@ export default function App() {
   }, []);
   // Ada'dan gelen gonderme istekleri (main dogruladi, burada oturum ve soru denetlenir).
   useEffect(() => window.kokpit.oturumaGonderDinle((istek) => void oturumaGonder(istek)), [oturumaGonder]);
+  // v3.2: Ctrl+Alt+Shift+C Kokpit ondeyken main tus gondermez, secimi buradan okur (executeJavaScript):
+  // once aktif terminalin secimi, yoksa sayfadaki secim.
+  useEffect(() => {
+    const w = window as unknown as { __kokpitSecim?: () => string };
+    w.__kokpitSecim = () => {
+      const id = aktifOturumRef.current;
+      const t = id ? oturumApileri.current.get(id)?.secim() ?? '' : '';
+      return t || window.getSelection()?.toString() || '';
+    };
+    return () => {
+      delete w.__kokpitSecim;
+    };
+  }, []);
   // Ada'da "Gördüm": bitti rozeti duser. "Seni bekliyor" dusmez: o, cevaplanana kadar kalir.
   useEffect(
     () =>
@@ -1054,6 +1078,8 @@ export default function App() {
   useEffect(() => window.kokpit.adaAyarDegistiDinle(setAdaAcik), []);
 
   const aktifOturum = oturumlar.find((o) => o.id === aktifOturumId) ?? null;
+  // v3.2: kenar cubugunda Teslim rozeti (canli projelerin push bekleyen commit toplami).
+  const teslimSayisi = (durum?.projeler ?? []).reduce((n, p) => n + (p.git?.ahead ?? 0), 0);
 
   // Gorunen dikkat: zil rozeti (bakinca duser) VEYA kanca koprusunde "seni bekliyor" durumu
   // (cevaplanana kadar surer — bakmak soruyu cevaplamaz). Yalniz gosterim; rozet mantigi
@@ -1084,6 +1110,7 @@ export default function App() {
       { id: 's-saglik', grup: 'Sayfa', baslik: 'Sağlık', ipucu: 'Ctrl+3', calistir: () => setGorunum('saglik') },
       { id: 's-env', grup: 'Sayfa', baslik: 'Envanter', ipucu: 'Ctrl+4', calistir: () => setGorunum('envanter') },
       { id: 's-bot', grup: 'Sayfa', baslik: 'Botlar', ipucu: 'Ctrl+5', calistir: () => setGorunum('botlar') },
+      { id: 's-teslim', grup: 'Sayfa', baslik: 'Teslim (push, diff)', ipucu: 'Ctrl+6', calistir: () => setGorunum('teslim') },
     ];
     for (const p of siraliProjeler) {
       const acik = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik' && !o.servis);
@@ -1108,6 +1135,8 @@ export default function App() {
     k.push({ id: 'e-geri-ac', grup: 'Eylem', baslik: 'Son kapatılan oturumu geri aç', ipucu: 'Ctrl+Shift+T', calistir: () => void sonKapananiAc() });
     k.push(
       { id: 'e-not', grup: 'Eylem', baslik: "Inbox'a not", ipucu: 'Ctrl+Shift+N', calistir: () => setNotAcik(true) },
+      // v3.2: gunun brifingi Ada'da (kart + ses); Kokpit ondeyken Ada gizliyse once arka plana alinir.
+      { id: 'e-brifing', grup: 'Eylem', baslik: 'Günün brifingi', ipucu: 'Ada söyler', calistir: () => window.kokpit.brifingVer() },
       { id: 'e-tazele', grup: 'Eylem', baslik: 'Durumu tazele', calistir: () => void tazele('elle') },
       { id: 'e-kenar', grup: 'Eylem', baslik: 'Kenar çubuğunu aç/kapat', ipucu: 'Ctrl+B', calistir: () => setKenarAcik((a) => !a) },
       { id: 'e-arsiv', grup: 'Eylem', baslik: arsivAcik ? 'Arşivi gizle' : 'Arşivi göster', calistir: () => setArsivAcik((a) => !a) },
@@ -1209,6 +1238,9 @@ export default function App() {
       } else if (e.key === '5') {
         e.preventDefault();
         setGorunum('botlar');
+      } else if (e.key === '6') {
+        e.preventDefault();
+        setGorunum('teslim');
       } else if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         // Ctrl+Shift+P: komut paleti. Ctrl+K degil: claude'da satir sonuna kadar siler.
         e.preventDefault();
@@ -1431,6 +1463,28 @@ export default function App() {
             {kenarAcik && (nobet?.isler ?? []).some((x) => x.hal === 'dustu' || x.hal === 'gecikti') && (
               <span className="enstruman ml-auto text-xs text-dikkat-metin" title="Düşen ya da geciken iş">
                 {(nobet?.isler ?? []).filter((x) => x.hal === 'dustu' || x.hal === 'gecikti').length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setGorunum('teslim')}
+            title="Teslim (Ctrl+6)"
+            aria-label="Teslim"
+            aria-current={gorunum === 'teslim' ? 'page' : undefined}
+            className={
+              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              (kenarAcik ? '' : 'justify-center ') +
+              (gorunum === 'teslim'
+                ? 'bg-yuzey text-metin'
+                : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
+            }
+          >
+            <PackageCheck className="size-4 shrink-0" aria-hidden="true" />
+            {kenarAcik && 'Teslim'}
+            {kenarAcik && teslimSayisi > 0 && (
+              <span className="enstruman ml-auto text-xs text-metin-soluk" title="Push bekleyen commit">
+                ↑{teslimSayisi}
               </span>
             )}
           </button>
@@ -1732,6 +1786,21 @@ export default function App() {
               setNobet(await window.kokpit.nobetTazele());
             }}
           />
+        </section>
+
+        {/* v3.2: Teslim (Ctrl+6). Yalniz gorunurken baglanir: her acilista secili projenin git'i okunur. */}
+        <section
+          aria-label="Teslim"
+          className={(gorunum === 'teslim' ? 'block' : 'hidden') + ' min-h-0 flex-1 overflow-y-auto pr-1'}
+        >
+          {gorunum === 'teslim' && (
+            <Teslim
+              projeler={durum?.projeler ?? []}
+              simdi={simdi}
+              onTazele={() => tazele('elle')}
+              onClaude={(p, gorev) => sekmeAc(p, false, null, { gorev })}
+            />
+          )}
         </section>
 
         {/* Terminaller: sekmeler + yan yana bolmeler. Hepsi mount kalir, biri gorunur. */}

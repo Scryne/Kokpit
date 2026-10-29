@@ -23,6 +23,12 @@ const yakala = require('./yakala.cjs');
 const nobet = require('./nobet.cjs');
 const ses = require('./ses.cjs');
 const sesKomut = require('./ses-komut.cjs');
+const sesliOzet = require('./sesli-ozet.cjs');
+const brifing = require('./brifing.cjs');
+const secim = require('./secim.cjs');
+const teslim = require('./teslim.cjs');
+const paralel = require('./paralel.cjs');
+const geceVardiyasi = require('./gece.cjs');
 const surum = require('./surum.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
@@ -320,9 +326,11 @@ function adaKur() {
     // v3.0: ekler (yakalanan goruntu, birakilan dosya). Ada kimlik secer, yol burada cozulur.
     onEkGonder: (istek) => {
       const yollar = yakala.yollar(istek.ekler);
-      if (yollar.length === 0 && !istek.metin) return;
-      log('ada: ' + yollar.length + ' ek oturuma gonderiliyor ' + istek.id + (istek.gonder ? '' : ' (yalniz yapistir)'));
-      if (pencere) pencere.webContents.send('oturuma:gonder', { id: istek.id, tur: 'ek', yollar, metin: istek.metin, gonder: istek.gonder });
+      // v3.2: secili metin ekleri (kaynak + metin); yol degil, bracketed paste blogu olarak gider.
+      const metinler = yakala.metinler(istek.ekler);
+      if (yollar.length === 0 && metinler.length === 0 && !istek.metin) return;
+      log('ada: ' + (yollar.length + metinler.length) + ' ek oturuma gonderiliyor ' + istek.id + (istek.gonder ? '' : ' (yalniz yapistir)'));
+      if (pencere) pencere.webContents.send('oturuma:gonder', { id: istek.id, tur: 'ek', yollar, metinler, metin: istek.metin, gonder: istek.gonder });
       yakala.sil(istek.ekler);
       if (!istek.gonder) {
         // Yalniz yapistir: Scryne metni terminalde tamamlayacak; o sekmeyle Kokpit one gelir.
@@ -339,8 +347,8 @@ function adaKur() {
     onSesCoz: async (wav, liste) => {
       const r = await ses.coz(wav, sesKomut.ipucu(liste.map((o) => o.ad)));
       if ('hata' in r) return r;
-      const eylem = sesKomut.komutCoz(r.metin, liste);
-      log('ada sesi: ' + eylem.tur + (eylem.tur === 'not' ? (eylem.hedef ? ' @' + eylem.hedef.ad : ' hedefsiz') + (eylem.gonder ? ' +gonder' : '') : '') + ' (' + r.ms + ' ms)');
+      const eylem = sesliEylem(sesKomut.komutCoz(r.metin, liste), liste);
+      log('ada sesi: ' + eylem.tur + (eylem.hedef ? ' @' + eylem.hedef.ad : eylem.tur === 'not' ? ' hedefsiz' : '') + (eylem.gonder ? ' +gonder' : '') + (eylem.hata ? ' (' + eylem.hata + ')' : '') + ' (' + r.ms + ' ms)');
       return { metin: r.metin, eylem, ms: r.ms };
     },
     // Bildirim (oturum bekliyor/bitti): Kokpit ondeyse sus, ekran zaten gosteriyor.
@@ -350,12 +358,63 @@ function adaKur() {
     },
   });
   yakala.dinle((ekler, neden) => {
-    const acil = neden === 'pano' && Date.now() - yakalaIstendi < YAKALA_BEKLE_MS;
-    if (acil) yakalaIstendi = 0;
+    // v3.2: secili metin acik bir istek (kisayol): Ada klavyeyle acilir, not kutusu odaklanir.
+    const acil = neden === 'secim' || (neden === 'pano' && Date.now() - yakalaIstendi < YAKALA_BEKLE_MS);
+    if (acil && neden === 'pano') yakalaIstendi = 0;
     ada.ekler(ekler, { neden, acil, anaOdakta: !!pencere && pencere.isFocused() });
   });
   // Pano bekcisi: test kosucularinda yalniz istenirse (gercek Kokpit de ayni panoyu izliyor).
   if (!TEST || process.env.KOKPIT_TEST_PANO === '1') yakala.baslat();
+}
+
+/**
+ * v3.2: sesli ozet / cevap / brifing burada cumleye ya da istege cevrilir (sesli-ozet.cjs saf). Kanca
+ * koprusunun anlik hali main'de: renderer'in gecikmeli kopyasina bakilmaz. Cevap istegi yine ana pencerenin
+ * damga denetiminden gecer.
+ */
+function sesliEylem(eylem, liste) {
+  if (eylem.tur !== 'ozet' && eylem.tur !== 'cevap') return eylem;
+  const a = kanca.anlik();
+  const oturumlar = a.oturumlar || {};
+  if (eylem.tur === 'cevap') {
+    const c = sesliOzet.cevapCoz(eylem, liste, oturumlar);
+    return 'hata' in c ? { tur: 'cevap', hedef: eylem.hedef, hata: c.hata } : { tur: 'cevap', hedef: { id: c.istek.id, ad: c.ad }, istek: c.istek, cumle: c.cumle };
+  }
+  const h = sesliOzet.hedefSec(eylem.hedef, liste, oturumlar, 'ozet');
+  if (!h) return { tur: 'ozet', hedef: null, cumle: 'Açık claude oturumu yok.' };
+  const cumle = sesliOzet.ozetCumlesi({ ad: h.ad, e: h.e, git: a.gitler?.[h.id] ?? null, simdi: Date.now(), tam: eylem.tam === true });
+  return { tur: 'ozet', hedef: { id: h.id, ad: h.ad }, cumle };
+}
+
+/**
+ * v3.2: Ctrl+Alt+Shift+C. Kokpit ondeyse tus gonderilmez (xterm'de Ctrl+Insert bir kacis dizisi olurdu):
+ * aktif terminalin ya da sayfanin secimi renderer'dan alinir. Degilse secim.cjs on plandaki uygulamaya
+ * Ctrl+Insert gonderir.
+ */
+let secimSuruyor = false;
+async function secimiAl() {
+  if (secimSuruyor) return;
+  secimSuruyor = true;
+  try {
+    let r;
+    if (pencere && pencere.isFocused()) {
+      const ic = await pencere.webContents.executeJavaScript('window.__kokpitSecim ? window.__kokpitSecim() : ""', true).catch(() => '');
+      const m = secim.metniHazirla(ic);
+      r = m ? { metin: m, kaynak: 'Kokpit terminali' } : { hata: 'Seçili metin bulunamadı' };
+    } else {
+      r = await secim.kopyala({ sessiz: (ms) => yakala.sessiz(ms) });
+    }
+    if ('hata' in r) {
+      log('secim: ' + r.hata);
+      ada.not(r.hata);
+      return;
+    }
+    yakala.metinEkle(r.metin, r.kaynak);
+  } catch (e) {
+    logHata('secim', e);
+  } finally {
+    secimSuruyor = false;
+  }
 }
 
 /** v3.0: Ctrl+Alt+Shift+S anlik goruntuyu actiysa, gelen goruntu Ada'yi klavyeyle acar (hedef sec, Enter). */
@@ -365,9 +424,136 @@ const YAKALA_BEKLE_MS = 90_000;
 ipcMain.handle('durum:getir', async () => {
   const r = await durumOku();
   // v3.0: vadeler Ada'ya da (bugun/yarin/gecikmis kartta). Durum yalniz ana pencerenin istegiyle okunur.
-  if (r && r.veri) ada.vadeler(r.veri.vadeler ?? []);
+  if (r && r.veri) {
+    ada.vadeler(r.veri.vadeler ?? []);
+    sonDurum = { veri: r.veri, t: Date.now() };
+  }
   return r;
 });
+
+// --- v3.2: gunun brifingi (brifing.cjs saf) ---
+/** Son iyi durum.py olcumu: brifing her seferinde ikinci bir okuma yapmasin (10 dk taze sayilir). */
+let sonDurum = null;
+const DURUM_TAZE_MS = 10 * 60 * 1000;
+async function brifingHazirla() {
+  if (!sonDurum || Date.now() - sonDurum.t > DURUM_TAZE_MS) {
+    try {
+      const r = await durumOku();
+      if (r && r.veri) sonDurum = { veri: r.veri, t: Date.now() };
+    } catch (e) {
+      log('brifing: durum okunamadi: ' + e.message);
+    }
+  }
+  const a = kanca.anlik();
+  return brifing.brifingKur({
+    durum: sonDurum?.veri ?? null,
+    nobet: nobet.anlik(),
+    limitler: a.limitler,
+    oturumlar: a.oturumlar || {},
+    liste: ada.oturumListesi(),
+    simdi: Date.now(),
+    gece: geceVardiyasi.sabahOzeti(),
+  });
+}
+/** Brifingi Ada'da gosterir; `konus` acik istekte (ses, palet) her zaman, gunun ilkinde sesli ayara bagli. */
+async function brifingVer(neden) {
+  const b = await brifingHazirla();
+  ayarlar.yaz({ sonBrifing: b.gun });
+  log('brifing (' + neden + '): ' + b.maddeler.length + ' madde');
+  ada.brifing(b, { konus: neden !== 'gun' || ayarlar.oku().adaSesli !== false, neden });
+  return b;
+}
+/**
+ * Gunun ilk etkinligi: acilis, ekran kilidi acilmasi, uykudan donus ya da (gece acik kalan Kokpit'te)
+ * gun degistikten sonra ilk kullanici girdisi. Gunde bir kez; tepsiden kapatilir (`adaBrifing`).
+ */
+let brifingZamanlayici = null;
+function brifingKontrol(neden, gecikmeMs = 0) {
+  if (TEST && process.env.KOKPIT_TEST_BRIFING !== '1') return;
+  if (ayarlar.oku().adaBrifing === false) return;
+  if (brifingZamanlayici) return;
+  brifingZamanlayici = setTimeout(() => {
+    brifingZamanlayici = null;
+    const gun = brifing.brifingGunu(Date.now());
+    if (ayarlar.oku().sonBrifing === gun) return;
+    // Makine bosta (gece acik kalan Kokpit, ekran kilitli): Scryne'in girdisi gelince.
+    if (powerMonitor.getSystemIdleTime() > 120) return;
+    void brifingVer('gun').catch((e) => logHata('brifing', e));
+  }, gecikmeMs);
+}
+ipcMain.handle('ada:brifing', async () => brifingHazirla());
+
+// --- v3.2: Teslim sayfasi (teslim.cjs) ---
+/** Renderer'dan gelen yol yalniz bilinen bir proje (durum.py), vault ya da Kokpit'in actigi bir calisma agaci olabilir. */
+function bilinenYol(yol) {
+  if (typeof yol !== 'string' || !path.isAbsolute(yol)) return null;
+  const n = path.resolve(yol).toLowerCase();
+  const v = sonDurum?.veri;
+  const adaylar = [...(v?.projeler ?? []).map((p) => p.yol), ...(v?.vault ? [v.vault] : []), ...paralel.yollar()];
+  return adaylar.find((a) => path.resolve(a).toLowerCase() === n) ?? null;
+}
+ipcMain.handle('teslim:detay', async (_e, yol) => {
+  const y = bilinenYol(yol);
+  if (!y) return { hata: 'bilinmeyen proje yolu' };
+  const d = await teslim.detay(y);
+  if ('hata' in d) return d;
+  return { ...d, gorunurluk: d.github ? await teslim.gorunurluk(d.remote) : null };
+});
+ipcMain.handle('teslim:fark', async (_e, yol, istek) => {
+  const y = bilinenYol(yol);
+  return y ? teslim.fark(y, istek) : { hata: 'bilinmeyen proje yolu' };
+});
+/**
+ * Push: her zaman onayli. Public (ya da gorunurlugu bilinmeyen) depoda once yayin kapisi (`yayin_tara.py
+ * --gecmis`); bulgu varsa onay diyalogu bulgulari listeler ve "Yine de push et" ister. Zorlama (--force) yok.
+ */
+ipcMain.handle('teslim:push', async (_e, yol) => {
+  const y = bilinenYol(yol);
+  if (!y || !pencere) return { tamam: false, cikti: 'bilinmeyen proje yolu' };
+  const d = await teslim.detay(y);
+  if ('hata' in d) return { tamam: false, cikti: d.hata };
+  const gor = d.github ? await teslim.gorunurluk(d.remote) : 'bilinmiyor';
+  const disari = gor !== 'private';
+  let kapiSonucu = null;
+  if (disari) kapiSonucu = await teslim.kapi(y);
+  const bulgu = kapiSonucu?.bulgular?.length ?? 0;
+  const hedef = d.uzak ?? 'origin/' + d.dal + ' (yeni uzak dal)';
+  const ayrinti = [
+    d.commitler.length + ' commit → ' + hedef + (d.github ? ' · ' + d.github.sahip + '/' + d.github.depo + ' (' + gor + ')' : ''),
+    ...d.commitler.slice(0, 8).map((c) => '  ' + c.kisa + ' ' + c.konu.slice(0, 70)),
+    ...(d.commitler.length > 8 ? ['  … +' + (d.commitler.length - 8)] : []),
+    '',
+    disari
+      ? kapiSonucu === null
+        ? 'Yayın kapısı betiği bulunamadı: tarama YAPILMADI.'
+        : kapiSonucu.hata
+          ? 'Yayın kapısı çalışmadı: ' + kapiSonucu.hata
+          : bulgu === 0
+            ? 'Yayın kapısı temiz (tüm geçmiş + çalışma ağacı tarandı).'
+            : 'Yayın kapısı ' + bulgu + ' bulgu verdi:\n' +
+              kapiSonucu.bulgular.slice(0, 6).map((b) => '  • ' + [b.ciddiyet, b.tur, b.yer, b.ayrinti].filter(Boolean).join(' · ').slice(0, 140)).join('\n')
+      : 'Depo private: yayın kapısı gerekmiyor.',
+  ].join('\n');
+  const dugmeler = bulgu > 0 ? ['Yine de push et', 'Vazgeç'] : ['Push et', 'Vazgeç'];
+  let secilen;
+  if (TEST_SECIM !== null) secilen = TEST_SECIM;
+  else {
+    const { response } = await dialog.showMessageBox(pencere, {
+      type: bulgu > 0 || (disari && !kapiSonucu) ? 'warning' : 'question',
+      title: 'Push: ' + path.basename(y),
+      message: bulgu > 0 ? 'Yayın kapısı bulgu verdi. Yine de push edilsin mi?' : path.basename(y) + ' push edilsin mi?',
+      detail: ayrinti,
+      buttons: dugmeler,
+      defaultId: bulgu > 0 ? 1 : 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    secilen = response;
+  }
+  if (secilen !== 0) return { tamam: false, iptal: true, cikti: 'Vazgeçildi' };
+  return teslim.push(y);
+});
+ipcMain.on('brifing:ver', () => void brifingVer('palet').catch((e) => logHata('brifing', e)));
 // v3.0 bot nobeti (Botlar sayfasi + Ada). Ilk okuma acilistan 15 sn sonra; sayfa acilinca bos kalmasin.
 ipcMain.handle('nobet:getir', async () => nobet.anlik() ?? (await nobet.tazele()));
 ipcMain.handle('nobet:tazele', async () => nobet.tazele());
@@ -811,6 +997,15 @@ function tepsiMenusu() {
       },
     },
     { label: 'Limitleri tazele', click: () => void limit.tazele() },
+    { type: 'separator' },
+    // v3.2: gunun brifingi. Simdi ver + her gun ilk etkinlikte kendiliginden (varsayilan acik).
+    { label: 'Günün brifingi', enabled: a.acik, click: () => void brifingVer('palet').catch((e) => logHata('brifing', e)) },
+    {
+      label: 'Her gün ilk açılışta brifing',
+      type: 'checkbox',
+      checked: ayarlar.oku().adaBrifing !== false,
+      click: (m) => ayarlar.yaz({ adaBrifing: m.checked }),
+    },
   ];
   if (ACILIS_DESTEKLI) {
     sablon.push({
@@ -907,7 +1102,15 @@ app.whenReady().then(() => {
   }
   // Oturumsuz limitler (v2.6): sonuc kanca koprusunun limitleriyle birlesir, ayni yoldan yayinlanir.
   limit.baslat((l, d) => kanca.disLimit(l, d));
-  powerMonitor.on('resume', () => limit.uyandi());
+  powerMonitor.on('resume', () => {
+    limit.uyandi();
+    brifingKontrol('uyanma', 30_000);
+  });
+  // v3.2: gunun brifingi. Acilista (durum.py ve nobet ilk olcumu otursun), kilit acilinca, ve gece acik kalan
+  // Kokpit icin 10 dk'da bir "gun degisti mi + Scryne masada mi".
+  powerMonitor.on('unlock-screen', () => brifingKontrol('kilit', 8000));
+  brifingKontrol('acilis', 45_000);
+  setInterval(() => brifingKontrol('saat'), 10 * 60 * 1000).unref?.();
   pencereKur();
   adaKur();
   tepsiKur();
@@ -957,6 +1160,13 @@ app.whenReady().then(() => {
       shell.openExternal('ms-screenclip:').catch((e) => log('ms-screenclip acilamadi: ' + e.message));
     });
     log('genel kisayol ' + yakalaKisayolu + (yakalaKayit ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
+  }
+  // v3.2: secili metni gonder. On plandaki uygulamanin secimi (Ctrl+Insert ile, pano geri yazilir) ya da
+  // Kokpit ondeyse aktif terminalin secimi Ada'nin tepsisine duser; hedef secilip Enter.
+  if (process.env.KOKPIT_TEST_KABUK !== '1' || process.env.KOKPIT_TEST_SECIM_KISAYOL === '1') {
+    const secimKisayolu = 'Control+Alt+Shift+C';
+    const secimKayit = globalShortcut.register(secimKisayolu, () => void secimiAl());
+    log('genel kisayol ' + secimKisayolu + (secimKayit ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
   }
   // v3.1: bas-konus. Ada dinler (odak calmaz), konusma bitince metin Ada'nin tepsisine duser ya da
   // "..., gönder" ile biterse dogrudan gider. Ses dosyalari yoksa (npm run ses:kur) kaydedilmez.

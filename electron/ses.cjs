@@ -203,7 +203,7 @@ function sentezle(ses, metin, hedef) {
  * @returns {Promise<Buffer | null>}
  */
 async function konus(metin) {
-  const m = String(metin || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const m = String(metin || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 700);
   if (!m || SESSIZ || !varMi(TTS)) return null;
   if (onbellek.has(m)) return onbellek.get(m);
   const hedef = path.join(os.tmpdir(), 'kokpit-ses-' + process.pid + '-' + Date.now() + '.mp3');

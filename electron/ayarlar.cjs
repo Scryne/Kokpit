@@ -20,6 +20,8 @@ const VARSAYILAN = Object.freeze({
   adaTamEkran: true, // v2.7: tam ekran uygulama ondeyken ada cekilir
   adaKonum: null, // v2.7: hapin merkezi, calisma alani genisliginin orani (null = orta)
   adaSesli: true, // v3.1: oturum bekleyince/bitince Ada sesli soyler (Kokpit ondeyken susar)
+  adaBrifing: true, // v3.2: gunun ilk etkinliginde Ada brifing verir
+  sonBrifing: null, // v3.2: son brifingin gunu (05:00 sinirli YYYY-MM-DD); gunde bir kez
   tepsi: true, // v2.6: pencerenin X'i tepsiye indirir, cikis tepsi menusunden
   tepsiBildirildi: false, // "tepside calisiyor" balonu bir kez
   // acilistaBaslat: bilerek varsayilansiz. Yoksa ilk calisma kaydi acar (main.cjs tepsiKur).

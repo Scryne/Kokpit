@@ -70,7 +70,50 @@ const KONTROL = [
   [/^(?:yapıştır|yapistir|sadece yapıştır|yalnız yapıştır)$/iu, 'yapistir'],
   [/^(?:vazgeç|vazgec|iptal|boş ver|boşver|sil)$/iu, 'vazgec'],
   [/^(?:durum|durum ne|ne durumdayız|ne durumdayiz|neredeyiz|özet|özetle|ne var)$/iu, 'durum'],
+  // v3.2: gunun brifingi (vadeler, dusen botlar, push bekleyen, limit). Ada'nin adiyla da: "Günaydın Ada".
+  [/^(?:günaydın|gunaydin|brifing|brifing ver|bugün ne var|bugun ne var|bugün neler var|güne başlayalım)(?:\s+ada)?$/iu, 'brifing'],
 ];
+
+// v3.2, sesli cevap: sira sayisi -> secenek (0'dan). "ikinci", "iki", "2", "ikinciyi", "ikinci seçenek".
+// Yalniz sozcugun TAMAMI sira sayisiysa: "ikinci seçeneği uygula, sonra testleri koş" bir nottur.
+const SIRA_SOZ = [
+  [/^(?:birinci|ilk|bir|1)/iu, 0],
+  [/^(?:ikinci|iki|2)/iu, 1],
+  [/^(?:üçüncü|ucuncu|üç|uc|3)/iu, 2],
+  [/^(?:dördüncü|dorduncu|dört|dort|4)/iu, 3],
+];
+const SIRA_EK = String.raw`(?:si|sı|sini|sını|yi|yı|i|ı|u|ü|nü|nu)?`;
+const SECENEK = String.raw`(?:\s+(?:seçene(?:k|ği|gi)|secene(?:k|gi)|şık(?:kı)?|sik(?:ki)?|cevap|cevabı|cevabi))?`;
+const SEC_FIIL = String.raw`(?:\s+(?:seç|sec|olsun|gönder|gonder|de|diyorum|tamam))?`;
+const SIRA_TEK = new RegExp(String.raw`^(birinci|ilk|bir|1|ikinci|iki|2|üçüncü|ucuncu|üç|uc|3|dördüncü|dorduncu|dört|dort|4)` + SIRA_EK + SECENEK + '$', 'iu');
+// "Önerileni seç", "tavsiye ettiğin": claude'un (Recommended) isaretledigi secenek.
+const ONERILEN = /^(?:önerilen|onerilen|önerileni|onerileni|tavsiye ettiğin|tavsiye ettigin|senin önerin|senin önerdiğin|önerdiğin)(?:\s+(?:seçenek|seçeneği|secenegi))?(?:\s+(?:seç|sec|olsun|gönder|tamam))?$/iu;
+
+/** "ikinci seçenek", "birinci, üçüncü" -> [1] / [0, 2]; sira sayisi degilse null. */
+function siraCoz(metin) {
+  const govde = metin
+    .replace(/[.!?…]+$/u, '')
+    .replace(new RegExp(SEC_FIIL + '$', 'iu'), '')
+    .trim();
+  if (!govde) return null;
+  const parcalar = govde.split(/\s*(?:,|;|\bve\b|\bsonra\b)\s*/iu).filter(Boolean);
+  if (parcalar.length === 0 || parcalar.length > 4) return null;
+  const secimler = [];
+  for (const p of parcalar) {
+    if (!SIRA_TEK.test(p.trim())) return null;
+    const bas = p.trim();
+    const s = SIRA_SOZ.find(([k]) => k.test(bas));
+    if (!s) return null;
+    secimler.push(s[1]);
+  }
+  return secimler;
+}
+
+// v3.2, sesli ozet: "Matbaa ne yaptı?", "ne oldu", "ne diyor", "son mesajı oku". Hedef bastadir ya da yoktur.
+const OZET = /^(?:ne\s+(?:yaptı|yapti|yapıyor|yapiyor|oldu|diyor|dedi|soruyor|durumda)|neler\s+(?:yaptı|yapti|oldu)|durumu\s+ne|durum\s+ne|ne\s+alemde|bitti\s+mi|ne\s+yapmış|ne\s+yapmis|özetle|ozetle|özet\s+geç|özet)$/iu;
+const OKU = /^(?:son\s+(?:mesajı|mesaji|sözünü|sozunu|cevabı|cevabi)\s+oku|mesajı\s+oku|mesaji\s+oku|oku|ne\s+yazdı|ne\s+yazdi|ne\s+yazmış|ne\s+yazmis)$/iu;
+// v3.2: "Matbaa'yı aç", "Kokpit'e geç": Kokpit o sekmeyle one gelir.
+const GIT = /^(?:aç|ac|göster|goster|geç|gec|git|getir|öne getir)$/iu;
 
 /**
  * Bastaki birkac sozcukten hedef oturumu bulur. Eslesme ekler sokulerek, aksansiz ve bulanik yapilir;
@@ -119,15 +162,32 @@ function hedefBul(metin, oturumlar) {
  * Konusmayi eyleme cevirir.
  * @param {string} ham whisper metni
  * @param {{ id: string, ad: string }[]} oturumlar Ada'daki oturumlar (siralama: oncelikli once)
- * @returns {{ tur: 'gonder' | 'yapistir' | 'vazgec' | 'durum' | 'bos' }
- *   | { tur: 'not', metin: string, hedef: { id: string, ad: string } | null, gonder: boolean }}
+ * @returns {{ tur: 'gonder' | 'yapistir' | 'vazgec' | 'durum' | 'brifing' | 'bos' }
+ *   | { tur: 'not', metin: string, hedef: { id: string, ad: string } | null, gonder: boolean }
+ *   | { tur: 'ozet', hedef: { id: string, ad: string } | null, tam: boolean }
+ *   | { tur: 'git', hedef: { id: string, ad: string } }
+ *   | { tur: 'cevap', hedef: { id: string, ad: string } | null, secimler: number[] | null, onerilen: boolean }}
  */
 function komutCoz(ham, oturumlar) {
   const metin = duzelt(ham);
-  const sade = metin.replace(/[.!?…]+$/u, '').trim();
+  // Basta Ada'ya hitap ("Ada, ...") eylemi degistirmez: uyandirma sozu de buradan gecer.
+  const sade = metin.replace(/[.!?…]+$/u, '').replace(/^ada\s*[,:;.!]?\s+/iu, '').trim();
   if (!sade) return { tur: 'bos' };
-  for (const [kalip, tur] of KONTROL) if (kalip.test(sade)) return { tur };
+  // "İptal" (buyuk İ) /i ile "iptal"e eslesmiyordu (v3.1'de kacmisti): kontrol sozu Turkce kucuk harfle.
+  const kucuk = sade.toLocaleLowerCase('tr-TR');
+  for (const [kalip, tur] of KONTROL) if (kalip.test(kucuk)) return { tur };
   const h = hedefBul(sade, oturumlar || []);
+  const hedef = h ? { id: h.id, ad: h.ad } : null;
+  // v3.2: ozet / okuma / sekmeye git / soruya cevap. Yalniz cumlenin TAMAMI o kalipsa: aksi halde nottur.
+  // Hedefin ardindan gelen "-da/-de/-nin" ekleri hedefBul'da ayrildi; kalan yalniz eylem sozudur.
+  // Turkce kucuk harf: /i bayragi "İkinci"deki İ'yi i saymaz (U+0130 basit katlamada esi yok).
+  const kalan = (h ? h.kalan : sade).replace(/[.!?…]+$/u, '').trim().toLocaleLowerCase('tr-TR');
+  if (OZET.test(kalan)) return { tur: 'ozet', hedef, tam: false };
+  if (OKU.test(kalan)) return { tur: 'ozet', hedef, tam: true };
+  if (h && GIT.test(kalan)) return { tur: 'git', hedef };
+  if (ONERILEN.test(kalan)) return { tur: 'cevap', hedef, secimler: null, onerilen: true };
+  const secimler = siraCoz(kalan);
+  if (secimler) return { tur: 'cevap', hedef, secimler, onerilen: false };
   let govde = h ? h.kalan : sade;
   // Sondaki "gönder" cumleyi hemen yollar: "Matbaa'ya yaz testleri koş, gönder".
   let gonder = false;
@@ -149,4 +209,4 @@ function ipucu(adlar) {
   return [...new Set([...(adlar || []).filter(Boolean), ...terimler])].join(', ');
 }
 
-module.exports = { duzelt, anahtar, mesafe, hedefBul, komutCoz, ipucu };
+module.exports = { duzelt, anahtar, mesafe, hedefBul, komutCoz, ipucu, siraCoz };

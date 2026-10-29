@@ -375,8 +375,202 @@ function sesTesti() {
   kontrol('ses: ipucu adlari ve terimleri tasir', ipucu(['Kokpit', 'Kokpit', '']).startsWith('Kokpit, commit'));
 }
 
+// v3.2, Faz 49-50: sesli ozet / cevap / git ve gunun brifingi (saf moduller).
+function v32SesTesti() {
+  const { komutCoz, siraCoz } = require('../electron/ses-komut.cjs');
+  const { ozetCumlesi, cevapCoz, sozSadelestir, hedefSec } = require('../electron/sesli-ozet.cjs');
+  const o = [{ id: 'm', ad: 'Matbaa' }, { id: 'k', ad: 'Kokpit' }, { id: 'y', ad: 'Yanki' }];
+  const n = (m) => komutCoz(m, o);
+  const j = (x) => JSON.stringify(x);
+  // Komut cozumu
+  let r = n('Matbaa ne yaptı?');
+  kontrol('v32: "Matbaa ne yaptı" -> ozet @Matbaa', r.tur === 'ozet' && r.hedef?.id === 'm' && r.tam === false, j(r));
+  r = n("Matbaa'da ne oldu");
+  kontrol("v32: \"Matbaa'da ne oldu\" -> ozet @Matbaa", r.tur === 'ozet' && r.hedef?.id === 'm', j(r));
+  r = n('ne yaptı');
+  kontrol('v32: hedefsiz ozet', r.tur === 'ozet' && r.hedef === null, j(r));
+  r = n('Matbaa son mesajı oku');
+  kontrol('v32: "son mesajı oku" -> tam ozet', r.tur === 'ozet' && r.tam === true, j(r));
+  r = n('İkinci seçenek.');
+  kontrol('v32: "İkinci seçenek" (buyuk İ) -> cevap [1]', r.tur === 'cevap' && j(r.secimler) === '[1]', j(r));
+  r = n("Matbaa'da birinci");
+  kontrol("v32: \"Matbaa'da birinci\" -> cevap @Matbaa [0]", r.tur === 'cevap' && r.hedef?.id === 'm' && j(r.secimler) === '[0]', j(r));
+  r = n('birinci ve üçüncü seçeneği gönder');
+  kontrol('v32: cok soruya sirali cevap [0,2]', r.tur === 'cevap' && j(r.secimler) === '[0,2]', j(r));
+  r = n('önerileni seç');
+  kontrol('v32: "önerileni seç" -> onerilen', r.tur === 'cevap' && r.onerilen === true, j(r));
+  r = n('ikinci seçeneği uygula sonra testleri koş');
+  kontrol('v32: sira sayisiyla baslayan uzun cumle nottur', r.tur === 'not', j(r));
+  r = n('bir şey yap');
+  kontrol('v32: "bir şey yap" nottur (bir != secenek)', r.tur === 'not', j(r));
+  r = n("Kokpit'i aç");
+  kontrol("v32: \"Kokpit'i aç\" -> git @Kokpit", r.tur === 'git' && r.hedef?.id === 'k', j(r));
+  r = n('aç');
+  kontrol('v32: hedefsiz "aç" git degil (not)', r.tur !== 'git', j(r));
+  r = n('Günaydın Ada.');
+  kontrol('v32: "Günaydın Ada" -> brifing', r.tur === 'brifing', j(r));
+  r = n('Ada, Matbaa ne yaptı?');
+  kontrol('v32: bastaki "Ada," hitabi atilir', r.tur === 'ozet' && r.hedef?.id === 'm', j(r));
+  r = n('İptal.');
+  kontrol('v32: "İptal" (buyuk İ) vazgec (v3.1 hatasi)', r.tur === 'vazgec', j(r));
+  kontrol('v32: siraCoz bes parca reddedilir', siraCoz('bir, iki, üç, dört, bir') === null);
+  // Sesli ozet
+  const simdi = 1_800_000_000_000;
+  const soru = {
+    durum: 'bekliyor', degisti: simdi - 5000, soruZamani: simdi - 5000,
+    soruAyrinti: { cevaplanabilir: true, coklu: false, sorular: [{ baslik: 'Yol', soru: 'Hangi yolu seçelim?', secenekler: [{ etiket: 'Hızlı (Recommended)' }, { etiket: 'Sağlam' }] }] },
+  };
+  const bitti = {
+    durum: 'bitti', degisti: simdi - 1000, durumZamani: simdi - 1000,
+    tur: { dosyalar: ['a', 'b'], arti: 40, eksi: 3, araclar: 9, turlar: 1 }, ozet: { dosyalar: [], arti: 0, eksi: 0, araclar: 0, turlar: 0 },
+    sonSoz: '## Bitti\n**Testler** geçti: `npm test` 12/12.\n- C:\\Users\\x\\proje\\src\\App.tsx düzeltildi',
+  };
+  const git = { olculdu: simdi, commit: 1, ileride: 1, kirli: 0, uzakVar: true };
+  let c = ozetCumlesi({ ad: 'Matbaa', e: bitti, git, simdi, tam: false });
+  kontrol('v32: bitti ozeti sayilari soyler', /2 dosyaya dokundu, 40 satır ekledi, 3 satır sildi/.test(c) && /1 commit attı/.test(c) && /push bekliyor/.test(c), c);
+  kontrol('v32: ozet markdown ve tam yolu atar', !/[#*`]/.test(c) && /App\.tsx/.test(c) && !/Users/.test(c), c);
+  c = ozetCumlesi({ ad: 'Matbaa', e: soru, git: null, simdi, tam: false });
+  kontrol('v32: soru ozeti secenekleri sirayla okur', /bir, Hızlı/.test(c) && /iki, Sağlam/.test(c) && /ikinci/.test(c), c);
+  c = ozetCumlesi({ ad: 'Matbaa', e: null, git: null, simdi, tam: false });
+  kontrol('v32: etkinliksiz oturum', c === 'Matbaa henüz bir şey yapmadı.', c);
+  const uzun = sozSadelestir('Bir. '.repeat(100), 60);
+  kontrol('v32: uzun soz cumle sinirinda kesilir', uzun.length <= 61 && uzun.endsWith('.'), uzun);
+  // Sesli cevap
+  const oturumlar = { m: soru, k: bitti };
+  let cv = cevapCoz({ hedef: null, secimler: [1], onerilen: false }, o, oturumlar);
+  kontrol('v32: hedefsiz cevap soru soran oturuma gider', cv.istek?.id === 'm' && j(cv.istek.cevaplar) === '[1]' && cv.istek.damga === soru.soruZamani, j(cv));
+  cv = cevapCoz({ hedef: null, secimler: null, onerilen: true }, o, oturumlar);
+  kontrol('v32: onerilen secenek (Recommended) bulunur', j(cv.istek?.cevaplar) === '[0]', j(cv));
+  cv = cevapCoz({ hedef: null, secimler: [2], onerilen: false }, o, oturumlar);
+  kontrol('v32: olmayan secenek reddedilir', 'hata' in cv && /2 seçenek/.test(cv.hata), j(cv));
+  cv = cevapCoz({ hedef: { id: 'k', ad: 'Kokpit' }, secimler: [0], onerilen: false }, o, oturumlar);
+  kontrol('v32: soru sormayan oturuma cevap gitmez', 'hata' in cv && /soru sormuyor/.test(cv.hata), j(cv));
+  cv = cevapCoz({ hedef: null, secimler: [0], onerilen: false }, o, { k: bitti });
+  kontrol('v32: soru yoksa hata', 'hata' in cv && /bekleyen soru yok/i.test(cv.hata), j(cv));
+  const iki = { ...soru, soruAyrinti: { ...soru.soruAyrinti, sorular: [soru.soruAyrinti.sorular[0], soru.soruAyrinti.sorular[0]] } };
+  cv = cevapCoz({ hedef: null, secimler: [0], onerilen: false }, o, { m: iki });
+  kontrol('v32: cok soruya tek sira yetmez', 'hata' in cv && /2 soru var/.test(cv.hata), j(cv));
+  const coklu = { ...soru, soruAyrinti: { ...soru.soruAyrinti, cevaplanabilir: false, coklu: true } };
+  cv = cevapCoz({ hedef: null, secimler: [0], onerilen: false }, o, { m: coklu });
+  kontrol('v32: coklu secim terminale yonlenir', 'hata' in cv && /terminal/.test(cv.hata), j(cv));
+  kontrol('v32: ozet hedefi sira sende olan', hedefSec(null, o, oturumlar, 'ozet')?.id === 'm');
+
+  // Brifing
+  const { brifingKur, brifingGunu } = require('../electron/brifing.cjs');
+  const sabah = new Date(2026, 9, 30, 9, 0).getTime();
+  kontrol('v32: brifing gunu 05:00 sinirli', brifingGunu(new Date(2026, 9, 30, 3, 0).getTime()) === '2026-10-29' && brifingGunu(sabah) === '2026-10-30');
+  const durum = {
+    vadeler: [
+      { proje: 'Matbaa', tarih: '2026-10-29', saat: null, metin: 'matbaa kiyas', kalan_gun: -1 },
+      { proje: 'GridGrade', tarih: '2026-10-30', saat: '14:00', metin: 'alan adı', kalan_gun: 0 },
+      { proje: 'Otomat', tarih: '2026-11-05', saat: null, metin: 'uzak', kalan_gun: 6 },
+    ],
+    projeler: [
+      { ad: 'Kokpit', envanter: '✅ kullanımda', git: { ahead: 2, kirli: 0 } },
+      { ad: 'Eski', envanter: '⏸️ olduğu gibi', git: { ahead: 5, kirli: 3 } },
+      { ad: 'Tezgah', envanter: '🟢 aktif', git: { ahead: 0, kirli: 4 } },
+    ],
+    beyin: { kapsama: { dusmemis: [{}, {}] }, islenmemis_loglar: ['a', 'b', 'c'] },
+    saglik: { alarmlar: ['Otomat CI kırmızı'] },
+  };
+  const nob = { isler: [{ proje: 'Yanki', ad: 'üretim', hal: 'dustu', ayrinti: 'RunPod bakiyesi' }, { proje: 'Otomat', ad: 'günlük', hal: 'saglikli' }] };
+  const lim = { besSaat: { yuzde: 20, sifirlanma: sabah + 3600_000 }, hafta: { yuzde: 92, sifirlanma: sabah + 2 * 86400_000 } };
+  const b = brifingKur({ durum, nobet: nob, limitler: lim, oturumlar: { m: soru }, liste: o, simdi: sabah, gece: null });
+  const turler = b.maddeler.map((x) => x.tur);
+  kontrol('v32: brifing gecikmis vadeyi ilk sirada dikkatle verir', b.maddeler[0].tur === 'vade' && b.maddeler[0].onem === 'dikkat' && /gecikti/.test(b.maddeler[0].metin), j(b.maddeler[0]));
+  kontrol('v32: brifing uzak vadeyi almaz', !b.maddeler.some((x) => /uzak/.test(x.metin)));
+  kontrol('v32: brifing dusen botu ve bekleyen oturumu verir', turler.includes('bot') && turler.includes('oturum'), j(turler));
+  kontrol('v32: brifing arsiv projesini push/kirli listesine koymaz', !b.maddeler.some((x) => /Eski/.test(x.metin)) && b.maddeler.some((x) => x.tur === 'push' && /Kokpit 2/.test(x.metin)), j(b.maddeler));
+  kontrol('v32: brifing haftalik limiti sifirlanma gunuyle verir', b.maddeler.some((x) => x.tur === 'limit' && /%92/.test(x.metin) && x.onem === 'dikkat'), j(b.maddeler));
+  kontrol('v32: brifing beyin ve saglik', turler.includes('beyin') && turler.includes('saglik'));
+  kontrol('v32: brifing onerisi en acil is (gecikmis vade)', /Matbaa/.test(b.oneri || '') && /kiyas/.test(b.oneri || ''), b.oneri);
+  kontrol('v32: brifing cumlesi selamla baslar, sembol yok', b.cumle.startsWith('Günaydın.') && !/[·`]/.test(b.cumle), b.cumle);
+  const bos = brifingKur({ durum: { vadeler: [], projeler: [] }, nobet: null, limitler: null, oturumlar: {}, liste: [], simdi: new Date(2026, 9, 30, 20, 0).getTime() });
+  kontrol('v32: bos gunde de konusur', bos.maddeler.length === 0 && /Bekleyen bir şey yok/.test(bos.cumle) && bos.selam === 'İyi akşamlar', bos.cumle);
+}
+
+// v3.2, Faz 51: secili metin (saf parcalar + ek kaydi). Gercek Ctrl+Insert/pano: npm run test:secim (elle).
+function v32SecimTesti() {
+  const { kaynakAdi, metniHazirla, AZAMI } = require('../electron/secim.cjs');
+  kontrol('secim: Chrome basligi kisalir', kaynakAdi('TypeError - Stack Overflow - Google Chrome') === 'Chrome: TypeError - Stack Overflow', kaynakAdi('TypeError - Stack Overflow - Google Chrome'));
+  kontrol('secim: VS Code basligi', kaynakAdi('App.tsx - Kokpit - Visual Studio Code') === 'VS Code: App.tsx - Kokpit');
+  kontrol('secim: bilinmeyen uygulama basligi aynen, bos baslik "seçim"', kaynakAdi('Not Defteri') === 'Not Defteri' && kaynakAdi('') === 'seçim');
+  kontrol('secim: CRLF -> LF, kontrol karakteri atilir, sekme kalir', metniHazirla('a\r\nb\u0007\tc\r') === 'a\nb\tc');
+  const uzun = metniHazirla('x'.repeat(AZAMI + 50));
+  kontrol('secim: azami boyutta kesilir ve isaretlenir', uzun.length < AZAMI + 20 && uzun.endsWith('(kesildi)'));
+  const yakala = require('../electron/yakala.cjs');
+  const olay = [];
+  yakala.dinle((l, neden) => olay.push({ l, neden }));
+  const id = yakala.metinEkle('satir 1\nsatir 2', 'Chrome: hata');
+  const son = olay[olay.length - 1];
+  const ek = son?.l.find((x) => x.id === id);
+  kontrol('secim: metin eki tepsiye "secim" nedeniyle duser', son?.neden === 'secim' && ek?.tur === 'metin' && ek.satir === 2 && ek.ad === 'Chrome: hata', JSON.stringify(son));
+  kontrol('secim: Ada listesine metnin tamami gitmez (ozet)', ek && !('metin' in ek) && ek.ozet === 'satir 1\nsatir 2');
+  kontrol('secim: metin ekinin yolu yok, metinler() verir', yakala.yollar([id]).length === 0 && yakala.metinler([id])[0]?.metin === 'satir 1\nsatir 2');
+  yakala.sil([id]);
+  kontrol('secim: silinen metin eki gitmez', yakala.metinler([id]).length === 0);
+}
+
+// v3.2, Faz 52: Teslim. Gercek git: gecici depo + yerel bare "uzak" (aga cikilmaz).
+async function v32TeslimTesti() {
+  const t = require('../electron/teslim.cjs');
+  const { execFileSync } = require('child_process');
+  kontrol('teslim: githubDepo https/ssh', JSON.stringify(t.githubDepo('https://github.com/Scryne/Kokpit.git')) === '{"sahip":"Scryne","depo":"Kokpit"}' && t.githubDepo('git@github.com:a-b/c.d.git')?.depo === 'c.d' && t.githubDepo('https://gitlab.com/a/b') === null);
+  kontrol('teslim: farkKes satir sinirinda', t.farkKes('aaa\nbbb\nccc', 6).metin === 'aaa\n' && t.farkKes('kisa', 10).kesildi === false);
+  const ns = t.sayilariAyristir('3\t1\ta.txt\0-\t-\tlogo.png\0' + '2\t0\t\0eski.txt\0yeni.txt\0');
+  kontrol('teslim: numstat (ikili ve yeniden adlandirma)', ns['a.txt']?.arti === 3 && ns['logo.png']?.arti === null && ns['yeni.txt']?.arti === 2, JSON.stringify(ns));
+  const ds = t.durumAyristir(' M a.txt\0R  yeni.txt\0eski.txt\0?? ğ ü.md\0');
+  kontrol('teslim: porcelain -z (R eski adi atlanir, Turkce ad)', ds.length === 3 && ds[1].yol === 'yeni.txt' && ds[2].yol === 'ğ ü.md' && ds[2].durum === '??', JSON.stringify(ds));
+
+  const kok = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-teslim-'));
+  const uzak = path.join(kok, 'uzak.git');
+  const depo = path.join(kok, 'depo');
+  const g = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: 'pipe' }).toString();
+  try {
+    execFileSync('git', ['init', '--bare', '-b', 'main', uzak], { stdio: 'pipe' });
+    execFileSync('git', ['init', '-b', 'main', depo], { stdio: 'pipe' });
+    g(depo, 'config', 'user.email', 'test@users.noreply.github.com');
+    g(depo, 'config', 'user.name', 'Test');
+    g(depo, 'config', 'commit.gpgsign', 'false');
+    fs.writeFileSync(path.join(depo, 'a.txt'), 'bir\n');
+    g(depo, 'add', '.');
+    g(depo, 'commit', '-m', 'ilk');
+    g(depo, 'remote', 'add', 'origin', uzak);
+    let d = await t.detay(depo);
+    kontrol('teslim: uzak dalsiz depo: commit listesi son commitler, uzak yok', d.uzak === null && d.commitler.length === 1 && d.commitler[0].konu === 'ilk', JSON.stringify(d).slice(0, 200));
+    let p = await t.push(depo);
+    kontrol('teslim: uzak dal yokken push -u origin main', p.tamam && /main/.test(g(uzak, 'branch')), p.cikti);
+    fs.writeFileSync(path.join(depo, 'a.txt'), 'bir\niki\n');
+    g(depo, 'commit', '-am', 'ikinci: satır ekle');
+    fs.writeFileSync(path.join(depo, 'a.txt'), 'bir\niki\nüç\n');
+    fs.writeFileSync(path.join(depo, 'yeni dosya.md'), '# başlık\n');
+    d = await t.detay(depo);
+    kontrol('teslim: ileride 1, giden commit Turkce konu', d.uzak === 'origin/main' && d.ileride === 1 && d.commitler.length === 1 && d.commitler[0].konu === 'ikinci: satır ekle', JSON.stringify(d.commitler));
+    const ad = d.dosyalar.find((x) => x.yol === 'a.txt');
+    kontrol('teslim: kirli dosyalar + satir sayisi, izlenmeyen dosya', ad?.arti === 1 && ad?.eksi === 0 && d.dosyalar.some((x) => x.yol === 'yeni dosya.md' && x.durum === '??'), JSON.stringify(d.dosyalar));
+    let f = await t.fark(depo, { commit: d.commitler[0].tam });
+    kontrol('teslim: commit diff', !('hata' in f) && /\+iki/.test(f.metin) && /ikinci: satır ekle/.test(f.metin), JSON.stringify(f).slice(0, 200));
+    f = await t.fark(depo, { dosya: 'yeni dosya.md' });
+    kontrol('teslim: izlenmeyen dosya tamami eklenen', !('hata' in f) && /\+# başlık/.test(f.metin), JSON.stringify(f));
+    f = await t.fark(depo, { dosya: '../uzak.git/HEAD' });
+    kontrol('teslim: depo disina cikan yol reddedilir', 'hata' in f, JSON.stringify(f));
+    f = await t.fark(depo, { commit: 'HEAD; rm -rf' });
+    kontrol('teslim: gecersiz commit reddedilir', 'hata' in f);
+    p = await t.push(depo);
+    d = await t.detay(depo);
+    kontrol('teslim: push sonra ileride 0', p.tamam && d.ileride === 0, p.cikti);
+  } catch (e) {
+    kontrol('teslim kosucusu', false, e.stack);
+  } finally {
+    fs.rmSync(kok, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+}
+
 (async () => {
   try {
+    await v32TeslimTesti();
+    v32SecimTesti();
+    v32SesTesti();
     sesTesti();
     v3Testi();
     ustKatmanTesti();
