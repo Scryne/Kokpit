@@ -931,7 +931,7 @@ reddedilip v3.1'de istenmişti). Cevap: "her şeyi sana bırakıyorum, sınır t
   terminalde kırpılan bağlantı kabul edilmez). Ad pwsh tek tırnağı için süzülür (gerçek pwsh'ta tek argüman).
 - **Ekstra:** Ada "Görev ver" kipi (Şimdi / Paralel / Geceye); Teslim'de "Claude commit etsin"; "Kokpit'i aç" sesli.
 - **Testler:** `test:ada` 222 (110'dan), `test:ses` 18/18 (gerçek GPU + edge-tts; v3.2 6 cümle), `test:secim` 11/11 (elle),
-  `test:ui` yeni 32 kontrol yeşil (231 geçti; iki eski odak ön koşulu düştü, aşağıda), `test:pty` ve `test:kanca` 124 yeşil, vault
+  `test:ui` yeni 32 kontrol yeşil (231 geçti; v2.4'ün iki odak ön koşulu düştü: önde Gezgin. Aynı makinede v3.1 (`322b912`) de aynı ikisini düşürdü (208 + 2): ortam, v3.2 değil; gerçek parmak izi: `~/.kokpit` dokunulmadı), `test:pty` ve `test:kanca` 124 yeşil, vault
   `sistem_test.py` 16/16. **Mutasyon 9/9 yakalandı:** büyük İ, uyanma kelime sınırı, gece çift cevap, gece limit, paralel ana
   ağaç kirli, Teslim yol kaçışı, brifing arşiv süzgeci, cevap seçenek sınırı, kırpık uzak bağlantı.
 - **Kontrol edilemeyen:** gerçek insan sesiyle eller serbest (VAD gerçek mikrofonla), gerçek bir gece vardiyası (gerçek claude,
