@@ -29,6 +29,7 @@ const secim = require('./secim.cjs');
 const teslim = require('./teslim.cjs');
 const onizleme = require('./onizleme.cjs');
 const paralel = require('./paralel.cjs');
+const aria = require('./aria.cjs');
 const geceVardiyasi = require('./gece.cjs');
 const surum = require('./surum.cjs');
 
@@ -566,6 +567,31 @@ ipcMain.handle('paralel:at', async (_e, yol) => {
         })).response;
   if (secilen !== 0) return { tamam: false, iptal: true, cikti: 'Vazgeçildi' };
   return paralel.at(k.yol, kayip.length > 0);
+});
+
+// --- v3.3: Aria (aria.cjs): vault'ta kalici sohbet; ana pencere (Aria sayfasi) ve Ada (ses) dinler ---
+function ariaKur() {
+  aria.kur({
+    vault: require('./config.cjs').VAULT,
+    yayin: (o) => {
+      if (pencere) pencere.webContents.send('aria:olay', o);
+      ada.ariaOlay(o);
+    },
+  });
+}
+const ARIA_KAYNAK = new Set(['yazi', 'ses', 'ada']);
+ipcMain.handle('aria:gonder', (_e, metin, kaynak) => aria.gonder(typeof metin === 'string' ? metin : '', { kaynak: ARIA_KAYNAK.has(kaynak) ? kaynak : 'yazi' }));
+ipcMain.handle('aria:kes', () => aria.kes());
+ipcMain.handle('aria:gecmis', (_e, id) => aria.gecmis(typeof id === 'string' ? id : undefined));
+ipcMain.handle('aria:oturumlar', () => aria.oturumlar());
+ipcMain.handle('aria:durum', () => aria.durum());
+ipcMain.on('aria:yeni', () => aria.yeniSohbet());
+ipcMain.on('aria:isit', () => aria.isit());
+/** Aria sayfasinin sesli cevabi (Ada'ninki ada:konus). Metin sesli okunabilir oldugu kadar: markdown atilir. */
+ipcMain.handle('aria:konus', async (e, metin) => {
+  if (!pencere || e.sender !== pencere.webContents || typeof metin !== 'string') return null;
+  const b = await ses.konus(sesliOzet.sozSadelestir(metin, 600));
+  return b ? new Uint8Array(b) : null;
 });
 
 // --- v3.2: gece vardiyasi (gece.cjs kayit; kosucu ana pencerede) ---
@@ -1267,6 +1293,7 @@ app.whenReady().then(() => {
   // v3.2: gece vardiyasi kaydi nobete bildirildi (.claude/nobet.json); hic kullanilmadiysa "dosya yok" dusmesin.
   if (!TEST && !fs.existsSync(geceVardiyasi.DOSYA)) geceVardiyasi.yaz({});
   setInterval(() => brifingKontrol('saat'), 10 * 60 * 1000).unref?.();
+  ariaKur();
   pencereKur();
   adaKur();
   tepsiKur();
@@ -1359,6 +1386,7 @@ app.on('before-quit', (olay) => {
     return;
   }
   ptyKopru.durdur();
+  aria.kapat();
   ses.durdur();
   kanca.durdur();
   limit.durdur();

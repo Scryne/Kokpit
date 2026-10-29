@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Bot,
   PackageCheck,
+  Orbit,
   Smartphone,
   GitFork,
   Eye,
@@ -43,6 +44,7 @@ import Envanter from './Envanter';
 import Botlar from './Nobet';
 import Teslim from './Teslim';
 import Onizleme from './Onizleme';
+import AriaSayfasi from './AriaSayfasi';
 import { GeceKutusu, useGeceVardiyasi } from './Gece';
 import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
@@ -77,7 +79,7 @@ function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat' | 'kapaniyor'>) {
   return 'bg-metin-soluk';
 }
 
-type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter' | 'botlar' | 'teslim';
+type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter' | 'botlar' | 'teslim' | 'aria';
 const GORUNUM_BASLIK: Record<Gorunum, string> = {
   pano: 'Pano',
   terminal: 'Terminaller',
@@ -85,6 +87,7 @@ const GORUNUM_BASLIK: Record<Gorunum, string> = {
   envanter: 'Envanter',
   botlar: 'Botlar',
   teslim: 'Teslim',
+  aria: 'Aria',
 };
 
 /** Onceki calismadan kalan oturumlar icin tek satirlik teklif. Bir kez gorunur. */
@@ -1174,6 +1177,7 @@ export default function App() {
       { id: 's-saglik', grup: 'Sayfa', baslik: 'Sağlık', ipucu: 'Ctrl+3', calistir: () => setGorunum('saglik') },
       { id: 's-env', grup: 'Sayfa', baslik: 'Envanter', ipucu: 'Ctrl+4', calistir: () => setGorunum('envanter') },
       { id: 's-bot', grup: 'Sayfa', baslik: 'Botlar', ipucu: 'Ctrl+5', calistir: () => setGorunum('botlar') },
+      { id: 's-aria', grup: 'Sayfa', baslik: 'Aria (ikinci beyin)', ipucu: 'Ctrl+7', calistir: () => setGorunum('aria') },
       { id: 's-teslim', grup: 'Sayfa', baslik: 'Teslim (push, diff, paralel dallar)', ipucu: 'Ctrl+6', calistir: () => setGorunum('teslim') },
     ];
     for (const p of siraliProjeler) {
@@ -1318,6 +1322,9 @@ export default function App() {
       } else if (e.key === '6') {
         e.preventDefault();
         setGorunum('teslim');
+      } else if (e.key === '7') {
+        e.preventDefault();
+        setGorunum('aria');
       } else if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         // Ctrl+Shift+P: komut paleti. Ctrl+K degil: claude'da satir sonuna kadar siler.
         e.preventDefault();
@@ -1564,6 +1571,21 @@ export default function App() {
                 ↑{teslimSayisi}
               </span>
             )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setGorunum('aria')}
+            title="Aria (Ctrl+7)"
+            aria-label="Aria"
+            aria-current={gorunum === 'aria' ? 'page' : undefined}
+            className={
+              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              (kenarAcik ? '' : 'justify-center ') +
+              (gorunum === 'aria' ? 'bg-yuzey text-metin' : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
+            }
+          >
+            <Orbit className="size-4 shrink-0" aria-hidden="true" />
+            {kenarAcik && 'Aria'}
           </button>
         </nav>
 
@@ -1863,6 +1885,14 @@ export default function App() {
               setNobet(await window.kokpit.nobetTazele());
             }}
           />
+        </section>
+
+        {/* v3.3: Aria (Ctrl+7). Hep bagli: sohbet akisi arka planda da gelir, sayfaya donunce kaybolmaz. */}
+        <section
+          aria-label="Aria"
+          className={(gorunum === 'aria' ? 'flex' : 'hidden') + ' min-h-0 flex-1 flex-col'}
+        >
+          <AriaSayfasi gorunur={gorunum === 'aria'} />
         </section>
 
         <GeceKutusu

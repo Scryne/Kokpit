@@ -83,6 +83,20 @@ contextBridge.exposeInMainWorld('kokpit', {
     return () => ipcRenderer.removeListener('ada:brifing', d);
   },
   brifingVer: () => ipcRenderer.send('brifing:ver'),
+  // v3.3: Aria. Sohbet main'de (aria.cjs); ana pencere ve Ada ayni olaylari dinler.
+  ariaGonder: (metin, kaynak) => ipcRenderer.invoke('aria:gonder', metin, kaynak),
+  ariaKes: () => ipcRenderer.invoke('aria:kes'),
+  ariaGecmis: (id) => ipcRenderer.invoke('aria:gecmis', id),
+  ariaOturumlar: () => ipcRenderer.invoke('aria:oturumlar'),
+  ariaDurum: () => ipcRenderer.invoke('aria:durum'),
+  ariaYeni: () => ipcRenderer.send('aria:yeni'),
+  ariaIsit: () => ipcRenderer.send('aria:isit'),
+  ariaKonus: (metin) => ipcRenderer.invoke('aria:konus', metin),
+  ariaDinle: (cb) => {
+    const d = (_e, o) => cb(o);
+    ipcRenderer.on('aria:olay', d);
+    return () => ipcRenderer.removeListener('aria:olay', d);
+  },
   // v3.2: Teslim sayfasi. Yol main'de bilinen projelerle denetlenir; push main'de onay diyalogu ister.
   teslimDetay: (yol) => ipcRenderer.invoke('teslim:detay', yol),
   teslimFark: (yol, istek) => ipcRenderer.invoke('teslim:fark', yol, istek),

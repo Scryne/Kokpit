@@ -485,11 +485,11 @@ function v32SesTesti() {
   // Brifing
   const { brifingKur, brifingGunu } = require('../electron/brifing.cjs');
   const sabah = new Date(2026, 9, 30, 9, 0).getTime();
-  kontrol('v32: brifing gunu 05:00 sinirli', brifingGunu(new Date(2026, 9, 30, 3, 0).getTime()) === '2026-10-29' && brifingGunu(sabah) === '2026-10-29');
+  kontrol('v32: brifing gunu 05:00 sinirli', brifingGunu(new Date(2026, 9, 30, 3, 0).getTime()) === '2026-10-29' && brifingGunu(sabah) === '2026-10-30');
   const durum = {
     vadeler: [
       { proje: 'Matbaa', tarih: '2026-10-29', saat: null, metin: 'matbaa kiyas', kalan_gun: -1 },
-      { proje: 'GridGrade', tarih: '2026-10-29', saat: '14:00', metin: 'alan adı', kalan_gun: 0 },
+      { proje: 'GridGrade', tarih: '2026-10-30', saat: '14:00', metin: 'alan adı', kalan_gun: 0 },
       { proje: 'Otomat', tarih: '2026-11-05', saat: null, metin: 'uzak', kalan_gun: 6 },
     ],
     projeler: [
@@ -707,8 +707,76 @@ function v32GeceTesti() {
   kontrol('gece: vardiya yoksa ozet yok', gece.ozetKur({ gorevler: [{ durum: 'bekliyor' }] }, T) === null);
 }
 
+// v3.3, Faz 58: Aria cekirdegi. Saf olay isleme + sahte claude (scripts/sahte-claude.cjs) ile gercek surec akisi.
+async function v33AriaTesti() {
+  const aria = require('../electron/aria.cjs');
+  const ARGLAR = path.join(GECICI, 'aria-arglar.jsonl');
+  process.env.KOKPIT_TEST_ARIA_SAHTE = path.join(KOK, 'scripts', 'sahte-claude.cjs');
+  process.env.SAHTE_ARIA_ARGLAR = ARGLAR;
+  const j = (x) => JSON.stringify(x);
+  // Saf parcalar
+  kontrol('aria: gun 05:00 sinirli', aria.gunAnahtari(new Date(2026, 9, 30, 4, 0).getTime()) === '2026-10-29' && aria.gunAnahtari(new Date(2026, 9, 30, 9, 0).getTime()) === '2026-10-30');
+  kontrol('aria: arac ozeti (dosya adi, komut, mcp adi)', j(aria.aracOzeti('Read', { file_path: 'C:\\v\\🔮 850-Companion\\Threads.md' })) === j({ ad: 'Read', hedef: '🔮 850-Companion/Threads.md' }) && aria.aracOzeti('mcp__kokpit__oturumlar', {}).ad === 'kokpit.oturumlar' && aria.aracOzeti('Bash', { command: 'git status' }).hedef === 'git status');
+  const vault = path.join(GECICI, 'vault');
+  kontrol('aria: hafiza yolu yalniz vault icindeki yazma', aria.hafizaYolu('Edit', { file_path: path.join(vault, '🔮 850-Companion', 'Threads.md') }, vault) === '🔮 850-Companion/Threads.md' && aria.hafizaYolu('Read', { file_path: path.join(vault, 'x.md') }, vault) === null && aria.hafizaYolu('Write', { file_path: path.join(GECICI, 'disari.md') }, vault) === null);
+  let a = { id: 'a1', metinBirikmis: '', taslak: '', araclar: [], hafiza: [] };
+  let r = aria.olayIsle(a, { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Mer' } } }, vault);
+  r = aria.olayIsle(r.aktif, { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'haba' } } }, vault);
+  kontrol('aria: parcalar birikir, durum yaziyor', r.yayin[0]?.metin === 'Merhaba' && r.durum === 'yaziyor', j(r));
+  r = aria.olayIsle(r.aktif, { type: 'assistant', message: { content: [{ type: 'text', text: 'Merhaba.' }, { type: 'tool_use', name: 'Edit', input: { file_path: path.join(vault, 'Journal.md') } }] } }, vault);
+  kontrol('aria: tam mesaj taslagi ezer, arac + hafiza izi', r.aktif.metinBirikmis === 'Merhaba.' && r.aktif.araclar[0].ad === 'Edit' && r.aktif.hafiza[0] === 'Journal.md' && r.durum === 'arac', j(r.aktif));
+  const alt = aria.olayIsle(r.aktif, { type: 'assistant', parent_tool_use_id: 'x', message: { content: [{ type: 'text', text: 'ALT AJAN' }] } }, vault);
+  kontrol('aria: alt ajanin metni ana cevaba karismaz', alt.aktif.metinBirikmis === 'Merhaba.' && alt.yayin.length === 0);
+  r = aria.olayIsle(r.aktif, { type: 'result', subtype: 'success', is_error: false, duration_ms: 1500 }, vault);
+  kontrol('aria: result -> bitti, aktif bosalir', r.aktif === null && r.durum === 'bosta' && r.yayin[0]?.tur === 'bitti' && r.yayin[0].metin === 'Merhaba.' && r.yayin[0].sureMs === 1500);
+  r = aria.olayIsle({ id: 'a2', metinBirikmis: 'yar', taslak: '', araclar: [], hafiza: [] }, { type: 'result', subtype: 'error_during_execution', is_error: true }, vault);
+  kontrol('aria: kesilen tur hata degil "kesildi"', r.yayin[0].kesildi === true && r.yayin[0].hata === null);
+
+  // Gercek surec (sahte claude): gonder -> parca -> bitti; sira; kesme; kapat + resume.
+  fs.mkdirSync(vault, { recursive: true });
+  const olaylar = [];
+  let bekleyen = null;
+  aria.kur({ vault, yayin: (o) => { olaylar.push(o); if (o.tur === 'bitti' && bekleyen) bekleyen(o); } });
+  const bitti = (ms = 8000) => new Promise((coz) => { bekleyen = coz; setTimeout(() => coz(null), ms); });
+  let b = bitti();
+  const g1 = aria.gonder('merhaba');
+  let son = await b;
+  kontrol('aria surec: cevap geldi, parca olaylari akti', son && son.id === g1.ariaId && son.metin === 'Yanki: merhaba' && olaylar.some((o) => o.tur === 'parca'), j(son));
+  const ilkArg = JSON.parse(fs.readFileSync(ARGLAR, 'utf8').trim().split('\n')[0]);
+  kontrol('aria surec: stream-json, strict mcp, Kokpit istemi, yeni kimlik', ilkArg.includes('--input-format') && ilkArg.includes('--strict-mcp-config') && ilkArg.includes('--append-system-prompt') && ilkArg.includes('--session-id'), j(ilkArg));
+  b = bitti();
+  aria.gonder('sesli soru', { kaynak: 'ses' });
+  son = await b;
+  kontrol('aria surec: sesli kaynak "[ses]" onekiyle gider', son && son.metin === 'Sesli: sesli soru', j(son));
+  // Sira: mesgulken gelen mesaj tur bitince gider.
+  const ikiBitti = [];
+  bekleyen = (o) => ikiBitti.push(o);
+  aria.gonder('yavas birinci');
+  aria.gonder('ikinci');
+  await new Promise((r2) => setTimeout(r2, 300));
+  kontrol('aria surec: kesme calisan turu durdurur', aria.kes() === true);
+  for (let i = 0; i < 40 && ikiBitti.length < 2; i++) await new Promise((r2) => setTimeout(r2, 150));
+  kontrol('aria surec: kesme kuyrugu da bosaltir (ikinci gitmez)', ikiBitti.length === 1 && ikiBitti[0].kesildi === true, j(ikiBitti.map((x) => x.metin.slice(0, 20))));
+  aria.kapat();
+  await new Promise((r2) => setTimeout(r2, 600));
+  b = bitti();
+  aria.gonder('devam');
+  son = await b;
+  const arglar = fs.readFileSync(ARGLAR, 'utf8').trim().split('\n').map((x) => JSON.parse(x));
+  const ikinci = arglar[arglar.length - 1];
+  kontrol('aria surec: kapatilinca ayni gunun kimligiyle --resume', son && ikinci.includes('--resume') && ikinci[ikinci.indexOf('--resume') + 1] === ilkArg[ilkArg.indexOf('--session-id') + 1], j(ikinci));
+  const g = aria.gecmis();
+  kontrol('aria: gecmis diske yazildi (sen + aria mesajlari)', g.mesajlar.filter((m) => m.rol === 'sen').length >= 4 && g.mesajlar.some((m) => m.rol === 'aria' && m.metin === 'Yanki: devam') && g.oturum.baslik === 'merhaba', j(g.mesajlar.map((m) => m.rol + ':' + m.metin.slice(0, 12))));
+  aria.yeniSohbet();
+  await new Promise((r2) => setTimeout(r2, 400));
+  kontrol('aria: yeni sohbet ayni gune ikinci kimlik', aria.oturumlar().length === 2 && aria.oturumlar()[0].id !== aria.oturumlar()[1].id);
+  aria.kapat();
+  delete process.env.KOKPIT_TEST_ARIA_SAHTE;
+}
+
 (async () => {
   try {
+    await v33AriaTesti();
     v32GeceTesti();
     await v32ParalelTesti();
     await v32TeslimTesti();

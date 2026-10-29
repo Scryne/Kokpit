@@ -675,3 +675,21 @@ html.ada body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* v3.3 Aria: akan cevabin imleci. Yalniz akis surerken var (birkac saniye); kademeli, hareket azaltmada sabit. */
+.aria-imlec {
+  display: inline-block;
+  width: 0.45em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--color-aksan);
+  animation: aria-imlec 1s steps(2, jump-none) infinite;
+}
+@keyframes aria-imlec {
+  from { opacity: 1; }
+  to { opacity: 0.15; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aria-imlec { animation: none; }
+}

@@ -577,6 +577,10 @@ module.exports = {
     }
     gonder('ada:brifing', { brifing: b, konus: konus === true, acil: neden !== 'gun' });
   },
+  /** v3.3: Aria'nin akisi (Ada onun yuzu: dusunurken goz, sesli sorunun cevabini soyler). */
+  ariaOlay(o) {
+    gonder('aria:olay', o);
+  },
   /** v3.2: kisa bilgi notu hapta (secim bulunamadi, vardiya basladi ...). */
   not(metin) {
     if (!ada || ada.isDestroyed() || !acik) return;

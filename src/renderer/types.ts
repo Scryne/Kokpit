@@ -510,6 +510,41 @@ export interface AdaOturumu {
   yol?: string;
 }
 
+/** v3.3: Aria (electron/aria.cjs). */
+export type AriaDurumu = 'bosta' | 'aciliyor' | 'dusunuyor' | 'yaziyor' | 'arac';
+export interface AriaAraci {
+  ad: string;
+  hedef: string;
+}
+export interface AriaMesaji {
+  id: string;
+  rol: 'sen' | 'aria';
+  metin: string;
+  t: number;
+  kaynak?: 'yazi' | 'ses' | 'ada';
+  araclar?: AriaAraci[];
+  /** Vault'a yazilan dosyalar (goreli): gorunur hafiza. */
+  hafiza?: string[];
+  kesildi?: boolean;
+  hata?: string;
+  sureMs?: number | null;
+  /** Akis suruyor (yalniz ekranda). */
+  akiyor?: boolean;
+}
+export type AriaOlayi =
+  | { tur: 'durum'; durum: AriaDurumu }
+  | { tur: 'mesaj'; mesaj: AriaMesaji; ariaId: string }
+  | { tur: 'parca'; id: string; metin: string }
+  | { tur: 'arac'; id: string; arac: AriaAraci; hafiza: string[] }
+  | { tur: 'bitti'; id: string; metin: string; kesildi?: boolean; hata?: string | null; sureMs?: number | null; araclar: AriaAraci[]; hafiza: string[] }
+  | { tur: 'hata'; metin: string };
+export interface AriaOturumu {
+  gun: string;
+  id: string;
+  baslik: string | null;
+  t: number;
+}
+
 /** v3.2: Teslim sayfasi (electron/teslim.cjs). */
 export interface TeslimCommiti {
   kisa: string;
@@ -686,6 +721,15 @@ declare global {
       adaBrifingDinle: (cb: (v: { brifing: Brifing; konus: boolean; acil: boolean }) => void) => () => void;
       brifingVer: () => void;
       adaNotDinle: (cb: (metin: string) => void) => () => void;
+      ariaGonder: (metin: string, kaynak?: 'yazi' | 'ses' | 'ada') => Promise<{ senId: string; ariaId: string } | null>;
+      ariaKes: () => Promise<boolean>;
+      ariaGecmis: (id?: string) => Promise<{ oturum: AriaOturumu | null; mesajlar: AriaMesaji[] }>;
+      ariaOturumlar: () => Promise<AriaOturumu[]>;
+      ariaDurum: () => Promise<{ durum: AriaDurumu; canli: boolean; id: string | null }>;
+      ariaYeni: () => void;
+      ariaIsit: () => void;
+      ariaKonus: (metin: string) => Promise<Uint8Array | null>;
+      ariaDinle: (cb: (o: AriaOlayi) => void) => () => void;
       teslimDetay: (yol: string) => Promise<TeslimDetayi>;
       geceOku: () => Promise<GeceVardiyasi>;
       geceYaz: (v: GeceVardiyasi) => Promise<GeceVardiyasi>;
