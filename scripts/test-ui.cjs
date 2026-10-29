@@ -750,6 +750,32 @@ async function v3Testi(cdp, adaCdp) {
   await adaAc();
   await adaCdp.js(`(() => { document.querySelector('[data-ses-dugme]').click(); return true; })()`);
   kontrol('bos tanima -> hap "Duyamadım", tepsi yok', await adaCdp.bekle(`document.querySelector('.ada-metin')?.textContent === 'Duyamadım' && !document.querySelector('[data-ek-tepsisi]')`, 15000, 'duyamadim').catch(() => false));
+
+  console.log('v3.2 ses: sesli ozet, sorusuz cevap, brifing');
+  // 4) "<ad> ne yaptı?" -> main kanca halinden cumle kurar; kartta tam hali, logda ozet @hedef.
+  fs.writeFileSync(SES_METNI, adim + ' ne yaptı?');
+  await adaAc();
+  await adaCdp.js(`(() => { document.querySelector('[data-ses-dugme]').click(); return true; })()`);
+  const ozetMetni = await adaCdp
+    .bekle(`(document.querySelector('[data-ada-cevap]')?.textContent ?? '').startsWith(${JSON.stringify(adim)})`, 15000, 'sesli ozet')
+    .then(() => adaCdp.js(`document.querySelector('[data-ada-cevap]').textContent`))
+    .catch(async () => 'YOK: ' + (await adaCdp.js(`document.querySelector('.ada-metin')?.textContent ?? ''`)));
+  kontrol('sesli ozet: kartta oturumun cumlesi (sembolsuz)', !ozetMetni.startsWith('YOK') && !/[·`*#]/.test(ozetMetni), ozetMetni);
+  kontrol('log: ada sesi ozet @hedef', fs.readFileSync(LOG('kokpit.log'), 'utf8').includes('ada sesi: ozet @' + adim));
+  // 5) Soru yokken "ikinci seçenek": hicbir sey gonderilmez, Ada nedenini soyler.
+  fs.writeFileSync(SES_METNI, 'İkinci seçenek.');
+  await adaCdp.js(`(() => { document.querySelector('[data-ses-dugme]').click(); return true; })()`);
+  kontrol('sorusuz sesli cevap: "soru sormuyor / bekleyen soru yok"', await adaCdp.bekle(`/soru (sormuyor|yok)/i.test(document.querySelector('[data-ada-cevap]')?.textContent ?? document.querySelector('.ada-metin')?.textContent ?? '')`, 15000, 'sorusuz cevap').catch(() => false), await adaCdp.js(`document.querySelector('.ada-metin')?.textContent ?? ''`));
+  // 6) "Günaydın Ada" -> brifing karti (fikstur durumu: vade/bot olmayabilir, kart yine gelir).
+  fs.writeFileSync(SES_METNI, 'Günaydın Ada.');
+  await adaCdp.js(`(() => { document.querySelector('[data-ses-dugme]').click(); return true; })()`);
+  kontrol('sesli brifing: kartta "Brifing" bolumu', await adaCdp.bekle(`!!document.querySelector('[data-ada-brifing]')`, 20000, 'brifing').catch(() => false));
+  await adaCdp.js(`(() => { [...document.querySelectorAll('[data-ada-brifing] button')].find(b => b.textContent.trim() === 'Tamam')?.click(); return true; })()`);
+  kontrol('brifing "Tamam" ile kalkar', await adaCdp.bekle(`!document.querySelector('[data-ada-brifing]')`, 3000, 'brifing kalkti').catch(() => false));
+  await adaKapat();
+  await cdp.js(`(() => { window.kokpit.brifingVer(); return true; })()`);
+  kontrol('paletten brifing: Ada karti acilir', await adaCdp.bekle(`!!document.querySelector('[data-ada-brifing]')`, 20000, 'palet brifing').catch(() => false));
+  await adaCdp.js(`(() => { [...document.querySelectorAll('[data-ada-brifing] button')].find(b => b.textContent.trim() === 'Tamam')?.click(); return true; })()`);
   await adaKapat();
   await uyu(400);
 
@@ -1197,7 +1223,9 @@ async function main() {
     const defterSatirOnce = fs.existsSync(DEFTER) ? fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).length : 0;
     // Sahte "dev sunucusu": adresi yazar ve calismaya devam eder. Komut test veri dizinindeki
     // calistir.json'a yazilir.
-    const servisKomutu = `node -e "console.log('  Local:   http://localhost:51999/'); setInterval(() => {}, 1000)"`;
+    // v3.2: sunucu GERCEKTEN sayfa verir (onizleme + isaretle sinanir): bir dugme ve bir konsol hatasi. Adres
+    // dinlemeden once yazilir: yeniden baslatmada eski agac portu birakmadan yenisi acilirsa yine adres gelir.
+    const servisKomutu = `node -e "const s=require('http').createServer((q,r)=>{r.setHeader('content-type','text/html; charset=utf-8');r.end('<title>Deneme</title><main><button class=cta style=margin:40px>Satın al</button></main><script>console.error(\\x27onizleme hatasi 7\\x27)</script>')});s.on('error',()=>{});console.log('  Local:   http://localhost:51999/');s.listen(51999);setInterval(()=>{},1000)"`;
     kontrol('tarif kaydedildi', !!projeYolu && (await cdp.js(`window.kokpit.calistirKaydet(${JSON.stringify(projeYolu)}, ${JSON.stringify(servisKomutu)})`)) === true, projeAdi + ' ' + projeYolu);
     await cdp.tus('1', 2, 'Digit1');
     await cdp.bekle(`!!document.querySelector('button[aria-label=${JSON.stringify(projeAdi + ' uygulamasını çalıştır')}]')`, 5000, 'calistir dugmesi');
@@ -1206,6 +1234,35 @@ async function main() {
     kontrol('servis bolmesi acik claude sekmesinin icine acildi ("' + projeAdi + ' +1")', true);
     await cdp.bekle(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('localhost:51999'))`, 20000, 'servis adresi');
     kontrol('servis basliginda adres dugmesi (localhost:51999)', true);
+
+    console.log('v3.2 onizleme: adres gelince bolme uygulamayi gosterir, isaretle-soyle, konsol hatasi');
+    const wvYuklendi = await cdp
+      .bekle(`(() => { const w = document.querySelector('[data-onizleme] webview'); if (!w) return false; try { return w.getURL().includes('51999') && !w.isLoading(); } catch { return false; } })()`, 15000, 'onizleme yuklendi')
+      .catch(() => false);
+    kontrol("onizleme: servis bolmesi adresi webview'de acti", wvYuklendi, await cdp.js(`document.querySelector('[data-onizleme]') ? 'var' : 'yok'`));
+    const cta = await cdp.js(`document.querySelector('[data-onizleme] webview').executeJavaScript('document.querySelector(".cta")?.textContent ?? null')`).catch((e) => 'HATA ' + e.message);
+    kontrol('onizleme: konuk sayfa gercekten cizildi (dugme metni)', cta === 'Satın al', cta);
+    kontrol('onizleme: konuk sayfaya Node verilmedi', (await cdp.js(`document.querySelector('[data-onizleme] webview').executeJavaScript('typeof require + "/" + typeof process')`)) === 'undefined/undefined');
+    kontrol('onizleme: konsol hatasi sayaci', await cdp.bekle(`(document.querySelector('[data-onizleme-hata]')?.textContent ?? '').includes('1')`, 5000, 'hata sayaci').catch(() => false));
+    await cdp.js(`(() => { document.querySelector('[data-isaretle]').click(); return true; })()`);
+    await cdp.bekle(`document.querySelector('[data-isaretle]')?.getAttribute('aria-pressed') === 'true'`, 3000, 'isaretleme acik');
+    await uyu(400);
+    // Konuk sayfada dugmenin ortasina gercek fare olayi (webview.sendInputEvent: Chromium girdi yolu).
+    const ortasi = await cdp.js(`document.querySelector('[data-onizleme] webview').executeJavaScript('(() => { const r = document.querySelector(".cta").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()')`);
+    await cdp.js(`(() => { const w = document.querySelector('[data-onizleme] webview'); const o = ${JSON.stringify(ortasi)};
+      w.sendInputEvent({ type: 'mouseMove', x: o.x, y: o.y }); w.sendInputEvent({ type: 'mouseDown', x: o.x, y: o.y, button: 'left', clickCount: 1 }); w.sendInputEvent({ type: 'mouseUp', x: o.x, y: o.y, button: 'left', clickCount: 1 }); return true; })()`);
+    const kart = await cdp.bekle(`!!document.querySelector('[data-isaret-karti]')`, 6000, 'isaret karti').catch(() => false);
+    const kartMetni = await cdp.js(`document.querySelector('[data-isaret-karti]')?.textContent ?? ''`);
+    kontrol('isaretle: tiklanan oge kartta (etiket + metin)', kart && kartMetni.includes('button.cta') && kartMetni.includes('Satın al'), kartMetni);
+    kontrol('isaretle: ogenin kirpigi alindi (onizleme goruntusu)', await cdp.js(`!!document.querySelector('[data-isaret-karti] img')?.src.startsWith('data:image/png')`));
+    kontrol('isaretle: sayfadaki dugme tetiklenmedi (tiklama yutuldu)', (await cdp.js(`document.querySelector('[data-onizleme] webview').executeJavaScript('document.getElementById("__kokpit_isaret") === null')`)) === true);
+    await cdp.js(`(() => { const i = document.querySelector('[data-isaret-karti] input'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, 'bunu büyüt'); i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    const gonderOnce = cdp.konsol.length;
+    await cdp.js(`(() => { document.querySelector('[data-isaret-karti] button[type=submit]').click(); return true; })()`);
+    const gitti = await cdp.bekle(`!document.querySelector('[data-isaret-karti]')`, 8000, 'isaret gonderildi').catch(() => false);
+    kontrol('isaretle: kirpik + oge blogu + not claude bolmesine gitti', gitti && cdp.konsol.slice(gonderOnce).some((k) => k.includes('[gonder] ' + projeAdi + ': ek (1 yol')), cdp.konsol.slice(gonderOnce).join(' | '));
+    await cdp.js(`(() => { document.querySelector('[data-onizleme-dugme]').click(); return true; })()`);
+    kontrol('onizleme: "Çıktı" ile sunucu ciktisina donulur, tekrar "Önizle"', await cdp.bekle(`!document.querySelector('[data-onizleme]') && document.querySelector('[data-onizleme-dugme]')?.textContent.includes('Önizle')`, 3000, 'cikti').catch(() => false));
     kontrol('Pano satirinda calisiyor isareti (adres)', await cdp.bekle(`(() => { const b = document.querySelector('button[aria-label=${JSON.stringify(projeAdi + ' çalışıyor, bölmesine git')}]'); return !!b && b.textContent.includes(':51999'); })()`, 5000, 'pano isareti').catch(() => false), await cdp.js(`[...document.querySelectorAll('table button[aria-label]')].map(b => b.getAttribute('aria-label') + '=' + b.textContent).filter(x => x.includes(${JSON.stringify(projeAdi)})).join(' | ')`));
     const servisSayisi = () => (fs.readFileSync(LOG('pty-server.log'), 'utf8').match(/komut=servis: /g) || []).length;
     const servisOnce = servisSayisi();

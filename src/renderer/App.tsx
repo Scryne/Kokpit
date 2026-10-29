@@ -4,6 +4,9 @@ import {
   AlertTriangle,
   Bot,
   PackageCheck,
+  GitFork,
+  Eye,
+  SquareTerminal,
   Boxes,
   ChevronRight,
   ExternalLink,
@@ -38,6 +41,7 @@ import Saglik from './Saglik';
 import Envanter from './Envanter';
 import Botlar from './Nobet';
 import Teslim from './Teslim';
+import Onizleme from './Onizleme';
 import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
@@ -463,6 +467,26 @@ export default function App() {
     []
   );
 
+  /**
+   * v3.2: paralel oturum. Kokpit projede yeni bir git calisma agaci + dal acar (`.claude/worktrees/<ad>`),
+   * claude orada calisir; ana agac etkilenmez. Birlestirme/atma Teslim sayfasinda. `gorev` (gece vardiyasi
+   * ya da Ada'dan paralel gorev) varsa claude'un ilk mesaji olur.
+   */
+  const paralelAc = useCallback(
+    async (p: Pick<Proje, 'ad' | 'yol'>, secenek?: { gorev?: string; arkaPlan?: boolean; ad?: string }) => {
+      const r = await window.kokpit.paralelAc(p.yol, secenek?.ad ?? '');
+      if ('hata' in r) {
+        setNotBildirimi('Paralel oturum açılamadı: ' + r.hata);
+        return null;
+      }
+      console.info('[paralel] ' + p.ad + '/' + r.kayit.ad + (r.notlar.length ? ' (' + r.notlar.join(', ') + ')' : ''));
+      sekmeAc({ ad: p.ad + '/' + r.kayit.ad, yol: r.kayit.yol }, false, null, { gorev: secenek?.gorev, arkaPlan: secenek?.arkaPlan });
+      if (r.notlar.length) setNotBildirimi(p.ad + '/' + r.kayit.ad + ': ' + r.notlar.join(' · '));
+      return r.kayit;
+    },
+    [sekmeAc]
+  );
+
   // Komutu bilinmeyen projede sorulan kutu (CalistirKutusu).
   const [calistirSor, setCalistirSor] = useState<{
     proje: Pick<Proje, 'ad' | 'yol'>;
@@ -497,8 +521,12 @@ export default function App() {
     setAktifOturumId((a) => (a === id ? yeni : a));
   }, []);
 
+  // v3.2: adres ilk gelince bolme onizlemeye gecer (Scryne secimi kalici: bir kez kapattiysa kapali kalir).
   const onAdres = useCallback((id: string, adres: string) => {
-    setOturumlar((l) => l.map((x) => (x.id === id && x.servis ? { ...x, servis: { ...x.servis, adres } } : x)));
+    setOturumlar((l) => l.map((x) => (x.id === id && x.servis ? { ...x, servis: { ...x.servis, adres, onizleme: x.servis.onizleme ?? true } } : x)));
+  }, []);
+  const onizlemeDegistir = useCallback((id: string) => {
+    setOturumlar((l) => l.map((x) => (x.id === id && x.servis ? { ...x, servis: { ...x.servis, onizleme: !x.servis.onizleme } } : x)));
   }, []);
 
   /**
@@ -1110,7 +1138,7 @@ export default function App() {
       { id: 's-saglik', grup: 'Sayfa', baslik: 'Sağlık', ipucu: 'Ctrl+3', calistir: () => setGorunum('saglik') },
       { id: 's-env', grup: 'Sayfa', baslik: 'Envanter', ipucu: 'Ctrl+4', calistir: () => setGorunum('envanter') },
       { id: 's-bot', grup: 'Sayfa', baslik: 'Botlar', ipucu: 'Ctrl+5', calistir: () => setGorunum('botlar') },
-      { id: 's-teslim', grup: 'Sayfa', baslik: 'Teslim (push, diff)', ipucu: 'Ctrl+6', calistir: () => setGorunum('teslim') },
+      { id: 's-teslim', grup: 'Sayfa', baslik: 'Teslim (push, diff, paralel dallar)', ipucu: 'Ctrl+6', calistir: () => setGorunum('teslim') },
     ];
     for (const p of siraliProjeler) {
       const acik = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik' && !o.servis);
@@ -1799,6 +1827,11 @@ export default function App() {
               simdi={simdi}
               onTazele={() => tazele('elle')}
               onClaude={(p, gorev) => sekmeAc(p, false, null, { gorev })}
+              onAgacaGit={(a) => {
+                const acik = oturumlar.find((o) => !o.servis && o.durumu === 'acik' && o.yol.toLowerCase() === a.yol.toLowerCase());
+                if (acik) grubaGit(acik.grupId, acik.id);
+                else sekmeAc({ ad: a.proje + '/' + a.ad, yol: a.yol });
+              }}
             />
           )}
         </section>
@@ -1929,6 +1962,12 @@ export default function App() {
               )}
               <ProjeSecici
                 projeler={siraliProjeler}
+                ikon={GitFork}
+                baslik="Paralel oturum (ayrı dalda)"
+                onSec={(p) => void paralelAc(p)}
+              />
+              <ProjeSecici
+                projeler={siraliProjeler}
                 ikon={Plus}
                 baslik="Yeni sekme"
                 onSec={sekmeAc}
@@ -2012,6 +2051,19 @@ export default function App() {
                               <span className="enstruman shrink-0 text-metin-ikincil">{o.ad}</span>
                               <span className="enstruman min-w-0 truncate text-metin-soluk">{o.servis.komut}</span>
                             </button>
+                            {o.servis.adres && (
+                              <button
+                                type="button"
+                                data-onizleme-dugme
+                                onClick={() => onizlemeDegistir(o.id)}
+                                aria-pressed={o.servis.onizleme === true}
+                                title={o.servis.onizleme ? 'Sunucu çıktısını göster' : 'Uygulamayı burada önizle'}
+                                className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-kontrol border border-kenar px-2 py-0.5 text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
+                              >
+                                {o.servis.onizleme ? <SquareTerminal className="size-3" aria-hidden="true" /> : <Eye className="size-3" aria-hidden="true" />}
+                                {o.servis.onizleme ? 'Çıktı' : 'Önizle'}
+                              </button>
+                            )}
                             {o.servis.adres ? (
                               <button
                                 type="button"
@@ -2158,10 +2210,23 @@ export default function App() {
                             }
                           />
                         )}
+                        {o.servis?.onizleme && o.servis.adres && (
+                          <Onizleme
+                            adres={o.servis.adres}
+                            gorunur={g.id === aktifGrupId && gorunum === 'terminal'}
+                            hedefler={oturumlar.filter((x) => !x.servis && x.durumu === 'acik').map((x) => ({ id: x.id, ad: x.ad }))}
+                            varsayilanHedef={
+                              (g.uyeler.find((x) => !x.servis && x.durumu === 'acik') ?? oturumlar.find((x) => !x.servis && x.durumu === 'acik' && x.yol === o.yol))?.id ?? null
+                            }
+                            onGonder={(hedef, paket) =>
+                              oturumaGonder({ id: hedef, tur: 'ek', yollar: paket.yollar, metinler: paket.metinler, metin: paket.not, gonder: true })
+                            }
+                          />
+                        )}
                         <div
                           onMouseDown={() => setAktifOturumId(o.id)}
                           onFocus={() => setAktifOturumId(o.id)}
-                          className="min-h-0 flex-1 overflow-hidden rounded-kontrol bg-terminal p-2"
+                          className={(o.servis?.onizleme && o.servis.adres ? 'hidden ' : '') + 'min-h-0 flex-1 overflow-hidden rounded-kontrol bg-terminal p-2'}
                         >
                           <TerminalOturumu
                             key={o.id}

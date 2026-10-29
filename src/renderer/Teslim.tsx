@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowUpFromLine, FolderOpen, GitBranch, GitCommitHorizontal, Globe, Lock, RefreshCw, Sparkles, X } from 'lucide-react';
-import type { Proje, TeslimDetayi, TeslimFarki } from './types';
+import { ArrowUpFromLine, FolderOpen, GitBranch, GitCommitHorizontal, GitFork, GitMerge, Globe, Lock, RefreshCw, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react';
+import type { ParalelAgac, Proje, TeslimDetayi, TeslimFarki } from './types';
 import { sureMetni } from './parcalar';
 
 // v3.2, Teslim sayfasi (Ctrl+6): disari cikmayi bekleyen her sey tek yerde. Solda push bekleyen ya da
@@ -33,12 +33,15 @@ export default function Teslim({
   simdi,
   onTazele,
   onClaude,
+  onAgacaGit,
 }: {
   projeler: Proje[];
   simdi: number;
   onTazele: () => Promise<void>;
   /** Projede commit icin claude oturumu (gorev metniyle) acar. */
   onClaude: (p: Pick<Proje, 'ad' | 'yol'>, gorev: string) => void;
+  /** Paralel agacin oturumuna gider (yoksa acar). */
+  onAgacaGit: (a: ParalelAgac) => void;
 }) {
   const liste = useMemo(() => teslimBekleyenler(projeler), [projeler]);
   const [secili, setSecili] = useState<string | null>(null);
@@ -47,6 +50,20 @@ export default function Teslim({
   const [fark, setFark] = useState<{ baslik: string; f: TeslimFarki } | null>(null);
   const [pushDurumu, setPushDurumu] = useState<{ yol: string; metin: string; tamam: boolean | null } | null>(null);
   const [tazeleniyor, setTazeleniyor] = useState(false);
+  // v3.2: paralel agaclar (Faz 54). Sayfa her acildiginda ve her eylemden sonra okunur.
+  const [agaclar, setAgaclar] = useState<ParalelAgac[]>([]);
+  const [agacSonucu, setAgacSonucu] = useState<{ yol: string; metin: string; tamam: boolean | null } | null>(null);
+  const agaclariOku = useCallback(async () => setAgaclar(await window.kokpit.paralelListe()), []);
+  useEffect(() => {
+    void agaclariOku();
+  }, [agaclariOku]);
+  const agacEylemi = async (a: ParalelAgac, tur: 'birlestir' | 'at') => {
+    setAgacSonucu({ yol: a.yol, metin: tur === 'birlestir' ? 'Birleştiriliyor…' : 'Siliniyor…', tamam: null });
+    const r = tur === 'birlestir' ? await window.kokpit.paralelBirlestir(a.yol) : await window.kokpit.paralelAt(a.yol);
+    setAgacSonucu({ yol: a.yol, metin: r.iptal ? 'Vazgeçildi.' : r.cikti || (r.tamam ? 'Tamam.' : 'Olmadı.'), tamam: r.iptal ? null : r.tamam });
+    await agaclariOku();
+    if (r.tamam) void onTazele();
+  };
 
   const seciliProje = liste.find((p) => p.yol === secili) ?? liste[0] ?? null;
 
@@ -105,7 +122,7 @@ export default function Teslim({
           disabled={tazeleniyor}
           onClick={() => {
             setTazeleniyor(true);
-            void onTazele()
+            void Promise.all([onTazele(), agaclariOku()])
               .then(() => seciliProje && oku(seciliProje.yol))
               .finally(() => setTazeleniyor(false));
           }}
@@ -115,6 +132,82 @@ export default function Teslim({
           {tazeleniyor ? 'Okunuyor' : 'Tazele'}
         </button>
       </section>
+
+      {agaclar.length > 0 && (
+        <section aria-label="Paralel dallar" data-paralel-dallar className="halka relative overflow-hidden rounded-base bg-yuzey">
+          <p className="etiket flex items-center gap-2 border-b border-kenar px-4 py-2">
+            <GitFork className="size-3.5 text-metin-soluk" aria-hidden="true" />
+            Paralel dallar · {agaclar.length}
+          </p>
+          <table className="w-full text-sm">
+            <tbody>
+              {agaclar.map((a) => (
+                <tr key={a.yol} data-agac={a.ad} className="border-b border-kenar align-top last:border-0">
+                  <td className="px-4 py-2">
+                    <span className="enstruman text-metin">{a.proje}</span>
+                    <span className="enstruman text-metin-ikincil">/{a.ad}</span>
+                    {a.gece && <span className="ml-2 text-xs text-metin-soluk">gece vardiyası</span>}
+                    <span className="enstruman block text-xs text-metin-soluk">
+                      {a.dal} ← {a.taban} · {onceMetni(a.olusturuldu, simdi)}
+                    </span>
+                    {agacSonucu?.yol === a.yol && (
+                      <pre role="status" className={'enstruman mt-1 max-h-32 overflow-auto whitespace-pre-wrap text-xs ' + (agacSonucu.tamam === false ? 'text-hata-metin' : 'text-metin-ikincil')}>
+                        {agacSonucu.metin}
+                      </pre>
+                    )}
+                  </td>
+                  <td className="enstruman whitespace-nowrap px-2 py-2 text-xs">
+                    <span className="text-metin" title="Tabana göre yeni commit">{a.ileride} commit</span>
+                    {a.dosya > 0 && (
+                      <span className="block text-metin-soluk">
+                        {a.dosya} dosya <span className="text-metin">+{a.arti}</span> −{a.eksi}
+                      </span>
+                    )}
+                    {a.kirli > 0 && <span className="block text-dikkat-metin" title="Commit edilmemiş: birleştirmeden önce commit gerek">±{a.kirli} kirli</span>}
+                    {a.geride > 0 && <span className="block text-metin-soluk" title="Taban dal bu arada ilerledi">taban ↑{a.geride}</span>}
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className="flex flex-wrap justify-end gap-1.5">
+                      <button type="button" onClick={() => onAgacaGit(a)} title="Bu ağacın claude oturumu" className="flex cursor-pointer items-center gap-1 rounded-kontrol border border-kenar px-2 py-0.5 text-xs text-metin-ikincil hover:border-kenar-guclu hover:text-metin">
+                        <TerminalSquare className="size-3.5" aria-hidden="true" /> Oturum
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => setFark({ baslik: a.proje + '/' + a.ad + ': ' + a.taban + '...' + a.dal, f: await window.kokpit.paralelFark(a.yol) })}
+                        className="cursor-pointer rounded-kontrol border border-kenar px-2 py-0.5 text-xs text-metin-ikincil hover:border-kenar-guclu hover:text-metin"
+                      >
+                        Diff
+                      </button>
+                      <button
+                        type="button"
+                        data-agac-birlestir
+                        disabled={a.ileride === 0 || a.kirli > 0}
+                        title={a.kirli > 0 ? 'Önce commit edilmemiş değişiklikleri commit et' : a.ileride === 0 ? 'Birleştirilecek commit yok' : a.dal + ' → ' + a.taban + ' (--no-ff)'}
+                        onClick={() => void agacEylemi(a, 'birlestir')}
+                        className="flex cursor-pointer items-center gap-1 rounded-kontrol bg-birincil px-2.5 py-0.5 text-xs font-medium text-birincil-uzeri hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <GitMerge className="size-3.5" aria-hidden="true" /> Birleştir
+                      </button>
+                      <button
+                        type="button"
+                        data-agac-at
+                        onClick={() => void agacEylemi(a, 'at')}
+                        aria-label={a.proje + '/' + a.ad + ' ağacını ve dalını sil'}
+                        title="Ağacı ve dalı sil (onay ister)"
+                        className="cursor-pointer rounded-kontrol border border-kenar p-1 text-metin-soluk hover:border-kenar-guclu hover:text-metin"
+                      >
+                        <Trash2 className="size-3.5" aria-hidden="true" />
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {fark && agaclar.length > 0 && liste.length === 0 && <FarkGorunumu baslik={fark.baslik} f={fark.f} onKapat={() => setFark(null)} />}
 
       {liste.length === 0 ? (
         <p className="text-sm text-metin-soluk">Teslim bekleyen bir şey yok: push bekleyen commit ya da commit edilmemiş değişiklik yok.</p>

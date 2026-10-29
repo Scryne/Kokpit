@@ -566,8 +566,74 @@ async function v32TeslimTesti() {
   }
 }
 
+// v3.2, Faz 54: paralel oturumlar. Gercek git + gercek junction (gecici depo, KOKPIT_DIZIN gecici).
+async function v32ParalelTesti() {
+  const par = require('../electron/paralel.cjs');
+  const { execFileSync } = require('child_process');
+  kontrol('paralel: ad temizleme (Turkce, bosluk, sembol)', par.adTemizle('Ödeme Sayfası / v2!') === 'odeme-sayfasi-v2');
+  kontrol('paralel: ad uretimi bos -> p1, cakisma -> sonraki', par.adUret('', []) === 'p1' && par.adUret('', ['p1', 'p2']) === 'p3' && par.adUret('Deneme', ['deneme']) === 'deneme1');
+  const kok = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-paralel-'));
+  const depo = path.join(kok, 'Proje');
+  const g = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: 'pipe' }).toString();
+  try {
+    execFileSync('git', ['init', '-b', 'main', depo], { stdio: 'pipe' });
+    g(depo, 'config', 'user.email', 'test@users.noreply.github.com');
+    g(depo, 'config', 'user.name', 'Test');
+    g(depo, 'config', 'commit.gpgsign', 'false');
+    fs.writeFileSync(path.join(depo, '.gitignore'), 'node_modules/\n.env\n');
+    fs.writeFileSync(path.join(depo, 'a.txt'), 'bir\n');
+    fs.mkdirSync(path.join(depo, 'node_modules', 'paket'), { recursive: true });
+    fs.writeFileSync(path.join(depo, 'node_modules', 'paket', 'index.js'), 'module.exports = 1;\n');
+    fs.writeFileSync(path.join(depo, '.env'), 'GIZLI=1\n');
+    g(depo, 'add', '.');
+    g(depo, 'commit', '-m', 'ilk');
+    const r = await par.olustur(depo, 'Proje', '');
+    kontrol('paralel: agac acildi (.claude/worktrees/p1, dal kokpit/p1, taban main)', r.kayit?.ad === 'p1' && r.kayit.dal === 'kokpit/p1' && r.kayit.taban === 'main' && fs.existsSync(path.join(depo, '.claude', 'worktrees', 'p1', 'a.txt')), JSON.stringify(r));
+    const agac = r.kayit.yol;
+    kontrol('paralel: node_modules junction + .env kopyasi', fs.existsSync(path.join(agac, 'node_modules', 'paket', 'index.js')) && fs.lstatSync(path.join(agac, 'node_modules')).isSymbolicLink() && fs.readFileSync(path.join(agac, '.env'), 'utf8') === 'GIZLI=1\n', JSON.stringify(r.notlar));
+    kontrol('paralel: ana depo status temiz (agac exclude\'da)', g(depo, 'status', '--porcelain').trim() === '', g(depo, 'status', '--porcelain'));
+    kontrol('paralel: yollar() Teslim icin agaci tanir', par.yollar().includes(agac));
+    const r2 = await par.olustur(depo, 'Proje', '');
+    kontrol('paralel: ikinci agac p2', r2.kayit?.ad === 'p2', JSON.stringify(r2));
+    fs.writeFileSync(path.join(agac, 'a.txt'), 'bir\niki\n');
+    let l = (await par.liste()).find((x) => x.ad === 'p1');
+    kontrol('paralel: liste kirli dosyayi sayar', l?.kirli === 1 && l.ileride === 0, JSON.stringify(l));
+    let b = await par.birlestir(agac);
+    kontrol('paralel: kirli agac birlestirilmez', !b.tamam && /commit edilmemiş/.test(b.cikti), b.cikti);
+    g(agac, 'commit', '-am', 'paralel: iki');
+    l = (await par.liste()).find((x) => x.ad === 'p1');
+    kontrol('paralel: commit sonrasi ileride 1, satir farki', l?.ileride === 1 && l.arti === 1 && l.kirli === 0, JSON.stringify(l));
+    const f = await par.fark(agac);
+    kontrol('paralel: dal diff\'i (taban...dal)', !('hata' in f) && /\+iki/.test(f.metin));
+    fs.writeFileSync(path.join(depo, 'a.txt'), 'bir\nANA\n');
+    b = await par.birlestir(agac);
+    kontrol('paralel: ana agac kirliyken birlestirilmez', !b.tamam && /Ana ağaçta/.test(b.cikti), b.cikti);
+    g(depo, 'checkout', '--', 'a.txt');
+    b = await par.birlestir(agac);
+    // autocrlf=true makinede checkout CRLF yazar: satir sonu normallestirilir.
+    const aMetni = () => fs.readFileSync(path.join(depo, 'a.txt'), 'utf8').replace(/\r/g, '');
+    kontrol('paralel: birlestir --no-ff, ana dalda merge commit', b.tamam && /Paralel: p1/.test(g(depo, 'log', '-1', '--format=%s')) && aMetni() === 'bir\niki\n', b.cikti + ' | ' + JSON.stringify(aMetni()) + ' | ' + g(depo, 'log', '-1', '--format=%s'));
+    // Cakisma: p2 ayni satiri baska turlu degistirir -> merge geri alinir, ana agac temiz kalir.
+    fs.writeFileSync(path.join(r2.kayit.yol, 'a.txt'), 'bir\nUC\n');
+    g(r2.kayit.yol, 'commit', '-am', 'p2: cakisan');
+    b = await par.birlestir(r2.kayit.yol);
+    kontrol('paralel: cakismada merge geri alinir, ana agac temiz', !b.tamam && /Çakışma/.test(b.cikti) && g(depo, 'status', '--porcelain').trim() === '' && aMetni() === 'bir\niki\n', b.cikti + ' | ' + g(depo, 'status', '--porcelain'));
+    let a = await par.at(agac, false);
+    kontrol('paralel: birlestirilmis agac atilir (dal da silinir)', a.tamam && !fs.existsSync(agac) && !g(depo, 'branch').includes('kokpit/p1'), a.cikti);
+    kontrol('paralel: atinca ana node_modules yerinde (junction izlenmedi)', fs.existsSync(path.join(depo, 'node_modules', 'paket', 'index.js')));
+    a = await par.at(r2.kayit.yol, false);
+    kontrol('paralel: birlestirilmemis dal zorlamasiz silinmez (dal kalir)', a.tamam && /dal kaldı/.test(a.cikti) && g(depo, 'branch').includes('kokpit/p2'), a.cikti);
+    kontrol('paralel: atilan agaclar kayittan duser', (await par.liste()).length === 0);
+  } catch (e) {
+    kontrol('paralel kosucusu', false, e.stack);
+  } finally {
+    fs.rmSync(kok, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+}
+
 (async () => {
   try {
+    await v32ParalelTesti();
     await v32TeslimTesti();
     v32SecimTesti();
     v32SesTesti();

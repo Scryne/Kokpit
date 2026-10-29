@@ -183,7 +183,8 @@ export interface Oturum {
    * Servis bolmesi (Calistir): claude degil, projenin kendi komutu (npm run dev...). Deftere,
    * ada'ya ve kapatma onayina girmez; kapaninca surec agaci oldurulur.
    */
-  servis?: { komut: string; adres?: string };
+  /** v3.2 onizleme: adres gelince bolme uygulamayi gosterir (Onizleme.tsx); false = sunucu ciktisi. */
+  servis?: { komut: string; adres?: string; onizleme?: boolean };
 }
 
 export interface PtyBilgi {
@@ -536,6 +537,25 @@ export type TeslimDetayi =
   | { hata: string };
 export type TeslimFarki = { metin: string; kesildi: boolean } | { hata: string };
 
+/** v3.2: paralel oturumun calisma agaci (electron/paralel.cjs). */
+export interface ParalelAgac {
+  proje: string;
+  projeYol: string;
+  ad: string;
+  yol: string;
+  dal: string;
+  taban: string;
+  olusturuldu: number;
+  ileride: number;
+  geride: number;
+  kirli: number;
+  dosya: number;
+  arti: number;
+  eksi: number;
+  /** Gece vardiyasinin acti (gece.cjs). */
+  gece?: boolean;
+}
+
 /** v3.2: gunun brifingi (electron/brifing.cjs). */
 export interface BrifingMaddesi {
   tur: 'gece' | 'vade' | 'bot' | 'oturum' | 'push' | 'kirli' | 'limit' | 'beyin' | 'saglik' | (string & {});
@@ -629,6 +649,14 @@ declare global {
       brifingVer: () => void;
       adaNotDinle: (cb: (metin: string) => void) => () => void;
       teslimDetay: (yol: string) => Promise<TeslimDetayi>;
+      paralelAc: (yol: string, ad?: string) => Promise<{ kayit: ParalelAgac; notlar: string[] } | { hata: string }>;
+      paralelListe: () => Promise<ParalelAgac[]>;
+      paralelFark: (yol: string) => Promise<TeslimFarki>;
+      paralelBirlestir: (yol: string) => Promise<{ tamam: boolean; iptal?: boolean; cikti: string }>;
+      paralelAt: (yol: string) => Promise<{ tamam: boolean; iptal?: boolean; cikti: string }>;
+      onizlemeYakala: (wcId: number, alan: { x: number; y: number; w: number; h: number }) => Promise<{ yol: string; onizleme: string } | { hata: string }>;
+      sesMetin: (wav: ArrayBuffer) => Promise<{ metin: string } | { hata: string }>;
+      sesHazirla: () => void;
       teslimFark: (yol: string, istek: { commit: string } | { dosya: string }) => Promise<TeslimFarki>;
       teslimPush: (yol: string) => Promise<{ tamam: boolean; iptal?: boolean; cikti: string }>;
       nobetGetir: () => Promise<BotNobeti | null>;
@@ -646,3 +674,4 @@ declare global {
     };
   }
 }
+

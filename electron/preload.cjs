@@ -86,6 +86,16 @@ contextBridge.exposeInMainWorld('kokpit', {
   teslimDetay: (yol) => ipcRenderer.invoke('teslim:detay', yol),
   teslimFark: (yol, istek) => ipcRenderer.invoke('teslim:fark', yol, istek),
   teslimPush: (yol) => ipcRenderer.invoke('teslim:push', yol),
+  // v3.2: paralel oturumlar (git calisma agaci). Birlestir/at main'de onay ister.
+  paralelAc: (yol, ad) => ipcRenderer.invoke('paralel:ac', yol, ad),
+  paralelListe: () => ipcRenderer.invoke('paralel:liste'),
+  paralelFark: (yol) => ipcRenderer.invoke('paralel:fark', yol),
+  paralelBirlestir: (yol) => ipcRenderer.invoke('paralel:birlestir', yol),
+  paralelAt: (yol) => ipcRenderer.invoke('paralel:at', yol),
+  // v3.2: onizleme (isaretlenen ogenin kirpigi) ve ana pencerede dikte (yalniz metin).
+  onizlemeYakala: (wcId, alan) => ipcRenderer.invoke('onizleme:yakala', wcId, alan),
+  sesMetin: (wav) => ipcRenderer.invoke('ses:metin', wav),
+  sesHazirla: () => ipcRenderer.send('ses:hazirla'),
   adaNotDinle: (cb) => {
     const d = (_e, v) => cb(v);
     ipcRenderer.on('ada:not', d);

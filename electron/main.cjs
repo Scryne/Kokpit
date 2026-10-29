@@ -27,6 +27,7 @@ const sesliOzet = require('./sesli-ozet.cjs');
 const brifing = require('./brifing.cjs');
 const secim = require('./secim.cjs');
 const teslim = require('./teslim.cjs');
+const onizleme = require('./onizleme.cjs');
 const paralel = require('./paralel.cjs');
 const geceVardiyasi = require('./gece.cjs');
 const surum = require('./surum.cjs');
@@ -153,8 +154,29 @@ function pencereKur() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // v3.2: servis bolmesinin onizlemesi (<webview>). Konuk sayfa yalniz yerel gelistirme sunucusu olabilir
+      // ve Node/preload almaz (will-attach-webview asagida).
+      webviewTag: true,
     },
   });
+
+  // v3.2 onizleme: konuk sayfanin ayarlari burada zorlanir (renderer ne isterse istesin): preload yok, Node
+  // yok, sandbox, ayri oturum bolumu (gelistirme sitesinin cerezleri Kokpit'inkilerle karismaz). Kaynak
+  // yalniz yerel adres: claude'un dev sunucusu, internet degil.
+  pencere.webContents.on('will-attach-webview', (olay, prefs, params) => {
+    delete prefs.preload;
+    prefs.nodeIntegration = false;
+    prefs.nodeIntegrationInSubFrames = false;
+    prefs.contextIsolation = true;
+    prefs.sandbox = true;
+    prefs.webSecurity = true;
+    params.partition = 'persist:onizleme';
+    if (!onizleme.yerelAdres(params.src)) {
+      log('onizleme reddedildi (yerel degil): ' + String(params.src).slice(0, 80));
+      olay.preventDefault();
+    }
+  });
+  pencere.webContents.on('did-attach-webview', (_e, konuk) => onizleme.konukKur(konuk, (url) => void shell.openExternal(url)));
 
   // --- Teshis kablolari (Faz 0 karari: v1'de kalir) ---
   pencere.webContents.on('console-message', (e) => {
@@ -482,6 +504,75 @@ function brifingKontrol(neden, gecikmeMs = 0) {
   }, gecikmeMs);
 }
 ipcMain.handle('ada:brifing', async () => brifingHazirla());
+
+// --- v3.2: paralel oturumlar (paralel.cjs) ---
+ipcMain.handle('paralel:ac', async (_e, yol, ad) => {
+  const y = bilinenYol(yol);
+  if (!y) return { hata: 'bilinmeyen proje yolu' };
+  const p = sonDurum?.veri?.projeler?.find((x) => path.resolve(x.yol).toLowerCase() === path.resolve(y).toLowerCase());
+  return paralel.olustur(y, p?.ad ?? path.basename(y), typeof ad === 'string' ? ad : '');
+});
+ipcMain.handle('paralel:liste', async () => paralel.liste());
+ipcMain.handle('paralel:fark', async (_e, yol) => paralel.fark(yol));
+/** Paralel agacta acik oturum var mi (ada listesinin yollari): varken birlestirme/atma yapilmaz. */
+function agactaOturum(yol) {
+  const n = path.resolve(String(yol)).toLowerCase();
+  return [...oturumYerleri.values()].some((o) => path.resolve(o.yol).toLowerCase() === n);
+}
+ipcMain.handle('paralel:birlestir', async (_e, yol) => {
+  const k = paralel.bul(yol);
+  if (!k || !pencere) return { tamam: false, cikti: 'paralel ağaç bulunamadı' };
+  const durum = (await paralel.liste()).find((x) => x.yol === k.yol);
+  const ayrinti = (durum ? durum.ileride + ' commit, ' + durum.dosya + ' dosya (+' + durum.arti + ' −' + durum.eksi + ')' : '') + '\n' + k.dal + ' → ' + k.taban + ' (--no-ff merge, ana ağaçta)\nPush yapılmaz; ağaç ve dal yerinde kalır.';
+  const secilen =
+    TEST_SECIM !== null
+      ? TEST_SECIM
+      : (await dialog.showMessageBox(pencere, { type: 'question', title: 'Birleştir: ' + k.ad, message: k.proje + ' / ' + k.ad + ' ana dala birleştirilsin mi?', detail: ayrinti, buttons: ['Birleştir', 'Vazgeç'], defaultId: 0, cancelId: 1, noLink: true })).response;
+  if (secilen !== 0) return { tamam: false, iptal: true, cikti: 'Vazgeçildi' };
+  return paralel.birlestir(k.yol);
+});
+ipcMain.handle('paralel:at', async (_e, yol) => {
+  const k = paralel.bul(yol);
+  if (!k || !pencere) return { tamam: false, cikti: 'paralel ağaç bulunamadı' };
+  if (agactaOturum(k.yol)) return { tamam: false, cikti: 'Bu ağaçta açık bir oturum var; önce onu kapat.' };
+  const durum = (await paralel.liste()).find((x) => x.yol === k.yol);
+  const kayip = [
+    durum && durum.kirli > 0 ? durum.kirli + ' commit edilmemiş dosya' : '',
+    durum && durum.ileride > 0 ? durum.ileride + ' birleştirilmemiş commit' : '',
+  ].filter(Boolean);
+  const secilen =
+    TEST_SECIM !== null
+      ? TEST_SECIM
+      : (await dialog.showMessageBox(pencere, {
+          type: kayip.length ? 'warning' : 'question',
+          title: 'At: ' + k.ad,
+          message: k.proje + ' / ' + k.ad + ' ağacı ve ' + k.dal + ' dalı silinsin mi?',
+          detail: kayip.length ? 'Geri alınamaz, kaybolacak: ' + kayip.join(', ') + '.' : 'Dal birleştirilmiş ya da boş; kaybolan iş yok.',
+          buttons: [kayip.length ? 'Sil (kaybolanlarla)' : 'Sil', 'Vazgeç'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        })).response;
+  if (secilen !== 0) return { tamam: false, iptal: true, cikti: 'Vazgeçildi' };
+  return paralel.at(k.yol, kayip.length > 0);
+});
+
+// --- v3.2: onizleme (isaretle-soyle) ve ana pencerede dikte ---
+/** Isaretlenen ogenin kirpigi: konuk ana pencerenin webview'i olmali; PNG ~/.kokpit/goruntu'ya. */
+ipcMain.handle('onizleme:yakala', async (e, wcId, alan) => {
+  if (!pencere || e.sender !== pencere.webContents) return { hata: 'yetkisiz' };
+  return onizleme.yakala(pencere.webContents, wcId, alan);
+});
+/** Ana pencerenin mikrofon dugmesi (onizleme notu): yalniz metin doner, eylem yok. */
+ipcMain.handle('ses:metin', async (e, ham) => {
+  if (!pencere || e.sender !== pencere.webContents) return { hata: 'yetkisiz' };
+  if (!(ham instanceof Uint8Array) && !(ham instanceof ArrayBuffer)) return { hata: 'ses kaydı geçersiz' };
+  const r = await ses.coz(Buffer.from(ham instanceof ArrayBuffer ? new Uint8Array(ham) : ham), sesKomut.ipucu([]));
+  return 'hata' in r ? r : { metin: sesKomut.duzelt(r.metin) };
+});
+ipcMain.on('ses:hazirla', (e) => {
+  if (pencere && e.sender === pencere.webContents) void ses.hazirla();
+});
 
 // --- v3.2: Teslim sayfasi (teslim.cjs) ---
 /** Renderer'dan gelen yol yalniz bilinen bir proje (durum.py), vault ya da Kokpit'in actigi bir calisma agaci olabilir. */
