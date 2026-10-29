@@ -135,8 +135,9 @@ export default function Pano({
       </section>
 
       {/* Proje tablosu: kart degil satir. Yogun, taranabilir, tek hizada. */}
-      <section className="halka relative overflow-hidden rounded-base bg-yuzey">
-        <table className="w-full text-left">
+      {/* Dar pencerede (900 px, kenar acik) sag sutundaki eylem dugmeleri kirpilmasin: tablo yatay kayar. */}
+      <section className="halka relative overflow-x-auto overflow-y-hidden rounded-base bg-yuzey">
+        <table className="w-full min-w-[40rem] text-left">
           <caption className="sr-only">Projelerin aşama, ilerleme ve git durumu</caption>
           <thead>
             <tr className="border-b border-kenar">
@@ -272,6 +273,7 @@ export default function Pano({
                         <button
                           type="button"
                           onClick={() => onOturumaGit(oturum.id)}
+                          aria-label={p.ad + ' oturumuna git (' + sureMetni(Math.floor((simdi - oturum.baslangic) / 1000)) + ' açık)'}
                           className="inline-flex cursor-pointer items-center gap-1.5 rounded-kontrol border border-kenar-guclu px-2.5 py-1.5 text-xs text-metin transition-colors duration-[180ms] hover:bg-yuzey-guclu"
                         >
                           <TerminalSquare className="size-3.5" aria-hidden="true" />
@@ -284,6 +286,7 @@ export default function Pano({
                           type="button"
                           onClick={() => onBaslat(p)}
                           title={p.ad + ' klasöründe claude oturumu aç'}
+                          aria-label={p.ad + ' klasöründe claude oturumu aç'}
                           className="inline-flex cursor-pointer items-center gap-1.5 rounded-kontrol border border-kenar px-2.5 py-1.5 text-xs text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
                         >
                           <TerminalSquare className="size-3.5" aria-hidden="true" />

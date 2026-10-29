@@ -1,8 +1,8 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookMarked, BrainCircuit, Check, ChevronDown, History, Lightbulb, Mic, Moon, Plus, RefreshCw, Send, Square, TerminalSquare, Volume2, VolumeX, Waypoints, X } from 'lucide-react';
 import type { AriaDurumu, AriaMesaji, AriaNotu, AriaOnerisi, AriaOturumu, HafizaAgi } from './types';
 import SinyalHalkasi, { HAL_ADI, type HalkaHali } from './SinyalHalkasi';
-import { kayitBaslat, type Kayit } from './sesKayit';
+import { kayitBaslat, mikrofonHatasi, type Kayit } from './sesKayit';
 import { mdCiz } from './md';
 import HafizaPaneli from './HafizaPaneli';
 import AriaAgi, { aracDugumleri, type AgKumanda } from './AriaAgi';
@@ -221,10 +221,16 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
     [eskiGun, yukle]
   );
 
+  // Mikrofon izni beklerken ikinci tik ikinci kaydi, cozulurken yeni kayit eski STT'nin durumunu bozmasin.
+  const dinlemeRef = useRef(dinleme);
+  dinlemeRef.current = dinleme;
   const dinle = useCallback(async () => {
     if (kayit.current) return kayit.current.durdur();
+    if (dinlemeRef.current !== 'yok') return;
     window.kokpit.sesHazirla();
+    setHata(null);
     setDinleme('dinliyor');
+    dinlemeRef.current = 'dinliyor';
     try {
       kayit.current = await kayitBaslat({
         seviye: setSeviye,
@@ -236,19 +242,40 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
             return;
           }
           setDinleme('cozuluyor');
-          void window.kokpit.sesMetin(wav).then((r) => {
-            setDinleme('yok');
-            if ('hata' in r) setHata(r.hata);
-            else void gonder(r.metin, 'ses');
-          });
+          void window.kokpit
+            .sesMetin(wav)
+            .then((r) => {
+              if ('hata' in r) setHata(r.hata);
+              else void gonder(r.metin, 'ses');
+            })
+            .catch((e: Error) => setHata('Ses çözülemedi: ' + e.message))
+            .finally(() => setDinleme('yok'));
         },
       });
-    } catch {
+    } catch (e) {
       kayit.current = null;
       setDinleme('yok');
-      setHata('Mikrofon açılamadı');
+      setHata(mikrofonHatasi(e));
     }
   }, [gonder]);
+  // Sayfadan cikinca (baska sayfa) suren kayit durur: mikrofon arka planda acik kalmasin.
+  useEffect(() => {
+    if (!gorunur) kayit.current?.iptal();
+  }, [gorunur]);
+  useEffect(() => () => kayit.current?.iptal(), []);
+  // Aria'nin agindaki amber halka: onay bekleyen onerilerin projeleri. Icerige gore sabit dizi (her render'da yeni dizi
+  // agin cizim etkisini her tusta yeniden tetikliyordu).
+  const bekleyenAnahtar = oneriler.filter((k) => k.durum === 'bekliyor' && k.proje).map((k) => k.proje!).join('|');
+  const bekleyenProjeler = useMemo(() => (bekleyenAnahtar ? bekleyenAnahtar.split('|') : []), [bekleyenAnahtar]);
+
+  const agGosterRef = useRef(agGoster);
+  agGosterRef.current = agGoster;
+  // Sabit geri cagirim: mesaj satirlari memo'lu, her render'da yeni fonksiyon onlari yeniden cizerdi.
+  const hafizadaAc = useCallback((yol: string) => {
+    if (agGosterRef.current) setCekmece(true);
+    else setPanel(true);
+    setAcilacak({ yol, t: Date.now() });
+  }, []);
 
   const hafizadanSor = (onek: string) => {
     setMetin(onek);
@@ -267,10 +294,14 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
     <div className={'flex min-h-0 min-w-0 flex-col ' + (agGoster ? 'w-[min(40rem,44%)] shrink-0' : 'flex-1')}>
       <header className="relative flex shrink-0 items-start gap-3 pb-2">
         <div className="flex min-w-0 flex-1 flex-col items-center">
-          <SinyalHalkasi hal={hal} seviye={seviye} boyut={mesajlar.length ? 128 : 208} />
-          <p data-aria-hal={hal} className={'mt-1 text-xs ' + (hal === 'hata' ? 'text-hata-metin' : 'text-metin-soluk')} aria-live="polite">
+          <SinyalHalkasi hal={hal} seviye={seviye} boyut={mesajlar.length || agGoster ? 128 : 208} etkin={gorunur} />
+          {/* Durum metni gorunur ama surekli duyurulmaz (her arac degisiminde okunuyordu); hata ayri, tek duyuru. */}
+          <p data-aria-hal={hal} className={'mt-1 max-w-full truncate px-2 text-xs ' + (hal === 'hata' ? 'text-hata-metin' : 'text-metin-soluk')} title={hata ?? halMetni}>
             {hata ?? halMetni}
           </p>
+          <span className="sr-only" role="status">
+            {hata ?? (hal === 'bosta' ? '' : HAL_ADI[hal])}
+          </span>
         </div>
         <div className="absolute right-0 top-0 flex items-center gap-1">
           <button
@@ -416,11 +447,7 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
                 <>
                   <AriaMesajiSatiri
                     m={m}
-                    onHafiza={(yol) => {
-                      if (agGoster) setCekmece(true);
-                      else setPanel(true);
-                      setAcilacak({ yol, t: Date.now() });
-                    }}
+                    onHafiza={hafizadaAc}
                   />
                   {oneriler
                     .filter((k) => k.mesajId === m.id)
@@ -452,7 +479,8 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
             }
           }}
           rows={Math.min(6, Math.max(1, metin.split('\n').length))}
-          placeholder={dinleme === 'dinliyor' ? 'Dinliyorum…' : dinleme === 'cozuluyor' ? 'Anlıyorum…' : "Aria'ya yaz (Enter gönderir, Shift+Enter satır)"}
+          placeholder={dinleme === 'dinliyor' ? 'Dinliyorum…' : dinleme === 'cozuluyor' ? 'Anlıyorum…' : "Aria'ya yaz"}
+          title="Enter gönderir, Shift+Enter yeni satır"
           aria-label="Aria'ya mesaj"
           data-aria-kutu
           className="halka min-h-[2.5rem] flex-1 resize-none rounded-base border border-kenar bg-terminal/60 px-3 py-2 text-sm text-metin placeholder:text-metin-soluk"
@@ -496,7 +524,8 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
           cekmece={cekmece}
           ag={ag}
           hal={hal}
-          bekleyen={oneriler.filter((k) => k.durum === 'bekliyor' && k.proje).map((k) => k.proje!)}
+          bekleyen={bekleyenProjeler}
+          gorunur={gorunur}
           kumanda={agKumanda}
           onSec={(yol) => {
             setCekmece(true);
@@ -504,7 +533,22 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
           }}
         />
         {cekmece && (
-          <div className="absolute bottom-0 right-0 top-11 z-20 flex w-[22rem] max-w-[85%] flex-col rounded-tl-base border-l border-t border-kenar bg-yuzey-guclu p-3" data-ag-cekmece>
+          <div
+            className="absolute bottom-0 right-0 top-11 z-20 flex w-[22rem] max-w-[85%] flex-col rounded-tl-base border-l border-t border-kenar bg-yuzey-guclu p-3 pt-8"
+            data-ag-cekmece
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setCekmece(false);
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setCekmece(false)}
+              aria-label="Hafıza çekmecesini kapat"
+              title="Kapat (Esc)"
+              className="absolute right-1.5 top-1.5 z-10 cursor-pointer rounded-kontrol p-1 text-metin-soluk hover:bg-yuzey hover:text-metin"
+            >
+              <X className="size-3.5" aria-hidden="true" />
+            </button>
             <HafizaPaneli acilacak={acilacak} onSor={hafizadanSor} />
           </div>
         )}
@@ -572,11 +616,22 @@ const ONERI_BASLIK: Record<AriaOnerisi['tur'], string> = { gorev: 'Görev ver', 
 /** Aria'nin onerisi: Scryne onaylamadan hicbir sey yapilmaz. Renk yok; onay birincil gumus, vazgec cerceve. */
 function OneriKarti({ k }: { k: AriaOnerisi }) {
   const [bekliyor, setBekliyor] = useState(false);
+  const [tamami, setTamami] = useState(false);
+  const [kararHatasi, setKararHatasi] = useState<string | null>(null);
   const karar = async (onay: boolean) => {
     setBekliyor(true);
-    await window.kokpit.ariaOneriKarar(k.id, onay);
-    setBekliyor(false);
+    setKararHatasi(null);
+    try {
+      const r = await window.kokpit.ariaOneriKarar(k.id, onay);
+      if (r && 'hata' in r && r.hata) setKararHatasi(r.hata);
+    } catch (e) {
+      setKararHatasi((e as Error).message);
+    } finally {
+      // IPC hata verse de dugmeler kilitli kalmaz.
+      setBekliyor(false);
+    }
   };
+  const uzun = k.metin.length > 360 || k.metin.split('\n').length > 6;
   const Ikon = k.tur === 'gece' ? Moon : TerminalSquare;
   return (
     <div data-aria-oneri={k.durum} className="halka relative ml-0 max-w-xl rounded-base bg-yuzey-guclu px-3.5 py-2.5 text-sm">
@@ -586,7 +641,14 @@ function OneriKarti({ k }: { k: AriaOnerisi }) {
         <span className="enstruman text-metin">{k.proje ?? k.oturum}</span>
         {k.kip === 'paralel' && <span className="text-metin-soluk">paralel dal</span>}
       </p>
-      <p className="mt-1.5 line-clamp-6 whitespace-pre-wrap break-words text-metin-ikincil">{k.metin}</p>
+      {/* Onaylanacak metnin tamami okunabilir olmali: kesilen kisim gorulmeden onaylanmasin. */}
+      <p className={'mt-1.5 whitespace-pre-wrap break-words text-metin-ikincil ' + (tamami ? '' : 'line-clamp-6')}>{k.metin}</p>
+      {uzun && (
+        <button type="button" onClick={() => setTamami((x) => !x)} aria-expanded={tamami} className="mt-1 cursor-pointer text-xs text-aksan-metin underline decoration-kenar-guclu underline-offset-2 hover:text-metin">
+          {tamami ? 'Kısalt' : 'Tamamını göster'}
+        </button>
+      )}
+      {kararHatasi && <p className="mt-1 text-xs text-hata-metin">{kararHatasi}</p>}
       {k.durum === 'bekliyor' ? (
         <div className="mt-2 flex gap-2">
           <button
@@ -609,7 +671,7 @@ function OneriKarti({ k }: { k: AriaOnerisi }) {
         </div>
       ) : (
         <p className={'mt-1.5 text-xs ' + (k.durum === 'hata' ? 'text-hata-metin' : 'text-metin-soluk')}>
-          {k.durum === 'onaylandi' ? 'Onaylandı' : k.durum === 'reddedildi' ? 'Vazgeçildi' : 'Uygulanamadı'}
+          {k.durum === 'uygulaniyor' ? 'Uygulanıyor…' : k.durum === 'onaylandi' ? 'Onaylandı' : k.durum === 'reddedildi' ? 'Vazgeçildi' : 'Uygulanamadı'}
           {k.sonuc ? ' · ' + k.sonuc : ''}
         </p>
       )}
@@ -617,7 +679,9 @@ function OneriKarti({ k }: { k: AriaOnerisi }) {
   );
 }
 
-function SenMesaji({ m }: { m: AriaMesaji }) {
+// memo: yazi kutusuna her tus, mikrofon seviyesi ve akis parcasi butun mesajlari (ve markdown cizimini) yeniden
+// calistiriyordu; mesaj nesnesi degismedikce satir yeniden cizilmez.
+const SenMesaji = memo(function SenMesaji({ m }: { m: AriaMesaji }) {
   return (
     <div className="flex justify-end" data-aria-mesaj="sen">
       <div className="max-w-[80%] whitespace-pre-wrap break-words rounded-base bg-yuzey-guclu px-3.5 py-2 text-sm text-metin">
@@ -626,10 +690,11 @@ function SenMesaji({ m }: { m: AriaMesaji }) {
       </div>
     </div>
   );
-}
+});
 
-function AriaMesajiSatiri({ m, onHafiza }: { m: AriaMesaji; onHafiza: (yol: string) => void }) {
+const AriaMesajiSatiri = memo(function AriaMesajiSatiri({ m, onHafiza }: { m: AriaMesaji; onHafiza: (yol: string) => void }) {
   const araclar = m.araclar ?? [];
+  const cizim = useMemo(() => (m.metin ? mdCiz(m.metin, m.akiyor ? <span className="aria-imlec" aria-hidden="true" /> : undefined) : null), [m.metin, m.akiyor]);
   return (
     <div className="text-sm leading-relaxed text-metin-ikincil" data-aria-mesaj="aria" data-akiyor={m.akiyor ? '' : undefined}>
       {araclar.length > 0 && (
@@ -638,14 +703,14 @@ function AriaMesajiSatiri({ m, onHafiza }: { m: AriaMesaji; onHafiza: (yol: stri
             <Fragment key={i}>
               {i > 0 && ' · '}
               {a.ad}
-              {a.hedef && <span className="text-metin-soluk/80"> {a.hedef}</span>}
+              {a.hedef && <span className="text-metin-soluk"> {a.hedef}</span>}
             </Fragment>
           ))}
           {araclar.length > 4 && ' · +' + (araclar.length - 4)}
         </p>
       )}
       {m.metin ? (
-        <div className="break-words text-metin">{mdCiz(m.metin, m.akiyor ? <span className="aria-imlec" aria-hidden="true" /> : undefined)}</div>
+        <div className="break-words text-metin">{cizim}</div>
       ) : m.akiyor ? (
         <p className="text-metin-soluk">…</p>
       ) : null}
@@ -670,4 +735,4 @@ function AriaMesajiSatiri({ m, onHafiza }: { m: AriaMesaji; onHafiza: (yol: stri
       )}
     </div>
   );
-}
+});

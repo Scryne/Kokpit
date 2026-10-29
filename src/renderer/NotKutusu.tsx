@@ -35,8 +35,15 @@ export default function NotKutusu({ acik, kaynak, onKapat, onKaydedildi }: Props
     if (kaydediliyor) return;
     setKaydediliyor(true);
     setHata(null);
-    const sonuc = await window.kokpit.notEkle(metin, kaynak);
-    setKaydediliyor(false);
+    let sonuc: Awaited<ReturnType<typeof window.kokpit.notEkle>>;
+    try {
+      sonuc = await window.kokpit.notEkle(metin, kaynak);
+    } catch (e) {
+      setHata('Not yazılamadı: ' + (e as Error).message);
+      return;
+    } finally {
+      setKaydediliyor(false);
+    }
     if (sonuc.hata) {
       setHata(sonuc.hata);
       return;
@@ -81,7 +88,7 @@ export default function NotKutusu({ acik, kaynak, onKapat, onKaydedildi }: Props
             }
           }}
           rows={4}
-          placeholder="Aklına geleni yaz; vault'ta 📥 000-Inbox/Dump/ altına bugünün dosyasına eklenir."
+          placeholder="Aklına geleni yaz; vault'ta Inbox/Dump altına bugünün dosyasına eklenir."
           aria-describedby="not-ipucu"
           aria-invalid={hata ? true : undefined}
           className="mt-3 w-full resize-none rounded-kontrol border border-kenar bg-terminal px-3 py-2 text-sm text-metin outline-none placeholder:text-metin-soluk focus-visible:border-aksan"

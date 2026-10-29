@@ -10,6 +10,35 @@ const ORNEK_HIZI = 16000;
 
 export type Kayit = { durdur: () => void; iptal: () => void };
 
+/** Mikrofon hatasinin okunur hali: izin reddi ile aygit yoklugu ayri soylenir (cozumu farkli). */
+export function mikrofonHatasi(e: unknown): string {
+  const ad = (e as { name?: string } | null)?.name;
+  if (ad === 'NotAllowedError' || ad === 'SecurityError') return 'Mikrofon izni verilmedi (Windows Ayarlar > Gizlilik > Mikrofon)';
+  if (ad === 'NotFoundError' || ad === 'OverconstrainedError') return 'Mikrofon bulunamadı';
+  if (ad === 'NotReadableError') return 'Mikrofon başka bir uygulamada kullanılıyor';
+  return 'Mikrofon açılamadı';
+}
+
+/** Mikrofon akisi + ses grafigi. Grafik kurulurken hata olursa akis kapatilir (mikrofon acik kalmasin). */
+async function mikrofonAc() {
+  const akis = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  let ctx: AudioContext | null = null;
+  try {
+    ctx = new AudioContext({ sampleRate: ORNEK_HIZI });
+    const kaynak = ctx.createMediaStreamSource(akis);
+    // ScriptProcessor eskidi ama AudioWorklet modulu CSP'de ayri bir betik kaynagi isterdi; 2048 ornek
+    // (128 ms) seviye gostergesi ve sessizlik icin yeterli.
+    const islem = ctx.createScriptProcessor(2048, 1, 1);
+    return { akis, ctx, kaynak, islem };
+  } catch (e) {
+    akis.getTracks().forEach((t) => t.stop());
+    if (ctx) void ctx.close();
+    throw e;
+  }
+}
+
 function wavYap(parcalar: Float32Array[], hiz: number): ArrayBuffer {
   const n = parcalar.reduce((t, p) => t + p.length, 0);
   const tampon = new ArrayBuffer(44 + n * 2);
@@ -45,14 +74,7 @@ function wavYap(parcalar: Float32Array[], hiz: number): ArrayBuffer {
  * @throws mikrofon acilamazsa (izin yok, aygit yok)
  */
 export async function kayitBaslat(cb: { seviye: (s: number) => void; bitti: (wav: ArrayBuffer | null) => void }): Promise<Kayit> {
-  const akis = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  });
-  const ctx = new AudioContext({ sampleRate: ORNEK_HIZI });
-  const kaynak = ctx.createMediaStreamSource(akis);
-  // ScriptProcessor eskidi ama AudioWorklet modulu CSP'de ayri bir betik kaynagi isterdi; 2048 ornek
-  // (128 ms) seviye gostergesi ve sessizlik icin yeterli.
-  const islem = ctx.createScriptProcessor(2048, 1, 1);
+  const { akis, ctx, kaynak, islem } = await mikrofonAc();
   const parcalar: Float32Array[] = [];
   const t0 = performance.now();
   let sonSes = 0;
@@ -114,12 +136,7 @@ const ON_TAMPON = 3; // konusmanin basi kesilmesin: esikten onceki 3 blok (~380 
 export type UyanmaDinleyici = { durdur: () => void; duraklat: (d: boolean) => void };
 
 export async function uyanmaBaslat(cb: { parca: (wav: ArrayBuffer) => void }): Promise<UyanmaDinleyici> {
-  const akis = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  });
-  const ctx = new AudioContext({ sampleRate: ORNEK_HIZI });
-  const kaynak = ctx.createMediaStreamSource(akis);
-  const islem = ctx.createScriptProcessor(2048, 1, 1);
+  const { akis, ctx, kaynak, islem } = await mikrofonAc();
   const blokMs = (2048 / ctx.sampleRate) * 1000;
   let taban = 0.01;
   let duraklat = false;
@@ -152,9 +169,13 @@ export async function uyanmaBaslat(cb: { parca: (wav: ArrayBuffer) => void }): P
       }
       return;
     }
-    parcalar.push(veri);
+    // Azami sure asildiysa parca zaten atilacak: kesintisiz seste (video, muzik) ornekler birikmesin (saatte ~230 MB).
+    if (!asti) parcalar.push(veri);
     sure += blokMs;
-    if (sure > UYANMA_AZAMI_MS) asti = true; // uzun ses (video, muzik, uzun konusma): atilacak
+    if (sure > UYANMA_AZAMI_MS && !asti) {
+      asti = true; // uzun ses (video, muzik, uzun konusma): atilacak
+      parcalar = [];
+    }
     if (rms > esik) sessiz = 0;
     else sessiz += blokMs;
     if (sessiz >= SEGMENT_SESSIZLIK_MS) {
@@ -188,17 +209,38 @@ export async function uyanmaBaslat(cb: { parca: (wav: ArrayBuffer) => void }): P
   };
 }
 
-/** mp3 baytlarini calar; bitince URL birakilir. */
+// Sesler sirayla calar: Aria'nin cevabi okunurken gelen bildirim ustune binmez. `sesiSustur` caleni keser, sirayi bosaltir.
+let sira: Promise<void> = Promise.resolve();
+let calan: HTMLAudioElement | null = null;
+let nesil = 0;
+
+/** mp3 baytlarini calar (sirada); bitince URL birakilir. Susturulursa calmadan coz. */
 export function sesCal(mp3: Uint8Array): Promise<void> {
-  return new Promise((coz) => {
-    const url = URL.createObjectURL(new Blob([mp3 as BlobPart], { type: 'audio/mpeg' }));
-    const a = new Audio(url);
-    const bit = () => {
-      URL.revokeObjectURL(url);
-      coz();
-    };
-    a.onended = bit;
-    a.onerror = bit;
-    a.play().catch(bit);
-  });
+  const benim = nesil;
+  const is = sira.then(
+    () =>
+      new Promise<void>((coz) => {
+        if (benim !== nesil) return coz();
+        const url = URL.createObjectURL(new Blob([mp3 as BlobPart], { type: 'audio/mpeg' }));
+        const a = new Audio(url);
+        calan = a;
+        const bit = () => {
+          if (calan === a) calan = null;
+          URL.revokeObjectURL(url);
+          coz();
+        };
+        a.onended = bit;
+        a.onerror = bit;
+        a.onpause = bit;
+        a.play().catch(bit);
+      })
+  );
+  sira = is;
+  return is;
+}
+
+/** Calani durdurur, siradakileri atar. */
+export function sesiSustur() {
+  nesil++;
+  calan?.pause();
 }

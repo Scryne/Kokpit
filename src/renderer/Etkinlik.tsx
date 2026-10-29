@@ -62,7 +62,7 @@ export function aracIkonu(ad: string) {
 export function Fark({ arti, eksi }: { arti: number | null; eksi: number | null }) {
   if (arti === null && eksi === null) return null;
   return (
-    <span className="enstruman shrink-0 whitespace-nowrap" aria-label={`${arti ?? 0} satır eklendi, ${eksi ?? 0} satır silindi`}>
+    <span className="enstruman shrink-0 whitespace-nowrap" role="img" aria-label={`${arti ?? 0} satır eklendi, ${eksi ?? 0} satır silindi`}>
       <span className="text-metin">+{arti ?? 0}</span> <span className="text-metin-soluk">−{eksi ?? 0}</span>
     </span>
   );

@@ -17,11 +17,14 @@ export default function SinyalHalkasi({
   hal,
   seviye,
   boyut = 184,
+  etkin = true,
 }: {
   hal: HalkaHali;
   /** 0..1: dinlerken mikrofon, konusurken sesin genligi. */
   seviye: number;
   boyut?: number;
+  /** Sayfa gorunur mu: gizliyken (baska sayfa) tek duragan cizim, kare dongusu yok. */
+  etkin?: boolean;
 }) {
   const tuval = useRef<HTMLCanvasElement>(null);
   const seviyeRef = useRef(seviye);
@@ -38,7 +41,7 @@ export default function SinyalHalkasi({
     const g = c.getContext('2d');
     if (!g) return;
     const azalt = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const hareketli = hal !== 'bosta' && hal !== 'hata' && !azalt;
+    const hareketli = hal !== 'bosta' && hal !== 'hata' && !azalt && etkin;
     let kare = 0;
     let gorunur = document.hasFocus();
     const t0 = performance.now();
@@ -143,7 +146,7 @@ export default function SinyalHalkasi({
       window.removeEventListener('focus', odak);
       window.removeEventListener('blur', bulanik);
     };
-  }, [hal, boyut]);
+  }, [hal, boyut, etkin]);
 
   return (
     <canvas

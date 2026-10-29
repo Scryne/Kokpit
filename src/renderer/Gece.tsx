@@ -214,7 +214,7 @@ export function GeceKutusu({
       onClose={onKapat}
       aria-labelledby="gece-baslik"
       data-gece-kutusu
-      className="halka m-auto w-[min(44rem,calc(100vw-2rem))] rounded-base bg-base p-0 text-metin backdrop:bg-black/50"
+      className="halka m-auto w-[min(44rem,calc(100vw-2rem))] rounded-base bg-bg-base p-0 text-metin backdrop:bg-black/50"
     >
       <div className="space-y-4 bg-yuzey-guclu p-5">
         <div className="flex items-center gap-2">
@@ -331,7 +331,7 @@ export function GeceKutusu({
               <button
                 type="button"
                 data-gece-baslat
-                disabled={sirada === 0}
+                disabled={sirada === 0 || !/^\d{2}:\d{2}$/.test(saat)}
                 onClick={() => void guncelle((v) => ({ ...v, aktif: true, baslangic: saat, baslaZamani: sonrakiSaat(saat) }))}
                 className="flex cursor-pointer items-center gap-1.5 rounded-kontrol bg-birincil px-3 py-1.5 text-sm font-medium text-birincil-uzeri hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >

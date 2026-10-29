@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpFromLine, FolderOpen, GitBranch, GitCommitHorizontal, GitFork, GitMerge, Globe, Lock, Moon, RefreshCw, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { ParalelAgac, Proje, TeslimDetayi, TeslimFarki } from './types';
 import { sureMetni } from './parcalar';
@@ -62,36 +62,57 @@ export default function Teslim({
   useEffect(() => {
     void agaclariOku();
   }, [agaclariOku]);
+  // Suren agac eylemi: ayni anda ikinci eylem (cift tik) baslamaz; dugmeler pasif.
+  const [agacMesgul, setAgacMesgul] = useState<string | null>(null);
   const agacEylemi = async (a: ParalelAgac, tur: 'birlestir' | 'at') => {
+    if (agacMesgul) return;
+    setAgacMesgul(a.yol);
     setAgacSonucu({ yol: a.yol, metin: tur === 'birlestir' ? 'Birleştiriliyor…' : 'Siliniyor…', tamam: null });
-    const r = tur === 'birlestir' ? await window.kokpit.paralelBirlestir(a.yol) : await window.kokpit.paralelAt(a.yol);
-    setAgacSonucu({ yol: a.yol, metin: r.iptal ? 'Vazgeçildi.' : r.cikti || (r.tamam ? 'Tamam.' : 'Olmadı.'), tamam: r.iptal ? null : r.tamam });
-    await agaclariOku();
-    if (r.tamam) void onTazele();
+    try {
+      const r = tur === 'birlestir' ? await window.kokpit.paralelBirlestir(a.yol) : await window.kokpit.paralelAt(a.yol);
+      setAgacSonucu({ yol: a.yol, metin: r.iptal ? 'Vazgeçildi.' : r.cikti || (r.tamam ? 'Tamam.' : 'Olmadı.'), tamam: r.iptal ? null : r.tamam });
+      if (r.tamam) void onTazele();
+    } catch (e) {
+      setAgacSonucu({ yol: a.yol, metin: 'Olmadı: ' + (e as Error).message, tamam: false });
+    } finally {
+      setAgacMesgul(null);
+      await agaclariOku();
+    }
   };
 
   const seciliProje = liste.find((p) => p.yol === secili) ?? liste[0] ?? null;
 
+  // Yalniz SON istenen projenin cevabi yazilir: A'dan B'ye gecerken A'nin gec gelen detayi B'nin basliginin altina
+  // (ve B'ye push eden dugmenin yanina) dusmesin.
+  const istenenYol = useRef<string | null>(null);
   const oku = useCallback(async (yol: string) => {
+    istenenYol.current = yol;
     setOkunuyor(true);
     try {
-      setDetay(await window.kokpit.teslimDetay(yol));
+      const d = await window.kokpit.teslimDetay(yol);
+      if (istenenYol.current === yol) setDetay(d);
+    } catch (e) {
+      if (istenenYol.current === yol) setDetay({ hata: 'Okunamadı: ' + (e as Error).message });
     } finally {
-      setOkunuyor(false);
+      if (istenenYol.current === yol) setOkunuyor(false);
     }
   }, []);
 
   useEffect(() => {
     setFark(null);
+    // Secim degisince eski projenin detayi hemen kalkar (yukleniyor gosterilir).
+    setDetay(null);
     if (seciliProje) void oku(seciliProje.yol);
-    else setDetay(null);
     // Yalniz secim degisince; liste her durum tazelemesinde yeniden kurulur.
   }, [seciliProje?.yol, oku]);
 
   const farkAc = async (baslik: string, istek: { commit: string } | { dosya: string }) => {
     if (!seciliProje) return;
+    const yol = seciliProje.yol;
     setFark({ baslik, f: { metin: 'Okunuyor…', kesildi: false } });
-    setFark({ baslik, f: await window.kokpit.teslimFark(seciliProje.yol, istek) });
+    const f = await window.kokpit.teslimFark(yol, istek).catch((e: Error) => ({ hata: e.message }));
+    // Bu arada baska projeye ya da baska diff'e gecildiyse yazilmaz.
+    if (istenenYol.current === yol) setFark((eski) => (eski && eski.baslik === baslik ? { baslik, f } : eski));
   };
 
   const push = async () => {
@@ -194,7 +215,7 @@ export default function Teslim({
                       <button
                         type="button"
                         data-agac-birlestir
-                        disabled={a.ileride === 0 || a.kirli > 0}
+                        disabled={a.ileride === 0 || a.kirli > 0 || agacMesgul !== null}
                         title={a.kirli > 0 ? 'Önce commit edilmemiş değişiklikleri commit et' : a.ileride === 0 ? 'Birleştirilecek commit yok' : a.dal + ' → ' + a.taban + ' (--no-ff)'}
                         onClick={() => void agacEylemi(a, 'birlestir')}
                         className="flex cursor-pointer items-center gap-1 rounded-kontrol bg-birincil px-2.5 py-0.5 text-xs font-medium text-birincil-uzeri hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
@@ -204,6 +225,7 @@ export default function Teslim({
                       <button
                         type="button"
                         data-agac-at
+                        disabled={agacMesgul !== null}
                         onClick={() => void agacEylemi(a, 'at')}
                         aria-label={a.proje + '/' + a.ad + ' ağacını ve dalını sil'}
                         title="Ağacı ve dalı sil (onay ister)"
@@ -220,7 +242,7 @@ export default function Teslim({
         </section>
       )}
 
-      {fark && agaclar.length > 0 && liste.length === 0 && <FarkGorunumu baslik={fark.baslik} f={fark.f} onKapat={() => setFark(null)} />}
+      {fark && agaclar.length > 0 && liste.length === 0 && <FarkGorunumu key={fark.baslik} baslik={fark.baslik} f={fark.f} onKapat={() => setFark(null)} />}
 
       {liste.length === 0 ? (
         <p className="text-sm text-metin-soluk">Teslim bekleyen bir şey yok: push bekleyen commit ya da commit edilmemiş değişiklik yok.</p>
@@ -396,7 +418,7 @@ export default function Teslim({
                   </section>
                 )}
 
-                {fark && <FarkGorunumu baslik={fark.baslik} f={fark.f} onKapat={() => setFark(null)} />}
+                {fark && <FarkGorunumu key={fark.baslik} baslik={fark.baslik} f={fark.f} onKapat={() => setFark(null)} />}
               </>
             )}
           </section>
@@ -418,7 +440,11 @@ const DURUM_ADI: Record<string, string> = {
 
 /** Diff: satir basina sinif. Boyama yok (DESIGN.md): eklenen metin + ince zemin, silinen soluk. */
 export function FarkGorunumu({ baslik, f, onKapat }: { baslik: string; f: TeslimFarki; onKapat: () => void }) {
-  const satirlar = 'hata' in f ? [] : f.metin.split('\n');
+  // Buyuk diff (400 KB ~ 10 bin satir) satir basina bir dugum uretiyordu: once ilk 2.000 satir, istenirse tamami.
+  const [hepsi, setHepsi] = useState(false);
+  const tumu = 'hata' in f ? [] : f.metin.split('\n');
+  const SINIR = 2000;
+  const satirlar = hepsi ? tumu : tumu.slice(0, SINIR);
   return (
     <section aria-label={'Diff: ' + baslik} data-teslim-fark className="halka relative overflow-hidden rounded-base bg-terminal">
       <div className="flex items-center gap-2 border-b border-kenar bg-yuzey px-4 py-2">
@@ -437,6 +463,11 @@ export function FarkGorunumu({ baslik, f, onKapat }: { baslik: string; f: Teslim
               {s || ' '}
             </div>
           ))}
+          {!hepsi && tumu.length > SINIR && (
+            <button type="button" onClick={() => setHepsi(true)} className="mx-4 my-2 cursor-pointer rounded-kontrol border border-kenar px-2.5 py-1 font-sans text-xs text-metin-ikincil hover:border-kenar-guclu hover:text-metin">
+              Kalan {(tumu.length - SINIR).toLocaleString('tr-TR')} satırı göster
+            </button>
+          )}
         </pre>
       )}
     </section>

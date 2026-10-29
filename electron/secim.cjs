@@ -38,6 +38,7 @@ function yukle() {
       tus: u.func('int16 __stdcall GetAsyncKeyState(int vKey)'),
       keybd: u.func('void __stdcall keybd_event(uint8 bVk, uint8 bScan, uint32 dwFlags, uintptr dwExtraInfo)'),
       sira: u.func('uint32 __stdcall GetClipboardSequenceNumber()'),
+      bicimVar: u.func('int __stdcall IsClipboardFormatAvailable(uint32 format)'),
       onPlan: u.func('void* __stdcall GetForegroundWindow()'),
       baslik: u.func('int __stdcall GetWindowTextW(void* h, _Out_ uint16_t* buf, int n)'),
       sinif: u.func('int __stdcall GetClassNameW(void* h, _Out_ uint16_t* buf, int n)'),
@@ -158,6 +159,10 @@ async function kopyala(s = {}) {
   if (!x) return { hata: 'Seçim okunamıyor (user32 yok)' };
   const pencere = onPlan();
   if (!(await tuslarBirakildi())) return { hata: 'Tuşları bırak, sonra tekrar dene' };
+  // v3.5: Electron'un pano API'si (W3C) dosya listesini (CF_HDROP, Explorer'da kopyalanan dosyalar) okuyamaz;
+  // yedeklenemeyen icerik geri yazilamazdi. O durumda secim hic kopyalanmaz, pano oldugu gibi kalir.
+  const CF_HDROP = 15;
+  if (x.bicimVar(CF_HDROP)) return { hata: 'Panoda kopyalanmış dosyalar var; seçim alınırsa kaybolurdu. Önce yapıştır, sonra tekrar dene.' };
   s.sessiz?.(KOPYA_MS + 1500);
   const yedek = await panoYedegi();
   const once = x.sira();

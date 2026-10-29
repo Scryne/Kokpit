@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Crosshair, ExternalLink, Mic, RotateCw, Send, TriangleAlert, X } from 'lucide-react';
-import { kayitBaslat, type Kayit } from './sesKayit';
+import { kayitBaslat, mikrofonHatasi, type Kayit } from './sesKayit';
 
 // v3.2, canli onizleme + isaretle-soyle (electron/onizleme.cjs). Servis bolmesinin govdesi: uygulamanin
 // kendisi (<webview>, yalniz yerel adres). "Isaretle" ile sayfada bir oge secilir; ogenin kirpigi, secicisi,
@@ -86,6 +86,15 @@ export function ogeMetni(o: IsaretliOge) {
 }
 
 const HATA_SINIRI = 50;
+
+/** Webview hazir olmadan (dom-ready oncesi) cagrilan gezinme Electron hatasi atar: yutulur. */
+function webviewEylem(f: () => unknown) {
+  try {
+    f();
+  } catch {
+    /* sayfa henuz hazir degil */
+  }
+}
 
 export default function Onizleme({
   adres,
@@ -197,20 +206,25 @@ export default function Onizleme({
             return;
           }
           setDinleme('cozuluyor');
-          void window.kokpit.sesMetin(wav).then((r) => {
-            setDinleme('yok');
-            if ('hata' in r) setBildirim(r.hata);
-            else setNot((n) => (n.trim() ? n.trim() + ' ' : '') + r.metin);
-            notKutusu.current?.focus();
-          });
+          void window.kokpit
+            .sesMetin(wav)
+            .then((r) => {
+              if ('hata' in r) setBildirim(r.hata);
+              else setNot((n) => (n.trim() ? n.trim() + ' ' : '') + r.metin);
+              notKutusu.current?.focus();
+            })
+            .catch((e: Error) => setBildirim('Ses çözülemedi: ' + e.message))
+            .finally(() => setDinleme('yok'));
         },
       });
-    } catch {
+    } catch (e) {
       kayit.current = null;
       setDinleme('yok');
-      setBildirim('Mikrofon açılamadı');
+      setBildirim(mikrofonHatasi(e));
     }
   }, []);
+  // Bolme kapanir / Ciktiya gecilirse suren kayit durur: mikrofon acik kalmasin.
+  useEffect(() => () => kayit.current?.iptal(), []);
 
   const gonder = async () => {
     if (!secilen || !hedef) return;
@@ -240,10 +254,10 @@ export default function Onizleme({
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-onizleme>
       <div className="flex shrink-0 items-center gap-1 border-b border-kenar bg-yuzey px-1.5 py-1 text-xs">
-        <button type="button" onClick={() => wv.current?.canGoBack() && wv.current.goBack()} aria-label="Geri" className="cursor-pointer rounded p-1 text-metin-soluk hover:bg-yuzey-guclu hover:text-metin">
+        <button type="button" onClick={() => webviewEylem(() => wv.current?.canGoBack() && wv.current.goBack())} aria-label="Geri" className="cursor-pointer rounded p-1 text-metin-soluk hover:bg-yuzey-guclu hover:text-metin">
           <ArrowLeft className="size-3.5" aria-hidden="true" />
         </button>
-        <button type="button" onClick={() => wv.current?.reload()} aria-label="Yenile" className="cursor-pointer rounded p-1 text-metin-soluk hover:bg-yuzey-guclu hover:text-metin">
+        <button type="button" onClick={() => webviewEylem(() => wv.current?.reload())} aria-label="Yenile" className="cursor-pointer rounded p-1 text-metin-soluk hover:bg-yuzey-guclu hover:text-metin">
           <RotateCw className={'size-3.5 ' + (yukleniyor ? 'animate-spin motion-reduce:animate-none' : '')} aria-hidden="true" />
         </button>
         <span className="enstruman min-w-0 flex-1 truncate px-1 text-metin-soluk" title={url}>

@@ -31,12 +31,26 @@ export default function HafizaPaneli({
   const [kurallarAcik, setKurallarAcik] = useState(false);
   const [coreTam, setCoreTam] = useState(false);
 
-  const tazele = useCallback(() => void window.kokpit.hafizaOzet().then(setOzet), []);
+  const [hata, setHata] = useState<string | null>(null);
+  const tazele = useCallback(
+    () =>
+      void window.kokpit
+        .hafizaOzet()
+        .then((o) => {
+          setOzet(o);
+          setHata(null);
+        })
+        // IPC hata verirse "Okunuyor…" sonsuza dek kalmasin.
+        .catch((e: Error) => setHata('Hafıza okunamadı: ' + e.message)),
+    []
+  );
   useEffect(() => tazele(), [tazele]);
 
   const ac = useCallback(async (yol: string) => {
-    const d = await window.kokpit.hafizaOku(yol);
-    if ('hata' in d) return;
+    const d = await window.kokpit.hafizaOku(yol).catch((e: Error) => ({ hata: e.message }));
+    // Acilamayan not sessizce yutulmaz (agda tiklanan dugum cekmecede ozet sayfasinda kaliyordu).
+    if ('hata' in d) return setHata(yol.split('/').pop() + ' açılamadı: ' + d.hata);
+    setHata(null);
     setOkunan(d);
   }, []);
 
@@ -53,8 +67,20 @@ export default function HafizaPaneli({
       setSonuclar(null);
       return;
     }
-    const t = setTimeout(() => void window.kokpit.hafizaAra(s).then(setSonuclar), 250);
-    return () => clearTimeout(t);
+    // Yavas eski sorgunun cevabi yenisinin uzerine yazmasin.
+    let gecerli = true;
+    const t = setTimeout(
+      () =>
+        void window.kokpit
+          .hafizaAra(s)
+          .then((r) => gecerli && setSonuclar(r))
+          .catch(() => gecerli && setSonuclar([])),
+      250
+    );
+    return () => {
+      gecerli = false;
+      clearTimeout(t);
+    };
   }, [sorgu]);
 
   if (okunan) {
@@ -85,6 +111,11 @@ export default function HafizaPaneli({
 
   return (
     <aside aria-label="Aria'nın hafızası" data-hafiza-paneli className="flex min-h-0 flex-col">
+      {hata && (
+        <p role="alert" className="mb-2 shrink-0 rounded-kontrol border border-hata/40 bg-hata/10 px-2.5 py-1.5 text-xs text-hata-metin">
+          {hata}
+        </p>
+      )}
       <div role="tablist" aria-label="Hafıza sekmeleri" className="flex shrink-0 gap-1 border-b border-kenar pb-2">
         {(['hafiza', 'bilgi'] as const).map((s) => (
           <button

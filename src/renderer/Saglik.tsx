@@ -401,7 +401,18 @@ export default function Saglik({ durum, acikYollar, onVaultOturumu, onTazele }: 
       : durum.projeler.find((p) => p.yol.split(/[\\/]/).pop() === proje)?.yol;
   const doldur = async (session: string, proje: string) => {
     setDoldurma((d) => ({ ...d, [session]: 'calisiyor' }));
-    const r = await window.kokpit.beyinDoldur(session, proje);
+    let r: Awaited<ReturnType<typeof window.kokpit.beyinDoldur>>;
+    try {
+      r = await window.kokpit.beyinDoldur(session, proje);
+    } catch (e) {
+      // IPC hata verdiyse satir "dolduruluyor"da takili kalmasin; dugme geri gelir.
+      setDoldurma((d) => {
+        const { [session]: _, ...kalan } = d;
+        return kalan;
+      });
+      setSonDoldurma(proje + ' · ' + session.slice(0, 8) + ': doldurulamadı (' + (e as Error).message + ')');
+      return;
+    }
     setDoldurma((d) => ({ ...d, [session]: r.sonuc }));
     // Basarida satir listeden duser (tazeleme); sonuc bu şeritte kalir.
     setSonDoldurma(proje + ' · ' + session.slice(0, 8) + ': ' + doldurmaMetni(r.sonuc));

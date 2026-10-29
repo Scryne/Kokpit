@@ -74,7 +74,8 @@ function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat' | 'kapaniyor'>) {
   if (o.kapaniyor) return 'animate-pulse bg-dikkat';
   if (o.dikkat) return 'bg-dikkat ring-2 ring-dikkat/30';
   if (o.durumu === 'acik') return 'bg-aksan';
-  if (o.durumu === 'baglaniyor') return 'animate-pulse bg-dikkat';
+  // Baglaniyor: amber degil (amber = seni bekliyor, DESIGN.md); gumus, arka planda duran nabiz.
+  if (o.durumu === 'baglaniyor') return 'animate-pulse bg-aksan/60';
   if (o.durumu === 'hata') return 'bg-hata';
   return 'bg-metin-soluk';
 }
@@ -786,7 +787,11 @@ export default function App() {
     const bekle = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
       if (istek.tur === 'metin') {
-        if (!api.yaz(istek.metin)) return 'Terminal bağlantısı yok';
+        // Kontrol karakterleri suzulur (Aria onerisinin metni model uretimi: \r, \x03, ESC dizisi tus gibi calismasin);
+        // cok satirli metin bracketed paste ile gider (satir sonlari Enter sayilmaz).
+        const temiz = istek.metin.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
+        if (!temiz.trim()) return 'Gönderilecek metin boş';
+        if (!api.yaz(temiz.includes('\n') ? '\x1b[200~' + temiz + '\x1b[201~' : temiz)) return 'Terminal bağlantısı yok';
         await bekle(350);
         api.yaz('\r');
       } else if (istek.tur === 'ek') {
@@ -800,12 +805,12 @@ export default function App() {
         // v3.2: secili metin bloklari. Bracketed paste satir sonlarini korur (Enter sayilmaz); claude uzun
         // blogu "[Pasted text #N]" yapar. Kaynak ilk satirda: model metnin nereden geldigini bilsin.
         for (const m of istek.metinler ?? []) {
-          const blok = (m.kaynak ? 'Kaynak: ' + m.kaynak + '\n' : '') + m.metin.replace(/\x1b/g, '');
+          const blok = (m.kaynak ? 'Kaynak: ' + m.kaynak + '\n' : '') + m.metin.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
           if (!api.yaz('\x1b[200~' + blok + '\x1b[201~')) return 'Terminal bağlantısı yok';
           await bekle(300);
           api.yaz(' ');
         }
-        if (istek.metin && !api.yaz(istek.metin)) return 'Terminal bağlantısı yok';
+        if (istek.metin && !api.yaz(istek.metin.replace(/[\x00-\x1f\x7f]/g, ' '))) return 'Terminal bağlantısı yok';
         if (istek.gonder) {
           await bekle(350);
           api.yaz('\r');
@@ -851,6 +856,15 @@ export default function App() {
     setOturumlar((l) => (l.some((x) => x.id === istek.id && x.dikkat) ? l.map((x) => (x.id === istek.id ? { ...x, dikkat: false } : x)) : l));
     return null;
   }, []);
+  // Kullanici eylemiyle gonderim (hizli komut, telefon, palet, Ada): donen hata yutulmaz, kisa bildirimle gosterilir.
+  const gonderVeBildir = useCallback(
+    (istek: GonderIstegi) => {
+      void oturumaGonder(istek).then((h) => {
+        if (h) setNotBildirimi(h);
+      });
+    },
+    [oturumaGonder]
+  );
   // v3.2: gece vardiyasi (Gece.tsx). Kosucu burada yasar: oturumlari acar, kanca halini okur.
   const [geceAcik, setGeceAcik] = useState(false);
   const gece = useGeceVardiyasi({
@@ -865,7 +879,7 @@ export default function App() {
   geceRef.current = gece;
 
   // Ada'dan gelen gonderme istekleri (main dogruladi, burada oturum ve soru denetlenir).
-  useEffect(() => window.kokpit.oturumaGonderDinle((istek) => void oturumaGonder(istek)), [oturumaGonder]);
+  useEffect(() => window.kokpit.oturumaGonderDinle((istek) => void gonderVeBildir(istek)), [gonderVeBildir]);
   // v3.2: Ctrl+Alt+Shift+C Kokpit ondeyken main tus gondermez, secimi buradan okur (executeJavaScript):
   // once aktif terminalin secimi, yoksa sayfadaki secim.
   useEffect(() => {
@@ -1310,7 +1324,7 @@ export default function App() {
           grup: 'Gönder',
           baslik: hk.ad,
           ipucu: hedef.ad,
-          calistir: () => void oturumaGonder({ id: hedef.id, tur: 'metin', metin: hk.metin }),
+          calistir: () => gonderVeBildir({ id: hedef.id, tur: 'metin', metin: hk.metin }),
         })
       );
     }
@@ -1434,16 +1448,22 @@ export default function App() {
       oranKaydir(s.solId, s.sagId, (e.clientX - s.x) / s.genislik);
       surukleRef.current = { ...s, x: e.clientX };
     };
+    const hareketOnce = hareket;
     const birak = () => {
       if (!surukleRef.current) return;
       surukleRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-    window.addEventListener('mousemove', hareket);
+    // Fare dugmesi webview (onizleme) ustunde birakilirsa pencere mouseup almayabilir: dugme basili degilse surukleme biter.
+    const hareketDenetimli = (e: MouseEvent) => {
+      if (surukleRef.current && e.buttons === 0) return birak();
+      hareketOnce(e);
+    };
+    window.addEventListener('mousemove', hareketDenetimli);
     window.addEventListener('mouseup', birak);
     return () => {
-      window.removeEventListener('mousemove', hareket);
+      window.removeEventListener('mousemove', hareketDenetimli);
       window.removeEventListener('mouseup', birak);
     };
   }, [oranKaydir]);
@@ -1507,7 +1527,7 @@ export default function App() {
             aria-label="Terminaller"
             aria-current={gorunum === 'terminal' ? 'page' : undefined}
             className={
-              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              'relative mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
               (kenarAcik ? '' : 'justify-center ') +
               (gorunum === 'terminal'
                 ? 'bg-yuzey text-metin'
@@ -1525,9 +1545,10 @@ export default function App() {
             onClick={() => setGorunum('saglik')}
             title="Sağlık (Ctrl+3)"
             aria-label="Sağlık"
+            aria-description={saglikSayisi.toplam > 0 ? saglikSayisi.toplam + ' uyarı' : undefined}
             aria-current={gorunum === 'saglik' ? 'page' : undefined}
             className={
-              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              'relative mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
               (kenarAcik ? '' : 'justify-center ') +
               (gorunum === 'saglik'
                 ? 'bg-yuzey text-metin'
@@ -1536,6 +1557,8 @@ export default function App() {
           >
             <Activity className="size-4 shrink-0" aria-hidden="true" />
             {kenarAcik && 'Sağlık'}
+            {/* Kenar daraldiginda (terminal gorunumu) uyari kaybolmasin: kucuk isaret. */}
+            {!kenarAcik && saglikSayisi.toplam > 0 && <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-dikkat" aria-hidden="true" />}
             {kenarAcik && saglikSayisi.toplam > 0 && (
               <span className="enstruman ml-auto text-xs text-dikkat-metin" title={saglikSayisi.baslik}>
                 {saglikSayisi.toplam}
@@ -1549,7 +1572,7 @@ export default function App() {
             aria-label="Envanter"
             aria-current={gorunum === 'envanter' ? 'page' : undefined}
             className={
-              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              'relative mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
               (kenarAcik ? '' : 'justify-center ') +
               (gorunum === 'envanter'
                 ? 'bg-yuzey text-metin'
@@ -1574,9 +1597,10 @@ export default function App() {
             onClick={() => setGorunum('botlar')}
             title="Botlar (Ctrl+5)"
             aria-label="Botlar"
+            aria-description={(nobet?.isler ?? []).some((x) => x.hal === 'dustu' || x.hal === 'gecikti') ? 'düşen ya da geciken bot var' : undefined}
             aria-current={gorunum === 'botlar' ? 'page' : undefined}
             className={
-              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              'relative mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
               (kenarAcik ? '' : 'justify-center ') +
               (gorunum === 'botlar'
                 ? 'bg-yuzey text-metin'
@@ -1585,6 +1609,9 @@ export default function App() {
           >
             <Bot className="size-4 shrink-0" aria-hidden="true" />
             {kenarAcik && 'Botlar'}
+            {!kenarAcik && (nobet?.isler ?? []).some((x) => x.hal === 'dustu' || x.hal === 'gecikti') && (
+              <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-dikkat" aria-hidden="true" />
+            )}
             {kenarAcik && (nobet?.isler ?? []).some((x) => x.hal === 'dustu' || x.hal === 'gecikti') && (
               <span className="enstruman ml-auto text-xs text-dikkat-metin" title="Düşen ya da geciken iş">
                 {(nobet?.isler ?? []).filter((x) => x.hal === 'dustu' || x.hal === 'gecikti').length}
@@ -1598,7 +1625,7 @@ export default function App() {
             aria-label="Teslim"
             aria-current={gorunum === 'teslim' ? 'page' : undefined}
             className={
-              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              'relative mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
               (kenarAcik ? '' : 'justify-center ') +
               (gorunum === 'teslim'
                 ? 'bg-yuzey text-metin'
@@ -1620,7 +1647,7 @@ export default function App() {
             aria-label="Aria"
             aria-current={gorunum === 'aria' ? 'page' : undefined}
             className={
-              'mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              'relative mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
               (kenarAcik ? '' : 'justify-center ') +
               (gorunum === 'aria' ? 'bg-yuzey text-metin' : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
             }
@@ -1846,6 +1873,29 @@ export default function App() {
           }}
         />
 
+        {/* v3.5: durum.py hatasi Pano'nun icinde kaliyordu; Saglik, Envanter ve Teslim eski olcumu uyarisiz gosteriyordu.
+            Proje verisine dayanan butun gorunumlerin ustunde. */}
+        {hata && (gorunum === 'pano' || gorunum === 'saglik' || gorunum === 'envanter' || gorunum === 'teslim') && (
+          <div role="alert" className="mb-4 shrink-0 rounded-base border border-hata/40 bg-hata/10 p-4">
+            <p className="flex items-center gap-2 text-sm font-medium text-hata-metin">
+              <AlertTriangle className="size-4" aria-hidden="true" />
+              {durum ? 'Durum tazelenemedi' : 'Durum okunamadı'}
+            </p>
+            <p className="mt-1 text-xs text-metin-ikincil">
+              {durum
+                ? 'Gösterilen, ' + new Date(durum.olculdu).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) + ' ölçümü. '
+                : ''}
+              durum.py çalıştırılamadı. Ayrıntı için ~/.kokpit/kokpit.log dosyasına bak.
+            </p>
+            <pre className="enstruman mt-2 max-h-24 overflow-auto whitespace-pre-wrap text-xs text-metin-soluk">{hata}</pre>
+          </div>
+        )}
+        {!durum && !hata && (gorunum === 'pano' || gorunum === 'saglik' || gorunum === 'envanter' || gorunum === 'teslim') && (
+          <p role="status" className="mb-4 shrink-0 text-sm text-metin-soluk">
+            Projeler okunuyor…
+          </p>
+        )}
+
         {/* Pano: gizlenir, sokulmez — tazeleme durumu korunur. */}
         <main
           className={
@@ -1854,23 +1904,6 @@ export default function App() {
         >
           {oncekiler.length > 0 && (
             <GeriYuklemeSeridi oncekiler={oncekiler} onYukle={geriYukle} onYoksay={() => setOncekiler([])} />
-          )}
-          {hata && (
-            <div role="alert" className="mb-5 rounded-base border border-hata/40 bg-hata/10 p-4">
-              <p className="flex items-center gap-2 text-sm font-medium text-hata-metin">
-                <AlertTriangle className="size-4" aria-hidden="true" />
-                {durum ? 'Durum tazelenemedi' : 'Durum okunamadı'}
-              </p>
-              <p className="mt-1 text-xs text-metin-ikincil">
-                {durum
-                  ? 'Gösterilen, ' + new Date(durum.olculdu).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) + ' ölçümü. '
-                  : ''}
-                durum.py çalıştırılamadı. Ayrıntı için ~/.kokpit/kokpit.log dosyasına bak.
-              </p>
-              <pre className="enstruman mt-2 whitespace-pre-wrap text-xs text-metin-soluk">
-                {hata}
-              </pre>
-            </div>
           )}
           {durum && (
             <Pano
@@ -1951,7 +1984,7 @@ export default function App() {
           aria-label="Teslim"
           className={(gorunum === 'teslim' ? 'block' : 'hidden') + ' min-h-0 flex-1 overflow-y-auto pr-1'}
         >
-          {gorunum === 'teslim' && (
+          {gorunum === 'teslim' && durum && (
             <Teslim
               projeler={durum?.projeler ?? []}
               simdi={simdi}
@@ -2339,7 +2372,7 @@ export default function App() {
                                   type="button"
                                   data-telefon
                                   onClick={() =>
-                                    o.uzak ? void window.kokpit.linkAc(o.uzak) : void oturumaGonder({ id: o.id, tur: 'metin', metin: '/rc' })
+                                    o.uzak ? void window.kokpit.linkAc(o.uzak) : gonderVeBildir({ id: o.id, tur: 'metin', metin: '/rc' })
                                   }
                                   aria-label={o.uzak ? o.ad + ' oturumunu claude.ai\'de aç (telefondan da erişilir)' : o.ad + ' oturumunu telefona aç (Remote Control)'}
                                   title={o.uzak ? 'Telefonda ve claude.ai\'de açık: ' + o.uzak.replace('https://', '') : 'Telefona aç: claude Remote Control\'u başlatır (/rc)'}
@@ -2355,7 +2388,7 @@ export default function App() {
                                   <HizliKomutMenusu
                                     komutlar={hizliKomutlar}
                                     oturumAdi={o.ad}
-                                    onSec={(hk) => void oturumaGonder({ id: o.id, tur: 'metin', metin: hk.metin })}
+                                    onSec={(hk) => gonderVeBildir({ id: o.id, tur: 'metin', metin: hk.metin })}
                                   />
                                 )}
                               </>

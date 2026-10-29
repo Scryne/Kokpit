@@ -67,7 +67,7 @@ function uygulamaninKisayolu(e: KeyboardEvent) {
   if (!e.ctrlKey || e.altKey) return false;
   if (e.key === 'Tab') return true;
   if (e.shiftKey) return ['W', 'w', 'N', 'n', 'P', 'p', 'T', 't'].includes(e.key);
-  return ['1', '2', '3', '4', '5', '=', '+', '-', '0'].includes(e.key);
+  return ['1', '2', '3', '4', '5', '6', '7', '=', '+', '-', '0'].includes(e.key);
 }
 
 /** Bosluk/tirnak iceren yol kabuga tek arguman olarak gitsin (Windows Terminal de boyle yapar). */
@@ -223,9 +223,14 @@ export default function TerminalOturumu({
     const sagTik = (e: MouseEvent) => {
       e.preventDefault();
       if (term.modes.mouseTrackingMode !== 'none') return;
-      void navigator.clipboard.readText().then((metin) => {
-        if (metin) term.paste(metin);
-      });
+      void navigator.clipboard
+        .readText()
+        .then((metin) => {
+          if (metin) term.paste(metin);
+        })
+        .catch(() => {
+          /* pano okunamadi (izin/bos): yapistirilacak bir sey yok */
+        });
     };
     kutu.addEventListener('contextmenu', sagTik);
 
@@ -244,6 +249,9 @@ export default function TerminalOturumu({
       sonRows = term.rows;
       ws.send(JSON.stringify({ t: 'boyut', cols: term.cols, rows: term.rows }));
     };
+    // Sutun/satir her degistiginde (yazi boyutu Ctrl+= dahil: kutu ayni kalir, RO tetiklenmez) claude yeni boyutu
+    // ogrenir; yoksa TUI eski genislikte cizip kayiyordu.
+    term.onResize(() => boyutGonder());
 
     // Olcum kare basina en fazla bir kez: pes pese RO tetiklemeleri tek fit'e iner.
     let olcumKaresi = 0;
@@ -335,7 +343,13 @@ export default function TerminalOturumu({
         /* gizliyse sonra olculecek */
       }
 
-      const sonuc = await window.kokpit.ptyBilgi();
+      let sonuc: Awaited<ReturnType<typeof window.kokpit.ptyBilgi>>;
+      try {
+        sonuc = await window.kokpit.ptyBilgi();
+      } catch (e) {
+        if (!kapandi) onDurumRef.current(id, 'hata', 'PTY sunucusuna ulaşılamadı: ' + (e as Error).message);
+        return;
+      }
       if (kapandi) return;
       if (!sonuc.bilgi) {
         onDurumRef.current(id, 'hata', sonuc.hata ?? 'PTY sunucusu başlatılamadı');
@@ -386,6 +400,7 @@ export default function TerminalOturumu({
           return;
         }
         if (m.t === 'hazir') {
+          clearTimeout(baglanmaSiniri);
           onDurumRef.current(id, 'acik');
           if (gorunurRef.current) term.focus();
         } else if (m.t === 'veri') term.write(m.d);
@@ -410,7 +425,18 @@ export default function TerminalOturumu({
             ? 'Terminal sunucusuna bağlanılamadı'
             : 'Terminal sunucusuyla bağlantı koptu'
         );
+      // Sunucu baglanti kabul edip hic "hazir" demezse sekme sonsuza dek "baglaniyor"da kalmasin.
+      const baglanmaSiniri = setTimeout(() => {
+        if (kapandi) return;
+        sonDurum('hata', 'Terminal 20 saniyede açılmadı');
+        try {
+          ws.close();
+        } catch {
+          /* kapali */
+        }
+      }, 20_000);
       ws.onclose = () => {
+        clearTimeout(baglanmaSiniri);
         bekleyenleriKopar();
         sonDurum('bitti', 'Terminal bağlantısı kapandı');
       };
@@ -566,7 +592,7 @@ export default function TerminalOturumu({
             <span
               role="status"
               aria-label={aramaSonucu.toplam === 0 ? 'Eşleşme yok' : aramaSonucu.toplam + ' eşleşme'}
-              className={'enstruman shrink-0 px-1 text-xs ' + (aramaSonucu.toplam === 0 ? 'text-dikkat-metin' : 'text-metin-soluk')}
+              className="enstruman shrink-0 px-1 text-xs text-metin-soluk"
             >
               {aramaSonucu.toplam === 0
                 ? 'yok'

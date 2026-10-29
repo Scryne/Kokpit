@@ -28,7 +28,7 @@ import { DurumIsareti, etkinlikCumlesi, sifirlanmaMetni, takilmaDurumu } from '.
 import { sureMetni } from './parcalar';
 import { AdaGoz, gozPozu, type GozHali } from './AdaGoz';
 import { VadeMetni, vadeEtiketi } from './Nobet';
-import { kayitBaslat, sesCal, uyanmaBaslat, type Kayit, type UyanmaDinleyici } from './sesKayit';
+import { kayitBaslat, mikrofonHatasi, sesCal, uyanmaBaslat, type Kayit, type UyanmaDinleyici } from './sesKayit';
 
 // Ada: Kokpit arka plandayken ekranin ust ortasindaki serit (electron/ada.cjs).
 // Kapali: tek satirlik hap — en onemli tek sey. Acik: oturum basina satir + limitler.
@@ -182,7 +182,8 @@ export default function Ada() {
   const [sesli, setSesli] = useState(true);
   // v3.2: eller serbest ("Ada, ..."). Ada konusurken ve bas-konus dinlerken dinleyici duraklar (kendi sesini duymasin).
   const [uyanma, setUyanma] = useState(false);
-  const konusuyor = useRef(false);
+  // Kac ses calmakta/sirada (sesCal sirali): ilki bitince dinleyici ikinci ses surerken acilmasin.
+  const konusuyor = useRef(0);
   const uyanmaDinleyici = useRef<UyanmaDinleyici | null>(null);
   const [tepsiHedef, setTepsiHedef] = useState<string | null>(null);
   const [tepsiKaynak, setTepsiKaynak] = useState<'ses' | null>(null);
@@ -195,6 +196,16 @@ export default function Ada() {
   const [ariaBekleyen, setAriaBekleyen] = useState<string | null>(null);
   const ariaBekleyenRef = useRef<string | null>(null);
   ariaBekleyenRef.current = ariaBekleyen;
+  // Aria sureci 'bitti' gondermeden olurse goz "calisiyor"da takili kalmasin: 3 dk sonra birakilir.
+  useEffect(() => {
+    if (!ariaBekleyen) return;
+    const t = setTimeout(() => {
+      if (ariaBekleyenRef.current !== ariaBekleyen) return;
+      setAriaBekleyen(null);
+      setSesNotu({ metin: "Aria uzun süredir cevap vermedi; Kokpit'te Aria sayfasına bak.", t: Date.now() });
+    }, 180_000);
+    return () => clearTimeout(t);
+  }, [ariaBekleyen]);
   const [ariaCevabi, setAriaCevabi] = useState(false);
   // v3.2: gunun brifingi (ses, palet ya da gunun ilk ani). "Tamam" ya da BRIFING_MS sonra kalkar.
   const [brifing, setBrifing] = useState<{ b: Brifing; t: number } | null>(null);
@@ -255,7 +266,10 @@ export default function Ada() {
       setOdakta(true);
       setKlavyeIstegi((n) => n + 1);
     });
-    const t = setInterval(() => setSimdi(Date.now()), 1000);
+    // Gizliyken (sinema, kapali) saniyelik yeniden cizim yok; gorununce ilk tikte guncellenir.
+    const t = setInterval(() => {
+      if (!document.hidden) setSimdi(Date.now());
+    }, 1000);
     return () => {
       k1();
       k2();
@@ -467,15 +481,15 @@ export default function Ada() {
   const konus = useCallback(async (metin: string, bildirim = false) => {
     const b = await window.kokpit.adaKonus(metin, bildirim);
     if (!b) return;
-    konusuyor.current = true;
+    konusuyor.current++;
     uyanmaDinleyici.current?.duraklat(true);
     try {
       await sesCal(b);
     } finally {
-      konusuyor.current = false;
+      konusuyor.current = Math.max(0, konusuyor.current - 1);
       // Hoparlorun yankisi bir an daha surer: dinleyici biraz sonra doner.
       setTimeout(() => {
-        if (!konusuyor.current && dinlemeRef.current === 'yok') uyanmaDinleyici.current?.duraklat(false);
+        if (konusuyor.current === 0 && dinlemeRef.current === 'yok') uyanmaDinleyici.current?.duraklat(false);
       }, 400);
     }
   }, []);
@@ -611,10 +625,10 @@ export default function Ada() {
           });
         },
       });
-    } catch {
+    } catch (e) {
       kayit.current = null;
       setDinleme('yok');
-      sesNotuGoster('Mikrofon açılamadı');
+      sesNotuGoster(mikrofonHatasi(e));
     }
   }, [bak, sesNotuGoster]);
 
@@ -629,7 +643,7 @@ export default function Ada() {
     let cozuluyor = false;
     void uyanmaBaslat({
       parca: (wav) => {
-        if (cozuluyor || konusuyor.current || dinlemeRef.current !== 'yok') return;
+        if (cozuluyor || konusuyor.current > 0 || dinlemeRef.current !== 'yok') return;
         cozuluyor = true;
         void window.kokpit
           .adaUyanmaCoz(wav)
@@ -649,7 +663,7 @@ export default function Ada() {
         if (iptal) d.durdur();
         else uyanmaDinleyici.current = d;
       })
-      .catch(() => sesNotuGoster('Mikrofon açılamadı (eller serbest)'));
+      .catch((e) => sesNotuGoster(mikrofonHatasi(e) + ' (eller serbest)'));
     return () => {
       iptal = true;
       uyanmaDinleyici.current?.durdur();
@@ -674,13 +688,21 @@ export default function Ada() {
   useEffect(
     () =>
       window.kokpit.ariaDinle((o) => {
+        // Bekleyen kimlik 'mesaj' olayindan da alinir: hizli hatada 'bitti', ariaGonder'in IPC cevabindan once gelebiliyordu
+        // ve "Aria dusunuyor" takili kaliyordu.
+        if (o.tur === 'mesaj' && o.mesaj.kaynak === 'ada') {
+          setAriaBekleyen(o.ariaId);
+          ariaBekleyenRef.current = o.ariaId;
+          return;
+        }
         if (o.tur !== 'bitti' || o.id !== ariaBekleyenRef.current) return;
         setAriaBekleyen(null);
         const m = o.hata ?? (o.kesildi ? 'Aria durduruldu.' : o.metin || 'Aria cevap vermedi.');
         setAriaCevabi(true);
         setSesNotu({ metin: m, t: Date.now() });
         bak(SES_CEVAP_MS);
-        if (!o.hata && !o.kesildi && o.metin) void konus(o.metin.replace(/[*_`#>]/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'));
+        // Alt cizgi kelime icindeyse (snake_case) kalir; main'de sozSadelestir ayrica temizler.
+        if (!o.hata && !o.kesildi && o.metin) void konus(o.metin.replace(/[*`#>]/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'));
       }),
     [bak, konus]
   );

@@ -112,7 +112,8 @@ export default function ProjeSecici({ projeler, ikon: Ikon, baslik, onSec }: Pro
               ogeler[hedef].focus();
             }}
             // Cam degil (DESIGN.md: cam yalniz nav ve sekme seridinde); zemin zaten %85 opak.
-            className="halka fixed z-50 w-56 overflow-hidden rounded-base bg-yuzey-guclu py-1 shadow-xl shadow-black/50"
+            // Dar yukseklikte (600 px) alttaki projeler ekran disinda kalmasin: menu kendi icinde kayar.
+            className="halka fixed z-50 max-h-[calc(100vh-6rem)] w-56 overflow-y-auto rounded-base bg-yuzey-guclu py-1 shadow-xl shadow-black/50"
           >
             <p className="etiket px-3 py-1.5">{baslik}</p>
             {projeler.map((p) => (

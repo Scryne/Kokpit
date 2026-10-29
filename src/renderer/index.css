@@ -186,7 +186,9 @@ body {
 }
 /* Pencere arka plandayken nabiz durur (main.tsx `arka-plan`); nokta yanik kalir, bicim ayni. */
 html.arka-plan .calisma-isareti i,
-html.arka-plan .animate-pulse {
+html.arka-plan .animate-pulse,
+html.arka-plan .animate-spin,
+html.arka-plan .aria-imlec {
   animation-play-state: paused;
 }
 @keyframes nabiz {

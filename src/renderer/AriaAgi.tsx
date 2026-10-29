@@ -221,6 +221,7 @@ export default function AriaAgi({
   kumanda,
   onSec,
   cekmece = false,
+  gorunur = true,
 }: {
   ag: HafizaAgi | null;
   hal: HalkaHali;
@@ -230,6 +231,8 @@ export default function AriaAgi({
   onSec: (yol: string) => void;
   /** Sagda hafiza cekmecesi acik: lejant onun altinda kalmasin. */
   cekmece?: boolean;
+  /** Aria sayfasi gorunur mu: gizliyken (baska sayfa) kare dongusu hic calismaz. */
+  gorunur?: boolean;
 }) {
   const kap = useRef<HTMLDivElement>(null);
   const tuval = useRef<HTMLCanvasElement>(null);
@@ -241,6 +244,10 @@ export default function AriaAgi({
 
   const veri = useMemo(() => (ag ? yerlestir(ag) : null), [ag]);
   const gorus = useRef({ k: 1, x: 0, y: 0, oturdu: false });
+  // Kullanici kaydirdi/yakinlastirdiysa yeniden boyutlanmada gorus korunur; yoksa ag yeniden sigdirilir.
+  const elle = useRef(false);
+  const gorunurRef = useRef(gorunur);
+  gorunurRef.current = gorunur;
   const enerji = useRef(new Map<number, { e: number; tur: AtesTuru }>());
   const sinyaller = useRef<Sinyal[]>([]);
   const sonAtesler = useRef<number[]>([]);
@@ -257,7 +264,41 @@ export default function AriaAgi({
   }, [veri, bekleyen]);
   const bekleyenRef = useRef(bekleyenIdler);
   bekleyenRef.current = bekleyenIdler;
-  const azalt = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
+  // Hareket azaltma tercihi calisirken degisebilir (Windows ayari): izlenir.
+  const [azalt, setAzalt] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const d = () => setAzalt(mq.matches);
+    mq.addEventListener('change', d);
+    return () => mq.removeEventListener('change', d);
+  }, []);
+  // Ekran olcegi degisince (baska monitor, sistem olcegi) tuval yeni piksel yogunluguyla yeniden kurulur; yoksa bulaniklasir.
+  const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
+  useEffect(() => {
+    const mq = window.matchMedia('(resolution: ' + dpr + 'dppx)');
+    const d = () => setDpr(window.devicePixelRatio || 1);
+    mq.addEventListener('change', d);
+    return () => mq.removeEventListener('change', d);
+  }, [dpr]);
+  // Ag tazelenince (Aria not yazdi) dugum indeksleri kayar: yanan notlar kimlikle yeni indekse tasinir, yoldaki
+  // sinyaller atilir. Yoksa yanlis not yanar; ag kuculdiyse cizim tanimsiz dugume erisip donuyordu.
+  const oncekiVeri = useRef<typeof veri>(null);
+  useEffect(() => {
+    const eski = oncekiVeri.current;
+    oncekiVeri.current = veri;
+    if (!eski || !veri || eski === veri) return;
+    const yeniSira = new Map(veri.dugumler.map((d) => [d.id, d.i]));
+    const tasi = (i: number) => yeniSira.get(eski.dugumler[i]?.id ?? '');
+    const yeniEnerji = new Map<number, { e: number; tur: AtesTuru }>();
+    for (const [i, v] of enerji.current) {
+      const j = tasi(i);
+      if (j !== undefined) yeniEnerji.set(j, v);
+    }
+    enerji.current = yeniEnerji;
+    sonAtesler.current = sonAtesler.current.map(tasi).filter((j): j is number => j !== undefined);
+    sinyaller.current = [];
+    setUzerinde(null);
+  }, [veri]);
   const dongu = useRef({ kare: 0, calisiyor: false, sonT: 0, sonKivilcim: 0 });
   // Cizim hazir degilken (ag yuklenmeden) gelen kare bayragi indirir; yoksa sonraki istekler yutulur.
   const cizRef = useRef<(t: number) => void>(() => {
@@ -286,11 +327,11 @@ export default function AriaAgi({
   }, [veri, boyut]);
 
   useEffect(() => {
-    if (!gorus.current.oturdu) sigdir();
+    if (!gorus.current.oturdu || !elle.current) sigdir();
   }, [sigdir]);
 
   const hareketVar = () => {
-    if (azalt) return false;
+    if (azalt || !gorunurRef.current) return false;
     if (sinyaller.current.length) return true;
     const h = halRef.current;
     if (h === 'dusunuyor' || h === 'arac' || h === 'yaziyor' || h === 'aciliyor') return true;
@@ -300,7 +341,7 @@ export default function AriaAgi({
 
   const iste = useCallback(() => {
     const d = dongu.current;
-    if (d.calisiyor) return;
+    if (d.calisiyor || !gorunurRef.current) return;
     d.calisiyor = true;
     kap.current?.setAttribute('data-ag-dongu', '1'); // test: hareket butcesi (bostayken dongu durur)
     d.kare = requestAnimationFrame((t) => cizRef.current(t));
@@ -380,12 +421,11 @@ export default function AriaAgi({
   // Hal degisince (dusunmeye basladi / bitti) dongu uyanir.
   useEffect(() => {
     iste();
-  }, [hal, iste, uzerinde, sorgu, boyut, veri, bekleyenIdler]);
+  }, [hal, iste, uzerinde, sorgu, boyut, veri, bekleyenIdler, gorunur]);
 
   useEffect(() => {
     const c = tuval.current;
     if (!c || !veri || !boyut.w) return;
-    const dpr = window.devicePixelRatio || 1;
     c.width = Math.round(boyut.w * dpr);
     c.height = Math.round(boyut.h * dpr);
     const g = c.getContext('2d');
@@ -489,6 +529,7 @@ export default function AriaAgi({
         const f = (gecen % sg.adim) / sg.adim;
         const a = dugumler[sg.yol[seg]];
         const b = dugumler[sg.yol[seg + 1]];
+        if (!a || !b) continue;
         const px = sx(a) + (sx(b) - sx(a)) * f;
         const py = sy(a) + (sy(b) - sy(a)) * f;
         const iz = g.createLinearGradient(sx(a), sy(a), px, py);
@@ -602,12 +643,15 @@ export default function AriaAgi({
           }
         }
         if (bekleyenRef.current.has(n.i)) {
+          // Seni bekliyor: amber + kesik cizgi (anlam yalniz renkle tasinmaz, DESIGN.md).
           g.globalAlpha = 1;
           g.strokeStyle = DIKKAT;
           g.lineWidth = 1.6;
+          g.setLineDash([3, 2.5]);
           g.beginPath();
-          g.arc(x, y, r + 4, 0, Math.PI * 2);
+          g.arc(x, y, r + 4.5, 0, Math.PI * 2);
           g.stroke();
+          g.setLineDash([]);
         }
       }
 
@@ -674,7 +718,7 @@ export default function AriaAgi({
       dongu.current.calisiyor = false;
       if (temizle) clearInterval(temizle);
     };
-  }, [veri, boyut, yak, yolBul, iste, azalt]);
+  }, [veri, boyut, yak, yolBul, iste, azalt, dpr]);
 
   // Fare: surukle = kaydir, tekerlek = yakinlas (imlecin etrafinda), uzerinde = komsular vurgulu, tik = notu ac.
   const surukle = useRef<{ x: number; y: number; gx: number; gy: number; oynadi: boolean } | null>(null);
@@ -723,7 +767,11 @@ export default function AriaAgi({
           if (s) {
             const dx = e.clientX - s.x;
             const dy = e.clientY - s.y;
-            if (Math.abs(dx) + Math.abs(dy) > 3) s.oynadi = true;
+            if (Math.abs(dx) + Math.abs(dy) > 3 && !s.oynadi) {
+              s.oynadi = true;
+              elle.current = true;
+              setUzerinde(null);
+            }
             if (s.oynadi) {
               gorus.current = { ...gorus.current, x: s.gx + dx, y: s.gy + dy };
               iste();
@@ -750,6 +798,9 @@ export default function AriaAgi({
           const { k, x, y } = gorus.current;
           const yeniK = Math.max(0.25, Math.min(5, k * Math.exp(-e.deltaY * 0.0015)));
           gorus.current = { k: yeniK, x: cx - ((cx - x) / k) * yeniK, y: cy - ((cy - y) / k) * yeniK, oturdu: true };
+          elle.current = true;
+          // Ipucu eski konumda kalmasin: yakinlasinca gizlenir, fare oynayinca yeniden bulunur.
+          if (uzerindeRef.current) setUzerinde(null);
           iste();
         }}
       />
@@ -780,10 +831,11 @@ export default function AriaAgi({
             className="w-40 rounded-kontrol border border-kenar bg-terminal/70 py-1 pl-7 pr-2 text-xs text-metin placeholder:text-metin-soluk"
           />
         </label>
-        {sorgu.trim().length >= 2 && <span className="enstruman px-1 text-[0.6875rem] text-metin-soluk tabular-nums">{eslesen.length}</span>}
+        {sorgu.trim().length >= 2 && <span className="enstruman px-1 text-[0.6875rem] text-metin-soluk tabular-nums" aria-live="polite">{eslesen.length}</span>}
         <button
           type="button"
           onClick={() => {
+            elle.current = false;
             sigdir();
             iste();
           }}
@@ -794,6 +846,21 @@ export default function AriaAgi({
           <span className="sr-only">Bütün ağı göster</span>
         </button>
       </div>
+
+      {/* Klavyeyle erisim: tuvaldeki notlar fareye bagliydi. Aramanin ilk eslesmeleri dugme listesi (Tab ile gezilir). */}
+      {sorgu.trim().length >= 2 && eslesen.length > 0 && !cekmece && (
+        <ul aria-label="Ağdaki eşleşmeler" data-ag-eslesmeler className="absolute right-2.5 top-11 z-10 w-64 overflow-hidden rounded-kontrol border border-kenar bg-yuzey-guclu py-1 text-xs">
+          {eslesen.slice(0, 8).map((d) => (
+            <li key={d.id}>
+              <button type="button" onClick={() => d.yol && onSec(d.yol)} className="flex w-full cursor-pointer items-baseline gap-2 px-2.5 py-1 text-left hover:bg-yuzey focus-visible:bg-yuzey">
+                <span className="min-w-0 flex-1 truncate text-metin-ikincil">{d.baslik}</span>
+                <span className="shrink-0 text-[0.6875rem] text-metin-soluk">{GRUP_ADI[d.grup]}</span>
+              </button>
+            </li>
+          ))}
+          {eslesen.length > 8 && <li className="px-2.5 py-1 text-[0.6875rem] text-metin-soluk">+{eslesen.length - 8} daha; aramayı daralt</li>}
+        </ul>
+      )}
 
       {uzerinde && (
         <div
@@ -808,6 +875,7 @@ export default function AriaAgi({
           <p className="enstruman mt-0.5 text-[0.6875rem] text-metin-soluk">
             {GRUP_ADI[uzerinde.grup]} · {uzerinde.derece} bağ{uzerinde.t ? ' · ' + new Date(uzerinde.t).toLocaleDateString('tr-TR') : ''}
           </p>
+          {bekleyenIdler.has(uzerinde.i) && <p className="mt-0.5 text-[0.6875rem] text-dikkat-metin">Bu projede onay bekleyen bir öneri var</p>}
           {uzerinde.yol && <p className="mt-0.5 text-[0.6875rem] text-metin-soluk">Tıkla: notu aç</p>}
         </div>
       )}
@@ -832,7 +900,7 @@ function Lejant() {
     ['hafıza', <><circle cx="7" cy="7" r="3.5" fill={GUMUS} /><circle cx="7" cy="7" r="5.5" fill="none" stroke={GUMUS} strokeOpacity="0.5" /></>],
     ['kavram', <circle cx="7" cy="7" r="2.2" fill={GUMUS} fillOpacity="0.6" />],
     ['gün', <circle cx="7" cy="7" r="2.6" fill="none" stroke={GUMUS} />],
-    ['bekliyor', <circle cx="7" cy="7" r="4.5" fill="none" stroke={DIKKAT} strokeWidth="1.4" />],
+    ['bekliyor', <circle cx="7" cy="7" r="4.5" fill="none" stroke={DIKKAT} strokeWidth="1.4" strokeDasharray="2.5 2" />],
   ];
   return (
     <div className="pointer-events-none absolute bottom-2.5 right-3 flex items-center gap-3 text-[0.6875rem] text-metin-soluk">
