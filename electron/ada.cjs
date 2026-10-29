@@ -58,6 +58,11 @@ let ekGonderDinleyici = (_istek) => {};
 let ekSilDinleyici = (_kimlikler) => {};
 let birakDinleyici = (_yollar) => 0;
 let sonEkler = []; // v3.0: yakala.cjs listesi (yolsuz)
+let sesli = true; // v3.1: ayarlar.adaSesli (sesli bildirim)
+let sesHazirlaDinleyici = () => {};
+let sesCozDinleyici = async (_wav, _liste) => ({ hata: 'ses kurulu değil' });
+let konusDinleyici = async (_metin, _bildirim) => null;
+let sesDurumu = () => ({ stt: false, tts: false });
 let sonNobet = null; // v3.0: nobet.cjs son olcumu
 let sonVadeler = []; // v3.0: durum.py vadeleri
 let sonProjeler = []; // { ad, yol } — gorev hedefi yalniz bu listeden olabilir
@@ -103,6 +108,11 @@ function kip() {
   return sakli ? 'sakli' : 'normal';
 }
 
+/** Renderer'a giden ayar: gorunurluk kipi + v3.1 ses (kurulu mu, sesli bildirim acik mi). */
+function ayarYuku() {
+  return { hep, kip: kip(), sesli, ses: sesDurumu() };
+}
+
 /** Sinemada yalniz "seni bekliyor" gosterilir: Kokpit oturumu ya da disaridaki oturum. */
 function bekleyenVar() {
   const o = sonAnlik?.oturumlar ?? {};
@@ -115,7 +125,7 @@ function gorunurlukGuncelle() {
   const k = kip();
   if (k !== sonKip) {
     sonKip = k;
-    gonder('ada:ayar', { hep, kip: k });
+    gonder('ada:ayar', ayarYuku());
   }
   const goster = acik && (hep || (!anaOdakta && oturumSayisi > 0)) && (k !== 'sinema' || bekleyenVar());
   if (goster && !ada.isVisible()) {
@@ -268,6 +278,11 @@ function kur(s) {
   ekGonderDinleyici = s.onEkGonder ?? (() => {});
   ekSilDinleyici = s.onEkSil ?? (() => {});
   birakDinleyici = s.onBirak ?? (() => 0);
+  sesHazirlaDinleyici = s.onSesHazirla ?? (() => {});
+  sesCozDinleyici = s.onSesCoz ?? sesCozDinleyici;
+  konusDinleyici = s.onKonus ?? konusDinleyici;
+  sesDurumu = s.sesDurumu ?? sesDurumu;
+  sesli = s.sesli !== false;
   ayarDinleyici = s.onAyar ?? (() => {});
   anaPencere = s.ana;
   sakli = s.sakli === true;
@@ -303,7 +318,7 @@ function kur(s) {
     gonder('ada:liste', sonListe);
     gonder('ada:projeler', sonProjeler);
     gonder('ada:dis', sonDis);
-    gonder('ada:ayar', { hep, kip: kip() });
+    gonder('ada:ayar', ayarYuku());
     gonder('ada:ekler', { ekler: sonEkler, neden: 'yukleme', acil: false });
     if (sonNobet) gonder('ada:nobet', sonNobet);
     gonder('ada:vadeler', sonVadeler);
@@ -442,6 +457,24 @@ ipcMain.on('ada:ek-sil', (e, ham) => {
   if (ham === 'hepsi') ekSilDinleyici('hepsi');
   else if (Array.isArray(ham)) ekSilDinleyici(ham.filter((k) => typeof k === 'string').slice(0, 8));
 });
+// v3.1: Ada'nin sesi. Kayit renderer'da (16 kHz mono WAV); cozum ve eylem main'de (ses.cjs + ses-komut.cjs).
+ipcMain.on('ada:ses-hazirla', (e) => {
+  if (!ada || e.sender !== ada.webContents) return;
+  sesHazirlaDinleyici();
+});
+ipcMain.handle('ada:ses-coz', async (e, ham) => {
+  if (!ada || e.sender !== ada.webContents) return { hata: 'yetkisiz' };
+  if (!(ham instanceof Uint8Array) && !(ham instanceof ArrayBuffer)) return { hata: 'ses kaydı geçersiz' };
+  const wav = Buffer.from(ham instanceof ArrayBuffer ? new Uint8Array(ham) : ham);
+  const liste = sonListe.map((o) => ({ id: String(o.id), ad: String(o.ad ?? '') })).filter((o) => o.ad);
+  return sesCozDinleyici(wav, liste);
+});
+ipcMain.handle('ada:konus', async (e, metin, bildirim) => {
+  if (!ada || e.sender !== ada.webContents || typeof metin !== 'string') return null;
+  if (bildirim === true && !sesli) return null;
+  const b = await konusDinleyici(metin.slice(0, 300), bildirim === true);
+  return b ? new Uint8Array(b) : null;
+});
 // Ada'ya birakilan dosyalar: yollar yakala.cjs'te denetlenir (var mi, dosya mi, boyut).
 ipcMain.on('ada:birak', (e, yollar) => {
   if (!ada || e.sender !== ada.webContents || !Array.isArray(yollar)) return;
@@ -458,7 +491,7 @@ module.exports = {
   ayar(yeniAcik, yeniHep) {
     acik = yeniAcik !== false;
     if (typeof yeniHep === 'boolean') hep = yeniHep;
-    gonder('ada:ayar', { hep, kip: kip() });
+    gonder('ada:ayar', ayarYuku());
     gorunurlukGuncelle();
   },
   /** Kenara cekil / geri gel (kart dugmesi, tepsi, Ctrl+Alt+Shift+G). */
@@ -478,7 +511,7 @@ module.exports = {
     ayarDinleyici({ adaKonum: null });
     if (ada && !ada.isDestroyed()) ada.setBounds(konum());
   },
-  durum: () => ({ acik, hep, sakli, tamEkran: tamEkranAyar, ortada: oran === 0.5 }),
+  durum: () => ({ acik, hep, sakli, tamEkran: tamEkranAyar, ortada: oran === 0.5, sesli }),
   /** Gorev hedefleri: ana pencerenin sirali proje listesi (ad + yol). */
   projeler(liste) {
     sonProjeler = Array.isArray(liste) ? liste : [];
@@ -556,6 +589,26 @@ module.exports = {
     }
     gonder('ada:klavye', { anaOdakta: anaOdakta === true });
     return true;
+  },
+  /**
+   * v3.1: bas-konus (Ctrl+Alt+Shift+Space). Ada gorunur olur (odak almaz: konusurken yazdigin yer
+   * yerinde kalir) ve renderer dinlemeyi acar ya da kapatir.
+   * @returns {boolean}
+   */
+  dinle() {
+    if (!ada || ada.isDestroyed() || !acik) return false;
+    if (!ada.isVisible()) {
+      ada.setBounds(konum());
+      ada.showInactive();
+      ustteTut();
+    }
+    gonder('ada:dinle', true);
+    return true;
+  },
+  /** v3.1: sesli bildirim acik/kapali (tepsi menusu). */
+  sesliAyarla(acikMi) {
+    sesli = acikMi !== false;
+    gonder('ada:ayar', ayarYuku());
   },
   kapat() {
     disYoklamaAyarla(false);

@@ -441,6 +441,15 @@ export interface DisOturum {
  */
 export type AdaKipi = 'normal' | 'sakli' | 'sinema';
 
+/** v3.1: Ada'nin sesi. Ayar: kurulu mu (stt/tts) ve sesli bildirim acik mi. */
+export type AdaAyari = { hep: boolean; kip?: AdaKipi; sesli?: boolean; ses?: { stt: boolean; tts: boolean } };
+
+/** v3.1: konusmadan cikan eylem (electron/ses-komut.cjs komutCoz). */
+export type SesEylemi =
+  | { tur: 'gonder' | 'yapistir' | 'vazgec' | 'durum' | 'bos' }
+  | { tur: 'not'; metin: string; hedef: { id: string; ad: string } | null; gonder: boolean };
+export type SesSonucu = { metin: string; eylem: SesEylemi; ms: number } | { hata: string };
+
 /** Ada'dan gorev hedefi: ana pencerenin proje listesi. */
 export interface AdaProjesi {
   ad: string;
@@ -543,12 +552,16 @@ declare global {
       adaProjeler: (liste: AdaProjesi[]) => void;
       adaProjelerDinle: (cb: (l: AdaProjesi[]) => void) => () => void;
       adaDisDinle: (cb: (l: DisOturum[]) => void) => () => void;
-      adaAyarDinle: (cb: (a: { hep: boolean; kip?: AdaKipi }) => void) => () => void;
+      adaAyarDinle: (cb: (a: AdaAyari) => void) => () => void;
       adaGorev: (gorev: { ad: string; metin: string }) => void;
       adaEklerDinle: (cb: (e: AdaEkleri) => void) => () => void;
       adaEkGonder: (istek: { id: string; ekler: string[]; metin: string; gonder: boolean }) => void;
       adaEkSil: (kimlikler: string[] | 'hepsi') => void;
       adaBirak: (yollar: string[]) => void;
+      adaDinleDinle: (cb: () => void) => () => void;
+      adaSesHazirla: () => void;
+      adaSesCoz: (wav: ArrayBuffer) => Promise<SesSonucu>;
+      adaKonus: (metin: string, bildirim?: boolean) => Promise<Uint8Array | null>;
       nobetGetir: () => Promise<BotNobeti | null>;
       nobetTazele: () => Promise<BotNobeti>;
       nobetDinle: (cb: (n: BotNobeti) => void) => () => void;

@@ -26,6 +26,8 @@
     "test:kanca": "node scripts/test-kanca.cjs",
     "test:ada": "node scripts/test-ada.cjs",
     "test:pano": "electron scripts/test-pano.cjs",
+    "test:ses": "node scripts/test-ses.cjs",
+    "ses:kur": "node scripts/ses-kur.cjs",
     "e2e:kanca": "node scripts/e2e-kanca.cjs"
   },
   "dependencies": {

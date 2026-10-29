@@ -73,6 +73,35 @@ fs.writeFileSync(DURUM_SARMAL, [
 ].join('\n'));
 // v3.0: gercek vadeler (proje notlari) teste sizmasin: Ada'nin hapi "yarin: GP2 teslim" derdi. Bos fikstur.
 fs.writeFileSync(path.join(TEST_DIZIN, 'vadeler-fikstur.json'), '[]');
+
+// v3.1 ses: mikrofon yerine Chromium'un sahte aygiti bu WAV'i dongude calar (0,4 sn sessizlik, 1,2 sn
+// "konusma" = 440 Hz ton, 2,2 sn sessizlik: Ada'nin sessizlik kurali kaydi kendiliginden bitirsin). Konusma
+// tanima taklidi: her cozumde SES_METNI dosyasi okunur, test cumleyi sirada degistirir.
+const SES_WAV = path.join(TEST_DIZIN, 'mikrofon.wav');
+const SES_METNI = path.join(TEST_DIZIN, 'ses-metni.txt');
+(() => {
+  const hiz = 16000;
+  const ornek = [];
+  for (let i = 0; i < hiz * 0.4; i++) ornek.push(0);
+  for (let i = 0; i < hiz * 1.2; i++) ornek.push(Math.round(Math.sin((2 * Math.PI * 440 * i) / hiz) * 0.35 * 32767));
+  for (let i = 0; i < hiz * 2.2; i++) ornek.push(0);
+  const b = Buffer.alloc(44 + ornek.length * 2);
+  b.write('RIFF', 0, 'ascii');
+  b.writeUInt32LE(36 + ornek.length * 2, 4);
+  b.write('WAVEfmt ', 8, 'ascii');
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(hiz, 24);
+  b.writeUInt32LE(hiz * 2, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write('data', 36, 'ascii');
+  b.writeUInt32LE(ornek.length * 2, 40);
+  ornek.forEach((v, i) => b.writeInt16LE(v, 44 + i * 2));
+  fs.writeFileSync(SES_WAV, b);
+  fs.writeFileSync(SES_METNI, '');
+})();
 fs.writeFileSync(KIMLIK, JSON.stringify({ claudeAiOauth: { accessToken: 'ui-test-token', expiresAt: Date.now() + 6 * 3600_000 } }));
 const limitIstekleri = [];
 const limitSunucusu = http.createServer((req, res) => {
@@ -192,6 +221,8 @@ async function baslat(ekOrtam = {}) {
       KOKPIT_DURUM_SCRIPT: DURUM_SARMAL,
       KOKPIT_TEST_GERCEK_DURUM: path.join(VAULT, '.claude', 'scripts', 'durum.py'),
       KOKPIT_TEST_NOBET: '1',
+      KOKPIT_TEST_MIKROFON: SES_WAV,
+      KOKPIT_TEST_SES_DOSYA: SES_METNI,
       ...ekOrtam,
     },
   });
@@ -680,6 +711,47 @@ async function v3Testi(cdp, adaCdp) {
   await uyu(400);
   await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
   await cdp.tus('Enter'); // kayit betiginden sonra istem temiz
+
+  console.log('v3.1 ses: bas-konus -> sahte mikrofon -> taklit tanima -> tepsi -> PTY');
+  const adim = await adaCdp.js(`document.querySelector('[data-oturum] .enstruman')?.textContent ?? ''`);
+  // 1) Hedefli not: "<ad>'e yaz, ..." -> tepside "Sesli not", hedef secili, Enter'a basilmaz.
+  fs.writeFileSync(SES_METNI, adim + "'e yaz, testleri koş ve sonucu komit at");
+  await adaAc();
+  kontrol('ses kuruluyken kartta Konuş dugmesi', await adaCdp.bekle(`!!document.querySelector('[data-ses-dugme]')`, 5000, 'ses dugmesi').catch(() => false));
+  await adaCdp.js(`(() => { document.querySelector('[data-ses-dugme]').click(); return true; })()`);
+  kontrol(
+    'dinlerken hap "Dinliyorum…", goz dinliyor',
+    await adaCdp.bekle(`document.querySelector('.ada-metin')?.textContent === 'Dinliyorum…' && document.querySelector('.ada-goz')?.dataset.hal === 'dinliyor'`, 4000, 'dinliyor').catch(() => false),
+    await adaCdp.js(`document.querySelector('.ada-metin')?.textContent ?? null`)
+  );
+  kontrol(
+    'sessizlikte kayit kendiliginden bitti -> tepside "Sesli not" + duzeltilmis metin',
+    await adaCdp.bekle(`document.querySelector('[data-ek-tepsisi]')?.textContent.includes('Sesli not') && document.querySelector('[data-ek-tepsisi] input')?.value === 'Testleri koş ve sonucu commit at'`, 15000, 'sesli not').catch(() => false),
+    await adaCdp.js(`document.querySelector('[data-ek-tepsisi] input')?.value ?? document.querySelector('.ada-metin')?.textContent ?? null`)
+  );
+  kontrol('sesli notta hedef secili', await adaCdp.js(`!!document.querySelector('[data-ek-tepsisi] [role="radio"][aria-checked="true"]')?.textContent.startsWith(${JSON.stringify(adim)})`), adim);
+  kontrol('log: eylem not @hedef', fs.readFileSync(LOG('kokpit.log'), 'utf8').includes('ada sesi: not @' + adim));
+  // 2) Sesli "Gönder": tepsideki not PTY'ye gider, Enter'la.
+  fs.rmSync(kayitCikti, { force: true });
+  fs.rmSync(kayitHazir, { force: true });
+  await kabuk("node '" + kayitBetik + "' '" + kayitCikti + "' '" + kayitHazir + "'");
+  for (let i = 0; i < 40 && !fs.existsSync(kayitHazir); i++) await uyu(150);
+  fs.writeFileSync(SES_METNI, 'Gönder.');
+  await adaAc();
+  await adaCdp.js(`(() => { document.querySelector('[data-ses-dugme]').click(); return true; })()`);
+  for (let i = 0; i < 80 && !fs.existsSync(kayitCikti); i++) await uyu(200);
+  const sesGelen = fs.existsSync(kayitCikti) ? JSON.parse(fs.readFileSync(kayitCikti, 'utf8')) : null;
+  kontrol('PTY: sesli "Gönder" notu yazdi ve Enter basti', sesGelen === 'Testleri koş ve sonucu commit at\r', JSON.stringify(sesGelen));
+  kontrol('gonderince tepsi bosaldi (ses)', await adaCdp.bekle(`!document.querySelector('[data-ek-tepsisi]')`, 5000, 'tepsi bos').catch(() => false));
+  await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+  await cdp.tus('Enter');
+  // 3) Bos tanima: tepsi acilmaz, hap "Duyamadım".
+  fs.writeFileSync(SES_METNI, '');
+  await adaAc();
+  await adaCdp.js(`(() => { document.querySelector('[data-ses-dugme]').click(); return true; })()`);
+  kontrol('bos tanima -> hap "Duyamadım", tepsi yok', await adaCdp.bekle(`document.querySelector('.ada-metin')?.textContent === 'Duyamadım' && !document.querySelector('[data-ek-tepsisi]')`, 15000, 'duyamadim').catch(() => false));
+  await adaKapat();
+  await uyu(400);
 
   console.log('v3.0 bot nobeti + vadeler (durum.py fiksturu)');
   const nobetFikstur = (hal, son, deger) =>

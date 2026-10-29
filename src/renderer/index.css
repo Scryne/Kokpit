@@ -356,6 +356,42 @@ html.ada body {
     opacity: 0.2;
   }
 }
+/* v3.1 mikrofon seviyesi: uc cubuk, yukseklik sesin gucu (renderer ~8 kez/sn gunceller; sonsuz animasyon yok). */
+.ada-seviye {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.ada-seviye i {
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--color-aksan);
+  transform-origin: center;
+  transform: scaleY(calc(0.2 + var(--s, 0) * 0.8));
+  transition: transform 110ms linear;
+}
+.ada-seviye i:nth-child(2) {
+  transform: scaleY(calc(0.25 + var(--s, 0) * 1.1));
+}
+.ada-seviye i:nth-child(3) {
+  transform: scaleY(calc(0.2 + var(--s, 0) * 0.6));
+}
+@media (prefers-reduced-motion: reduce) {
+  .ada-seviye i {
+    transition: none;
+  }
+}
+/* v3.1 Dinliyor: gozler acik ve hafif yukarida; halka mavi ve sabit, dinleme surdukce yanar. */
+.ada-goz[data-hal='dinliyor'] .ada-goz-poz {
+  transform: translateY(-0.8px) scale(1.12);
+}
+.ada-goz[data-hal='dinliyor'] .ada-goz-halo {
+  opacity: 0.9;
+  border-color: var(--color-aksan);
+}
 .ada-goz[data-hal='bekliyor'] .ada-goz-poz {
   transform: translateY(-0.6px) scale(1.18);
 }

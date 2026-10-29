@@ -1,0 +1,152 @@
+// v3.1, Ada'nin kulagi: konusmadan cikan metni Kokpit eylemine cevirir. SAF (test-ada dogrudan sinar).
+// Karar kurallarla verilir, model yok: hedef oturum adi bastadir ve listede vardir (bulanik eslesme),
+// ya da cumle bir kontrol sozudur (gonder, vazgec, durum). Gerisi hedefsiz nottur; tepsi siradaki oturumu
+// onerir. Hicbir eylem kendiliginden Enter'a basmaz: "gonder" ya Scryne'in ayri sozu ya da cumlenin sonudur.
+//
+// Duzeltme sozlugu olcumden (2026-10-29, whisper large-v3-turbo, Turkce + Ingilizce terim): "commit" ->
+// "komit", "push" -> "paş", "Kokpit'e" -> "Hoppite". Sozluk yalniz kod terimlerini duzeltir; adlar bulanik
+// eslesmeyle bulunur.
+
+// JS'deki kelime siniri yalniz ASCII harf tanir ("paş"in sonundaki ş sinir sayilmazdi): sinir Unicode harfle cizilir.
+const S = String.raw`(?<![\p{L}\p{N}])`;
+const B = String.raw`(?![\p{L}\p{N}])`;
+const k = (govde) => new RegExp(S + govde + B, 'giu');
+const DUZELTME = [
+  [new RegExp(S + String.raw`ko+m+it(?=$|[^\p{L}]|le|i|e|ler)`, 'giu'), 'commit'],
+  [k('p[au][sş]la'), "push'la"],
+  [k('p[au][sş]'), 'push'],
+  [k(String.raw`pul\s*rik[uü]est`), 'pull request'],
+  [k('bild'), 'build'],
+  [k(String.raw`tayp\s*[cç]ek`), 'type check'],
+];
+
+/** Konusmadan gelen metnin kod terimlerini duzeltir, bosluklari toplar. */
+function duzelt(metin) {
+  // NFC: whisper ve kabuk "ş"yi s + birlesen cengel olarak verebiliyor; o zaman sinir kurali sasirir.
+  let m = String(metin || '').normalize('NFC').replace(/\s+/g, ' ').trim();
+  for (const [kalip, yerine] of DUZELTME) m = m.replace(kalip, yerine);
+  return m;
+}
+
+/** Turkce kucuk harf + aksansiz: eslestirme anahtari. */
+function anahtar(s) {
+  return String(s || '')
+    .normalize('NFC')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/[ıi̇]/g, 'i')
+    .replace(/ş/g, 's')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .replace(/â/g, 'a')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function mesafe(a, b) {
+  if (a === b) return 0;
+  const d = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let onceki = d[0];
+    d[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const t = d[j];
+      d[j] = Math.min(d[j] + 1, d[j - 1] + 1, onceki + (a[i - 1] === b[j - 1] ? 0 : 1));
+      onceki = t;
+    }
+  }
+  return d[b.length];
+}
+
+// Ada yonelme ekleri ve "oturumu" sozu: "Kokpit'e", "Matbaa'ya", "Yanki oturumuna", "Citefield'da".
+const EKLER = ['oturumuna', 'oturumunda', 'oturumu', 'projesine', 'projesinde', 'ye', 'ya', 'yi', 'yı', 'e', 'a', 'de', 'da', 'te', 'ta', 'nin', 'nın', 'in', 'ın'];
+// Hedef adindan sonra gelen baglaclar: "Kokpit'e YAZ: ...", "Matbaa'ya SÖYLE ...".
+const BAGLAC = /^\s*(?:oturumuna|oturumunda|projesine|projesinde)?\s*[,:;.]?\s*(?:yaz|söyle|soyle|de|ilet|sor|gönder|gonder)?\s*[,:;.]?\s+/iu;
+// Baglac GERCEKTEN var mi (BAGLAC'in her parcasi istege bagli, bos eslesmeyi de kabul eder): bulanik adda sart.
+const BAGLAC_VAR = /^\s*(?:(?:oturumuna|oturumunda|projesine|projesinde)(?=[\s,:;.]|$)|[,:;]|(?:yaz|söyle|soyle|de|ilet|sor)(?=[\s,:;.]|$))/iu;
+
+const KONTROL = [
+  [/^(?:gönder|gonder|yolla|evet gönder|gönder bunu)$/iu, 'gonder'],
+  [/^(?:yapıştır|yapistir|sadece yapıştır|yalnız yapıştır)$/iu, 'yapistir'],
+  [/^(?:vazgeç|vazgec|iptal|boş ver|boşver|sil)$/iu, 'vazgec'],
+  [/^(?:durum|durum ne|ne durumdayız|ne durumdayiz|neredeyiz|özet|özetle|ne var)$/iu, 'durum'],
+];
+
+/**
+ * Bastaki birkac sozcukten hedef oturumu bulur. Eslesme ekler sokulerek, aksansiz ve bulanik yapilir;
+ * adin uzunluguna gore en fazla 1-2 harf farki. Ayni ada sahip iki oturumdan ilki (siralama cagirandan).
+ * @param {string} metin
+ * @param {{ id: string, ad: string }[]} oturumlar
+ * @returns {{ id: string, ad: string, kalan: string } | null}
+ */
+function hedefBul(metin, oturumlar) {
+  const sozcukler = metin.split(/\s+/);
+  // Kisa bas once: "Yanki oturumunda ..." tek sozcukte bulunur; cok sozcuklu ad yalniz tek sozcuk tutmazsa.
+  for (let n = 1; n <= Math.min(3, sozcukler.length); n++) {
+    // Ad "Kokpit'e" gibi kesme isaretiyle gelebilir; kesmeden sonrasi ektir.
+    const basHam = sozcukler.slice(0, n).join(' ');
+    const bas = basHam.replace(/[,:;.!?]+$/, '');
+    const govde = bas.split(/['’]/)[0];
+    const adaylar = new Set([anahtar(govde), anahtar(bas)]);
+    for (const ek of EKLER) {
+      const a = anahtar(bas);
+      const e = anahtar(ek);
+      if (a.length > e.length + 2 && a.endsWith(e)) adaylar.add(a.slice(0, -e.length));
+    }
+    let en = null;
+    for (const o of oturumlar) {
+      const k = anahtar(o.ad);
+      if (!k) continue;
+      const sinir = k.length >= 6 ? 2 : k.length >= 4 ? 1 : 0;
+      for (const a of adaylar) {
+        const d = mesafe(a, k);
+        if (d <= sinir && (!en || d < en.d)) en = { o, d };
+      }
+    }
+    if (en) {
+      const kalan = sozcukler.slice(n).join(' ');
+      // Bulanik (d > 0) eslesmede ardindan bir baglac ya da iki nokta gelmeli: "Hoppite yaz ..." evet,
+      // "Hopi dedi ki ..." hayir. Tam eslesmede ad tek basina yeter.
+      const baglacli = BAGLAC_VAR.test(kalan) || /[:,;]$/.test(basHam) || /['’]/.test(bas);
+      if (en.d > 0 && !baglacli) continue;
+      return { id: en.o.id, ad: en.o.ad, kalan: (' ' + kalan + ' ').replace(BAGLAC, '').trim() };
+    }
+  }
+  return null;
+}
+
+/**
+ * Konusmayi eyleme cevirir.
+ * @param {string} ham whisper metni
+ * @param {{ id: string, ad: string }[]} oturumlar Ada'daki oturumlar (siralama: oncelikli once)
+ * @returns {{ tur: 'gonder' | 'yapistir' | 'vazgec' | 'durum' | 'bos' }
+ *   | { tur: 'not', metin: string, hedef: { id: string, ad: string } | null, gonder: boolean }}
+ */
+function komutCoz(ham, oturumlar) {
+  const metin = duzelt(ham);
+  const sade = metin.replace(/[.!?…]+$/u, '').trim();
+  if (!sade) return { tur: 'bos' };
+  for (const [kalip, tur] of KONTROL) if (kalip.test(sade)) return { tur };
+  const h = hedefBul(sade, oturumlar || []);
+  let govde = h ? h.kalan : sade;
+  // Sondaki "gönder" cumleyi hemen yollar: "Matbaa'ya yaz testleri koş, gönder".
+  let gonder = false;
+  const son = govde.match(/^(.*?)[,;.]?\s+(?:ve\s+)?(?:gönder|gonder|yolla)$/iu);
+  if (son && son[1].trim()) {
+    govde = son[1].trim();
+    gonder = true;
+  }
+  govde = govde.replace(/^[,:;.\s]+/, '').trim();
+  if (!govde) return h ? { tur: 'not', metin: '', hedef: { id: h.id, ad: h.ad }, gonder: false } : { tur: 'bos' };
+  // Bas harf buyuk: whisper cumle ortasindan baslatabilir.
+  govde = govde.charAt(0).toLocaleUpperCase('tr-TR') + govde.slice(1);
+  return { tur: 'not', metin: govde, hedef: h ? { id: h.id, ad: h.ad } : null, gonder };
+}
+
+/** whisper'a verilen ipucu: proje adlari + sik terimler (yazimi dogru gelsin). */
+function ipucu(adlar) {
+  const terimler = ['commit', 'push', 'pull request', 'build', 'lint', 'test', 'Claude', 'GitHub', 'RunPod', 'Vercel', 'npm'];
+  return [...new Set([...(adlar || []).filter(Boolean), ...terimler])].join(', ');
+}
+
+module.exports = { duzelt, anahtar, mesafe, hedefBul, komutCoz, ipucu };

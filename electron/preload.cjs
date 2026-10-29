@@ -65,6 +65,15 @@ contextBridge.exposeInMainWorld('kokpit', {
   adaEkGonder: (istek) => ipcRenderer.send('ada:ek-gonder', istek),
   adaEkSil: (kimlikler) => ipcRenderer.send('ada:ek-sil', kimlikler),
   adaBirak: (yollar) => ipcRenderer.send('ada:birak', yollar),
+  // v3.1: Ada'nin sesi. Kayit renderer'da; WAV main'e gider, metin + eylem doner.
+  adaDinleDinle: (cb) => {
+    const d = () => cb();
+    ipcRenderer.on('ada:dinle', d);
+    return () => ipcRenderer.removeListener('ada:dinle', d);
+  },
+  adaSesHazirla: () => ipcRenderer.send('ada:ses-hazirla'),
+  adaSesCoz: (wav) => ipcRenderer.invoke('ada:ses-coz', wav),
+  adaKonus: (metin, bildirim) => ipcRenderer.invoke('ada:konus', metin, bildirim === true),
   // v3.0: bot nobeti.
   nobetGetir: () => ipcRenderer.invoke('nobet:getir'),
   nobetTazele: () => ipcRenderer.invoke('nobet:tazele'),

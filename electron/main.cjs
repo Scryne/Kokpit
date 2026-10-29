@@ -21,6 +21,8 @@ const { gonderIstegi } = require('./gonder-istegi.cjs');
 const { gitOzeti } = require('./git-ozet.cjs');
 const yakala = require('./yakala.cjs');
 const nobet = require('./nobet.cjs');
+const ses = require('./ses.cjs');
+const sesKomut = require('./ses-komut.cjs');
 const surum = require('./surum.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
@@ -36,6 +38,13 @@ const ARKA = process.argv.includes('--arka');
 // Ayri veri dizini (test/ekran kosuculari, config.cjs KOKPIT_DIZIN): Chromium profili de
 // ayrilir, gercek Kokpit'in profiliyle (izinler, onbellek) ayni anda kilitlenmesin.
 if (process.env.KOKPIT_DIZIN) app.setPath('userData', path.join(require('./config.cjs').KOKPIT_DIZIN, 'electron'));
+// v3.1 test: mikrofon yerine bir WAV dosyasi (Chromium'un sahte aygiti). Yalniz test kabugunda; gercek
+// Kokpit her zaman gercek mikrofonu kullanir.
+if (TEST && process.env.KOKPIT_TEST_MIKROFON) {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+  app.commandLine.appendSwitch('use-file-for-fake-audio-capture', path.resolve(process.env.KOKPIT_TEST_MIKROFON));
+}
 
 // Tek ornek. Ikinci Kokpit ayni oturum defterini paylasir: birincinin acik oturumlarini
 // "onceki calismadan kalan" sanip geri yukleme teklif eder (ayni klasorde ikinci
@@ -323,6 +332,22 @@ function adaKur() {
     },
     onEkSil: (kimlikler) => yakala.sil(kimlikler),
     onBirak: (yollar) => yakala.birak(yollar),
+    // v3.1: Ada'nin sesi. Dinleme baslarken sunucu isinir; konusma bitince metin -> eylem burada cozulur.
+    sesli: ayarlar.oku().adaSesli !== false,
+    sesDurumu: () => ses.durum(),
+    onSesHazirla: () => void ses.hazirla(),
+    onSesCoz: async (wav, liste) => {
+      const r = await ses.coz(wav, sesKomut.ipucu(liste.map((o) => o.ad)));
+      if ('hata' in r) return r;
+      const eylem = sesKomut.komutCoz(r.metin, liste);
+      log('ada sesi: ' + eylem.tur + (eylem.tur === 'not' ? (eylem.hedef ? ' @' + eylem.hedef.ad : ' hedefsiz') + (eylem.gonder ? ' +gonder' : '') : '') + ' (' + r.ms + ' ms)');
+      return { metin: r.metin, eylem, ms: r.ms };
+    },
+    // Bildirim (oturum bekliyor/bitti): Kokpit ondeyse sus, ekran zaten gosteriyor.
+    onKonus: async (metin, bildirim) => {
+      if (bildirim && pencere && pencere.isFocused()) return null;
+      return ses.konus(metin);
+    },
   });
   yakala.dinle((ekler, neden) => {
     const acil = neden === 'pano' && Date.now() - yakalaIstendi < YAKALA_BEKLE_MS;
@@ -774,6 +799,17 @@ function tepsiMenusu() {
       },
     },
     ...(a.ortada ? [] : [{ label: "Ada'yı ortala", enabled: a.acik, click: () => ada.ortala() }]),
+    // v3.1: Ada oturum seni bekleyince / bitince sesli soyler (Kokpit ondeyken susar).
+    {
+      label: 'Sesli bildirim',
+      type: 'checkbox',
+      checked: a.sesli,
+      enabled: a.acik && ses.durum().tts,
+      click: (m) => {
+        ayarlar.yaz({ adaSesli: m.checked });
+        ada.sesliAyarla(m.checked);
+      },
+    },
     { label: 'Limitleri tazele', click: () => void limit.tazele() },
   ];
   if (ACILIS_DESTEKLI) {
@@ -823,9 +859,9 @@ const CSP = DEV
     `connect-src 'self' http://localhost:${DEV_PORT} ws://localhost:${DEV_PORT} ws://127.0.0.1:*; ` +
     // Dev'de bir sey blob: URL'den Worker acmaya calisiyor (uretim paketinde Worker YOK,
     // olculdu). Uretim politikasini gevsetmeden dev gurultusu susturuluyor.
-    "worker-src 'self' blob:; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    "worker-src 'self' blob:; img-src 'self' data:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'none'"
   : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-    "font-src 'self'; connect-src 'self' ws://127.0.0.1:*; img-src 'self' data:; " +
+    "font-src 'self'; connect-src 'self' ws://127.0.0.1:*; img-src 'self' data:; media-src 'self' blob:; " +
     "object-src 'none'; base-uri 'none'; frame-src 'none'";
 
 function cspKur() {
@@ -922,6 +958,15 @@ app.whenReady().then(() => {
     });
     log('genel kisayol ' + yakalaKisayolu + (yakalaKayit ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
   }
+  // v3.1: bas-konus. Ada dinler (odak calmaz), konusma bitince metin Ada'nin tepsisine duser ya da
+  // "..., gönder" ile biterse dogrudan gider. Ses dosyalari yoksa (npm run ses:kur) kaydedilmez.
+  if (!TEST && ses.durum().stt) {
+    const sesKisayolu = 'Control+Alt+Shift+Space';
+    const sesKayit = globalShortcut.register(sesKisayolu, () => {
+      if (!ada.dinle()) log('ses kisayolu: ada kapali');
+    });
+    log('genel kisayol ' + sesKisayolu + (sesKayit ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
+  }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
 });
 
@@ -948,6 +993,7 @@ app.on('before-quit', (olay) => {
     return;
   }
   ptyKopru.durdur();
+  ses.durdur();
   kanca.durdur();
   limit.durdur();
   ada.kapat();

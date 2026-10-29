@@ -53,6 +53,19 @@ araç. Kenarın altında **limit** (5 saat, hafta). Statusline Kokpit oturumlar�
 gelince oturum listesi açılır; bir oturum bitince ya da soru sorunca 5 sn kendiliğinden açılır.
 Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
 
+**v3.1, Ada'nın sesi:**
+- **Bas-konuş: Ctrl+Alt+Shift+Space** (ya da Ada'nın açık kartındaki mikrofon). Ada dinler, sen susunca kendiliğinden
+  bırakır. Konuşma bu makinede metne döner (whisper.cpp, GPU, ~0,2 sn); ses dışarı gitmez.
+- **Ne dersen:** "Matbaa'ya yaz, testleri koş" → not Ada'nın tepsisine düşer, Matbaa seçili, Enter'a basılmaz. Sonra
+  "gönder" (ya da düğme) → oturuma gider. Cümle "…, gönder" ile biterse hemen gider. "Yalnız yapıştır", "vazgeç",
+  "durum ne?" (Ada sesli özetler). Ad yoksa tepsi sıradaki oturumu önerir. Bekleyen ekran görüntüsü varsa notla
+  birlikte gider. Kod terimleri düzeltilir ("komit" → commit, "paş" → push).
+- **Sesli bildirim:** bir oturum seni beklemeye geçince ya da bitince Ada adını söyler ("Kokpit seni bekliyor").
+  Kokpit öndeyken susar; tepsi menüsünden kapatılır. Ses Edge'in Türkçe sesi (edge-tts, ağ ister).
+- Claude Code'un kendi dikte özelliği (`/voice`, Türkçe) terminalin içinde ayrıca çalışır; Ada'nınki her yerden ve
+  oturum seçerek.
+- Kurulum bir kez: `npm run ses:kur` (~2 GB, `~/.kokpit/ses`). Dosyalar yoksa Kokpit sessiz çalışır, kısayol kaydedilmez.
+
 **v3.0, yakala + nöbet + Ada'nın dikkati:**
 - **Ekran yakalama → oturum.** Panoya bir görüntü düşünce (Win+Shift+S, ya da Ctrl+Alt+Shift+S: Windows'un anlık
   görüntü aracını açar) Ada önizlemeyi gösterir: hedef oturumu seç, istersen not yaz, **Gönder** (yol yapıştırılır,
@@ -180,7 +193,7 @@ o, dizindeki açık oturumları da erken doldururdu.
 **Klavye:** Ctrl+Shift+P komut paleti (sayfa, proje aç/git, klasör, eylemler) · Ctrl+B kenar
 çubuğu · Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü · Ctrl+Shift+W bölmeyi kapat · **Ctrl+Shift+T son kapatılan
 oturumu geri aç** · Ctrl+Shift+N
-Inbox'a not · **Ctrl+Alt+Shift+K her yerden Kokpit'i çağır / küçült** · **Ctrl+Alt+Shift+A klavyeyle Ada** · **Ctrl+Alt+Shift+G Ada'yı kenara sakla / geri getir** · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
+Inbox'a not · **Ctrl+Alt+Shift+Space Ada'ya konuş (v3.1)** · **Ctrl+Alt+Shift+K her yerden Kokpit'i çağır / küçült** · **Ctrl+Alt+Shift+A klavyeyle Ada** · **Ctrl+Alt+Shift+G Ada'yı kenara sakla / geri getir** · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
 Türkçe klavyede AltGr olduğu için üç değiştirici) · sekme şeridinde ← →, bölme ayırıcısında ← →
 (%5). **Terminalde:** Ctrl+Shift+F ara (Enter / Shift+Enter / Esc) · Ctrl+C seçim varken
 kopyalar, yokken `^C` · Ctrl+Shift+C/V · sağ tık yapıştır (fareyi izleyen uygulamada, ör. claude, tık uygulamaya gider ve yapıştırmayı o yapar) · Ctrl+= / Ctrl+- / Ctrl+0 yazı
@@ -218,8 +231,10 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 ```bash
 npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ve oturum ağacı dahil (21 kontrol)
 npm run test:kanca   # kanca köprüsü, soru/son söz/istek/komut/tarif/adres/kimlik (101 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada, gerçek z-sırası, tepsi, sürüm bekçisi dahil (174 kontrol, önce build)
-npm run test:ada     # limit (sahte uç), dış oturumlar, görev geçişi, tam ekran/yer, üst katman, sürüm imzası, sinema giriş gecikmesi (70 kontrol)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada, gerçek z-sırası, tepsi, sürüm bekçisi, ses (sahte mikrofon) dahil (210 kontrol, önce build)
+npm run test:ada     # limit (sahte uç), dış oturumlar, görev geçişi, tam ekran/yer, üst katman, sürüm imzası, sinema giriş gecikmesi, sesli komut (110 kontrol)
+npm run test:ses     # v3.1, elle: GERÇEK whisper (GPU) + edge-tts uçtan uca, Türkçe + İngilizce terimli 8 cümle (12 kontrol)
+npm run ses:kur      # v3.1: whisper.cpp CUDA + large-v3-turbo modeli + edge-tts -> ~/.kokpit/ses
 npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontrol; elle, plan kullanır)
 npm run ekran:ada    # v2.3–v2.4 yüzeylerinin ekran görüntüsü (ada, ada-klavye, ada-bitti, terminal, Pano)
 npm run ekran:ajan   # v2.6: oturumsuz hap, dış oturum, açık kart, proje listesi
@@ -301,9 +316,14 @@ Yükseltme Kokpit kapalıyken yapılır: açıkken `electron.exe` ve koffi'nin y
 | `KOKPIT_CLAUDE_PROJELER` | `~/.claude/projects` | Test: transcript'lerin okunduğu dizin (sürdürülebilir mi, beyin durumu, bağlam) |
 | `KOKPIT_TEST_NOBET` | — | Test koşucusunda bot nöbetini de başlat (`durum.py --nobet`; testte sarmalayıcının fikstürü) |
 | `KOKPIT_TEST_PANO` | — | Test koşucusunda pano bekçisini de başlat (gerçek panoyu izler) |
+| `KOKPIT_SES_DIZIN` | `~/.kokpit/ses` | v3.1: whisper sunucusu, model ve edge-tts'in yeri |
+| `KOKPIT_TEST_MIKROFON` | — | Test: mikrofon yerine bu WAV (Chromium sahte aygıtı; yalnız test kabuğunda) |
+| `KOKPIT_TEST_SES_DOSYA` / `KOKPIT_TEST_SES_METIN` | — | Test: konuşma tanıma taklidi (her çözümde dosya okunur / sabit metin); gerçek model açılmaz |
+| `KOKPIT_TEST_SES_KONUS` | — | Test kabuğunda Ada'nın konuşmasını aç (varsayılan sessiz: hoparlör ve ağ yok) |
 
 `~/.kokpit/ayarlar.json`: `seffaf: false` pencereyi opak yapar, `ada: false` adayı kapatır, `adaHep: false`
-eski davranış (yalnız Kokpit arka plandayken), `tepsi: false` X'i yine kapatma yapar.
+eski davranış (yalnız Kokpit arka plandayken), `tepsi: false` X'i yine kapatma yapar, `adaSesli: false` sesli
+bildirimi kapatır (v3.1).
 
 ## Teşhis
 
@@ -374,3 +394,7 @@ der. Geri doldurma vault'ta: `python .claude/scripts/flush_kapsama.py --proje <a
 11. **Ekler yolla, kimlikle gider (v3.0).** Ada renderer'ı oturuma yol göndermez: ek kimliği seçer, yolu main
     (`yakala.cjs`) kendi kaydından çözer; bırakılan yol orada denetlenir (mutlak, var olan normal dosya, satır sonu
     yok). Scryne'ın panosuna yazılmaz. Bot nöbeti yalnız okur: hiçbir işi tetiklemez, `nobet.json`'u Kokpit yazmaz.
+12. **Ses yerelde çözülür, Enter'ı Scryne söyler (v3.1).** Mikrofon yalnız kısayol/düğmeyle açılır, kayıt bellekte
+    kalır, whisper'a 127.0.0.1'den gider. Sesli not tepsiye düşer; oturuma yalnız "gönder" sözüyle, düğmeyle ya da
+    "…, gönder" ile biten cümleyle gider. Hedef adı bulanık eşleşirse ardında bağlaç (yaz, söyle, `:`) şart: sıradan
+    cümle oturuma yönelmez. Komut kararı kurallarla (`ses-komut.cjs`), model yok.

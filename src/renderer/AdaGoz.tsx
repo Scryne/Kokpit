@@ -14,7 +14,7 @@ import type { OturumEtkinligi } from './types';
  * Gozun hali: durum + bitti anindaki kisa sevinc + uzun sessizlik. v3.0: endise (yeni takilma ya da
  * dusen bot, kisa), yorgun (5 saatlik limit dolmak uzere, sakin hallerin yerine), para (yeni siparis).
  */
-export type GozHali = 'bosta' | 'calisiyor' | 'bekliyor' | 'bitti' | 'mutlu' | 'uyku' | 'endise' | 'yorgun' | 'para';
+export type GozHali = 'bosta' | 'calisiyor' | 'bekliyor' | 'bitti' | 'mutlu' | 'uyku' | 'endise' | 'yorgun' | 'para' | 'dinliyor';
 /** Calisirken bakis: aracin turune gore. */
 export type GozPozu = 'dusun' | 'oku' | 'yaz' | 'komut' | 'web' | 'ajan' | 'odak';
 

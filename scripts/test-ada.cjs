@@ -330,8 +330,54 @@ function v3Testi() {
   })());
 }
 
+// v3.1: Ada'nin kulagi (electron/ses-komut.cjs). Ornekler gercek whisper ciktisindan (2026-10-29 olcumu).
+function sesTesti() {
+  const { duzelt, komutCoz, hedefBul, ipucu } = require('../electron/ses-komut.cjs');
+  const o = [
+    { id: 'k', ad: 'Kokpit' },
+    { id: 'm', ad: 'Matbaa' },
+    { id: 'y', ad: 'Yanki' },
+    { id: 'c', ad: 'Citefield' },
+    { id: 'u', ad: 'The Unknown' },
+  ];
+  kontrol('ses: "komit" -> commit', duzelt('sonucu komit at') === 'sonucu commit at');
+  kontrol('ses: "paş" -> push (Unicode sinir)', duzelt('sonra paş etme') === 'sonra push etme');
+  kontrol('ses: "puşla" -> push\'la', duzelt('komitle ve puşla') === "commitle ve push'la");
+  kontrol('ses: "paşa" dokunulmaz (sozcugun parcasi)', duzelt('paşa geldi') === 'paşa geldi');
+  kontrol('ses: ayrisik ş (s + cengel) da duzelir', duzelt('paş et') === 'push et');
+  const n = (m) => komutCoz(m, o);
+  const a = n('Matbaa oturumuna söyle, testleri koş ve sonucu komit at');
+  kontrol('ses: "X oturumuna söyle" hedef + govde', a.tur === 'not' && a.hedef?.id === 'm' && a.metin === 'Testleri koş ve sonucu commit at' && !a.gonder, JSON.stringify(a));
+  const b = n('Hoppite yaz, Ada penceresindeki hatayı düzelt');
+  kontrol('ses: bulanik ad + baglac ("Hoppite yaz" -> Kokpit)', b.tur === 'not' && b.hedef?.id === 'k', JSON.stringify(b));
+  // "Hoppit" Kokpit'e 2 harf uzak: baglac ("yaz", ":") olmadan hedef sayilmaz, yoksa siradan cumle oturuma gider.
+  const c = n('Hoppit dedi ki bu iş bitti');
+  kontrol('ses: baglacsiz bulanik ad hedef sayilmaz', c.tur === 'not' && c.hedef === null, JSON.stringify(c));
+  const c2 = n('Hoppit: bunu düzelt');
+  kontrol('ses: iki nokta da baglac sayilir ("Hoppit: ...")', c2.tur === 'not' && c2.hedef?.id === 'k' && c2.metin === 'Bunu düzelt', JSON.stringify(c2));
+  const d = n("Citefield'e yaz, lint ve type check çalıştır, gönder");
+  kontrol('ses: sondaki "gönder" hemen yollar', d.tur === 'not' && d.hedef?.id === 'c' && d.gonder && d.metin === 'Lint ve type check çalıştır', JSON.stringify(d));
+  const e = n('Yanki oturumunda RunPod bakiyesini kontrol et');
+  kontrol('ses: "X oturumunda" eki atilir', e.tur === 'not' && e.hedef?.id === 'y' && e.metin === 'RunPod bakiyesini kontrol et', JSON.stringify(e));
+  const f = n('The Unknown oturumuna yaz deploy et');
+  kontrol('ses: iki sozcuklu ad', f.tur === 'not' && f.hedef?.id === 'u' && f.metin === 'Deploy et', JSON.stringify(f));
+  kontrol('ses: "Gönder." kontrol sozu', n('Gönder.').tur === 'gonder');
+  kontrol('ses: "Vazgeç" kontrol sozu', n('Vazgeç').tur === 'vazgec');
+  kontrol('ses: "Durum ne?" kontrol sozu', n('Durum ne?').tur === 'durum');
+  kontrol('ses: "Yalnız yapıştır" kontrol sozu', n('Yalnız yapıştır').tur === 'yapistir');
+  kontrol('ses: bos metin', n('  ').tur === 'bos');
+  const g = n('testleri tekrar çalıştır');
+  kontrol('ses: hedefsiz not, bas harf buyur', g.tur === 'not' && g.hedef === null && g.metin === 'Testleri tekrar çalıştır', JSON.stringify(g));
+  const h = n('Kokpit');
+  kontrol('ses: yalniz ad -> hedef secilir, metin bos', h.tur === 'not' && h.hedef?.id === 'k' && h.metin === '', JSON.stringify(h));
+  kontrol('ses: "gönderdim" cumlesi kontrol sozu degil', n('dün gönderdim onu').tur === 'not');
+  kontrol('ses: kisa ad bulanik eslesmez (Ada != Adam)', hedefBul('Adam yaz bunu', [{ id: 'a', ad: 'Ada' }]) === null);
+  kontrol('ses: ipucu adlari ve terimleri tasir', ipucu(['Kokpit', 'Kokpit', '']).startsWith('Kokpit, commit'));
+}
+
 (async () => {
   try {
+    sesTesti();
     v3Testi();
     ustKatmanTesti();
     saklanmaTesti();

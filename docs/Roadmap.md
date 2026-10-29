@@ -61,6 +61,9 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 43 | Ada: takılma uyarısı | ✅ Tamamlandı | Üst üste hata veren araç (`PostToolUseFailure`), API hatasıyla duran tur (`StopFailure`) ve uzun sessiz "çalışıyor" satırda amber "takılmış olabilir" + neden; gerçek claude hata gövdesiyle sınandı |
 | 44 | Ada: oturumun hedefi | ✅ Tamamlandı | Oturumun ilk isteği (UserPromptSubmit `prompt`) satırın altında tek satır; Kokpit sekme ipucunda da |
 | 45 | Ada: bitti kartında sonuç | ✅ Tamamlandı | Biten turun dosya / +− sayısı, oturumda commit atıldı mı, push bekleyen ve kirli dosya var mı Ada'nın bitti satırında |
+| 46 | Ada'nın sesi: bas-konuş | ✅ Tamamlandı | Ctrl+Alt+Shift+Space / kart düğmesi; 16 kHz WAV renderer'da, sessizlikte kendiliğinden biter; yerel whisper.cpp (GPU) metne çevirir; gerçek mikrofon Electron'da açıldı |
+| 47 | Ada'nın sesi: sesli komut | ✅ Tamamlandı | "X'e yaz …" hedefli not tepsiye, "gönder / yalnız yapıştır / vazgeç / durum ne"; terim düzeltmesi; bulanık adda bağlaç şartı; gerçek whisper ile 8 cümle uçtan uca doğru |
+| 48 | Ada'nın sesi: sesli bildirim | ✅ Tamamlandı | Oturum seni bekleyince / bitince Ada adını söyler (edge-tts Türkçe, iki ses yedekli); Kokpit öndeyken susar; tepsiden kapanır |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -837,3 +840,35 @@ Diff/inceleme ekranı, worktree'li paralel ajan, zamanlanmış görev, telefon �
   Gezgin'den gerçek fareyle Ada'ya sürükle-bırak (yoklama + bırakma yolu ayrı ölçüldü), gerçek `StopFailure` gövdesi.
   Çalışan Kokpit eski kodla açık: yeni sürüm yeniden başlatınca gelir (tepside "Yeni sürüm hazır").
 
+### v3.1 — Ada'nın sesi (Faz 46–48, 2026-10-29)
+
+Scryne: "sesli asistan ekleyebilir miyiz? amacım bilgisayarımı tamamen vibe coding sistemine döndürmek." v3.0'da
+bas-konuş ertelenmişti; bu kez istendi. Araştırma (2026-10-29): Claude Code 2.1.312'nin kendi `/voice` diktesi var ve
+Türkçe destekliyor (ikili dosyadan ve dokümandan doğrulandı; ses Anthropic'e gider, yalnız o terminalin istemine
+yazar). Ada'nın sesi onun yapamadığını yapar: her yerden, oturum seçerek, tepsi ve eklerle birlikte, sesli bildirim.
+Global ayarda `/voice` da açıldı (`voice.mode: tap`, `language: turkish`).
+
+- **Spike (RTX 4060 Laptop 8 GB):** whisper.cpp b5454 CUDA 12.4 + large-v3-turbo q8_0: Türkçe + İngilizce terimli
+  cümle ısınmış sunucuda 110–330 ms (ort. ~170), soğuk açılış ~1,1 sn, VRAM ~1,2 GB. 7 cümleden 5'i birebir; hatalar
+  "commit" → "komit", "push" → "paş", "Kokpit'e" → "Hoppite". Parakeet/Canary Türkçe desteklemiyor (araştırma).
+  edge-tts `tr-TR-EmelNeural` ~1,6–2,7 sn; `tr-TR-AhmetNeural` aynı gece iki kez boş döndü (bilinen sorun, edge-tts
+  #512): iki ses sırayla denenir. Windows'ta Türkçe SAPI sesi kurulu değil (yalnız Zira).
+- **Faz 46** (✅): `src/renderer/sesKayit.ts` (getUserMedia → AudioContext 16 kHz → ScriptProcessor → WAV; ilk 300 ms
+  gürültü tabanı, eşik ×3, 1,4 sn sessizlikte biter, 7 sn hiç konuşma yoksa vazgeçer, 30 sn tavan). `electron/ses.cjs`
+  whisper sunucusunu ilk dinlemede açar (model konuşma sürerken yüklenir), 15 dk boşta kapatır (GPU belleği boşalsın).
+  CSP'ye `media-src blob:` (Ada'nın sesi). Gözün yeni hali: dinliyor; hapta seviye çubukları.
+- **Faz 47** (✅): `electron/ses-komut.cjs` (saf): düzeltme sözlüğü (Unicode harf sınırıyla: JS'nin kelime sınırı "ş"yi
+  tanımıyordu; NFC: ayrışık "ş" geliyordu), hedef bulma (ekler, aksansız, uzunluğa göre 1–2 harf), kontrol sözleri,
+  sondaki "gönder". Tepsi hedefi Ada'da tutulur (EkTepsisi kontrollü).
+- **Faz 48** (✅): durum geçişinde (bekliyor / bitti + dikkat) Ada adı söyler; oturum başına 20 sn ara, dinlerken susar,
+  Kokpit öndeyse main susturur. Ayar `adaSesli`, tepsi menüsünde "Sesli bildirim".
+- **Testler:** `test:ada` 110 (88'den; sesli komut 22), `test:ui` 210 (202'den; sahte mikrofon WAV'ı + tanıma taklidi:
+  Konuş düğmesi, "Dinliyorum…" + göz, sessizlikte kendiliğinden bitiş, tepside düzeltilmiş not + hedef, sesli
+  "Gönder" → PTY'ye giden bayt birebir `not CR`, boş tanımada "Duyamadım"), `test:ses` 12/12 (gerçek GPU + edge-tts,
+  8 cümle). Gerçek mikrofon Electron'da 16 kHz açıldı (Realtek dizi, ortam RMS 0,0125). **Mutasyon:** bağlaç şartı
+  ilk turda KAÇTI: kural hiç çalışmıyordu (her parçası isteğe bağlı regex boş eşleşmeyi de kabul ediyordu), "Hoppit
+  dedi ki…" Kokpit'e yöneliyordu; `BAGLAC_VAR` ile düzeltildi, test güçlendirildi. NFC, kısa ad sınırı, sondaki
+  gönder: yakalandı.
+- **Kontrol edilemeyen:** gerçek insan sesiyle tanıma (test sesi edge-tts'in sesi; gece, Scryne uyurken), gerçek
+  kısayolla Ada'nın dinlemesi (test düğmeyle), hoparlörden çıkan bildirim sesi (test kabuğu sessiz). Çalışan Kokpit
+  yeniden başlatılınca gelir.

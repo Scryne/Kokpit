@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
-import { ArrowDownFromLine, ArrowUpToLine, Camera, Check, ChevronDown, CornerDownLeft, FileText, RefreshCw, X } from 'lucide-react';
+import { ArrowDownFromLine, ArrowUpToLine, Camera, Check, ChevronDown, CornerDownLeft, FileText, Mic, RefreshCw, X } from 'lucide-react';
 import type {
   AdaEki,
   AdaKipi,
@@ -20,12 +20,14 @@ import type {
   OturumEtkinligi,
   SoruAyrintisi,
   SoruCevabi,
+  SesEylemi,
   Takilma,
 } from './types';
 import { DurumIsareti, etkinlikCumlesi, sifirlanmaMetni, takilmaDurumu } from './Etkinlik';
 import { sureMetni } from './parcalar';
 import { AdaGoz, gozPozu, type GozHali } from './AdaGoz';
 import { VadeMetni, vadeEtiketi } from './Nobet';
+import { kayitBaslat, sesCal, type Kayit } from './sesKayit';
 
 // Ada: Kokpit arka plandayken ekranin ust ortasindaki serit (electron/ada.cjs).
 // Kapali: tek satirlik hap — en onemli tek sey. Acik: oturum basina satir + limitler.
@@ -70,6 +72,12 @@ const YORGUN_YUZDE = 90;
 /** v3.0: yeni siparis sevinci ve kartin ustundeki haberi bu kadar surer. */
 const PARA_MS = 8000;
 const HABER_MS = 60_000;
+/** v3.1: sesli notun karti bu kadar acik kalir ("gönder" demeye vakit). */
+const SES_BAKIS_MS = 12_000;
+/** v3.1: Ada'nin kisa sesli cevabi ("Duyamadım") hapta bu kadar durur. */
+const SES_NOTU_MS = 4000;
+/** v3.1: ayni oturum icin iki sesli bildirim arasi en az. */
+const BILDIRIM_ARASI_MS = 20_000;
 
 const SIRA: Record<OturumEtkinligi['durum'], number> = { bekliyor: 0, calisiyor: 1, bitti: 2, bosta: 3, kapandi: 4 };
 /** Gorev gonderildi bildirimi bu kadar kalir; oturum satiri zaten listede belirir. */
@@ -158,11 +166,24 @@ export default function Ada() {
   const [vadeler, setVadeler] = useState<Vade[]>([]);
   const [haber, setHaber] = useState<(NobetOlayi & { t: number }) | null>(null);
   const [paraZamani, setParaZamani] = useState(0);
+  // v3.1: Ada'nin sesi. Dinleme durumu, mikrofon seviyesi, hapta kisa not, tepsinin hedefi ve kaynagi.
+  const [dinleme, setDinleme] = useState<'yok' | 'dinliyor' | 'cozuluyor'>('yok');
+  const [seviye, setSeviye] = useState(0);
+  const [sesNotu, setSesNotu] = useState<{ metin: string; t: number } | null>(null);
+  const [sesKurulu, setSesKurulu] = useState({ stt: false, tts: false });
+  const [sesli, setSesli] = useState(true);
+  const [tepsiHedef, setTepsiHedef] = useState<string | null>(null);
+  const [tepsiKaynak, setTepsiKaynak] = useState<'ses' | null>(null);
+  const kayit = useRef<Kayit | null>(null);
+  const dinlemeRef = useRef(dinleme);
+  dinlemeRef.current = dinleme;
+  const oncekiDurum = useRef<Record<string, string>>({});
+  const sonBildirim = useRef<Record<string, number>>({});
 
-  const bak = useCallback(() => {
+  const bak = useCallback((ms: number = BAKIS_MS) => {
     setBakis(true);
     if (bakisZamani.current) clearTimeout(bakisZamani.current);
-    bakisZamani.current = setTimeout(() => setBakis(false), BAKIS_MS);
+    bakisZamani.current = setTimeout(() => setBakis(false), ms);
   }, []);
 
   useEffect(() => {
@@ -170,9 +191,13 @@ export default function Ada() {
     void window.kokpit.komutlarGetir().then(setKomutlar);
     const k1 = window.kokpit.etkinlikDinle(setAnlik);
     const k2 = window.kokpit.adaListeDinle(setListe);
-    const k3 = window.kokpit.sinyalDinle(bak);
+    const k3 = window.kokpit.sinyalDinle(() => bak());
     const k5 = window.kokpit.adaProjelerDinle(setProjeler);
-    const k7 = window.kokpit.adaAyarDinle((a) => setKip(a.kip ?? 'normal'));
+    const k7 = window.kokpit.adaAyarDinle((a) => {
+      setKip(a.kip ?? 'normal');
+      setSesli(a.sesli !== false);
+      if (a.ses) setSesKurulu(a.ses);
+    });
     const k9 = window.kokpit.nobetDinle(setNobet);
     const k10 = window.kokpit.adaVadelerDinle(setVadeler);
     const k11 = window.kokpit.adaNobetOlayDinle((o) => {
@@ -364,6 +389,15 @@ export default function Ada() {
               : toplam
                 ? toplam + ' oturum · hazır'
                 : 'Hazır';
+  // v3.1: dinlerken ve kisa sesli cevapta hap onu yazar; gerisi her zamanki ozet.
+  const sesOzeti =
+    dinleme === 'dinliyor'
+      ? 'Dinliyorum…'
+      : dinleme === 'cozuluyor'
+        ? 'Anlıyorum…'
+        : sesNotu && simdi - sesNotu.t < SES_NOTU_MS
+          ? sesNotu.metin
+          : null;
   // Hapta bekleme suresi: "seni bekliyor" ne zamandir? (calisan oturumun suresi cumlesinde)
   const ozetSure = bekleyen.length ? bekleme(bekleyen[0].e!, simdi) : !calisan.length && biten.length ? bekleme(biten[0].e!, simdi) : null;
   // Gozun hali: soru > yeni biten (kisa sevinc) > calisan > bitti > uyku > bosta.
@@ -374,7 +408,9 @@ export default function Ada() {
   // Goz: soru > yeni takilma (endise, kisa) > yeni biten (sevinc) > calisan > bitti > uyku > bosta.
   // Limit dolmak uzereyken sakin haller (bitti/bosta) yorgun gorunur; uyku uykudur.
   const sakinHal: GozHali = biten.length && !uyku ? 'bitti' : uyku ? 'uyku' : 'bosta';
-  const gozHali: GozHali = bekleyen.length || disBekleyen.length
+  const gozHali: GozHali = dinleme !== 'yok'
+    ? 'dinliyor'
+    : bekleyen.length || disBekleyen.length
     ? 'bekliyor'
     : simdi - paraZamani < PARA_MS
       ? 'para'
@@ -397,6 +433,136 @@ export default function Ada() {
   const tepsiVar = ekler.length > 0 || birakilanMetin !== '';
   const genis = uzerinde || odakta || birakiliyor || (bakis && !saklandi);
   const soruVar = bekleyen.some((x) => x.e?.soruAyrinti?.cevaplanabilir);
+  const hedefler = satirlar.map(({ o, e }) => ({ id: o.id, ad: o.ad, durum: e?.durum ?? 'bosta' }));
+
+  // v3.1: sesli eylemler asenkron gelir (kayit -> main -> eylem); o anki tepsiyi ve oturumlari okusunlar.
+  const canli = useRef({ ekler, birakilanMetin, tepsiHedef, hedefler, bekleyen, calisan, biten, bes, haf });
+  canli.current = { ekler, birakilanMetin, tepsiHedef, hedefler, bekleyen, calisan, biten, bes, haf };
+
+  const sesNotuGoster = useCallback((metin: string) => setSesNotu({ metin, t: Date.now() }), []);
+  const konus = useCallback(async (metin: string, bildirim = false) => {
+    const b = await window.kokpit.adaKonus(metin, bildirim);
+    if (b) await sesCal(b);
+  }, []);
+
+  /** Tepsiyi (ekler + not) hedef oturuma yollar: "Gönder" ya da "Yalnız yapıştır". */
+  const tepsiyiYolla = useCallback((id: string, gonderMi: boolean, not: string) => {
+    window.kokpit.adaEkGonder({ id, ekler: canli.current.ekler.map((x) => x.id), metin: not, gonder: gonderMi });
+    setBirakilanMetin('');
+    setTepsiHedef(null);
+    setTepsiKaynak(null);
+    setOnay((n) => n + 1);
+    (document.activeElement as HTMLElement | null)?.blur();
+  }, []);
+
+  /** "Durum ne?" cevabi: sira sende olanlar, calisanlar, bitenler, 5 saatlik limit. */
+  const durumCumlesi = () => {
+    const c = canli.current;
+    const parca = [
+      ...c.bekleyen.map((x) => x.o.ad + ' seni bekliyor'),
+      ...c.calisan.map((x) => x.o.ad + ' çalışıyor'),
+      ...c.biten.map((x) => x.o.ad + ' bitti'),
+    ];
+    if (!parca.length) parca.push(c.hedefler.length ? 'Oturumların hepsi boşta' : 'Açık oturum yok');
+    if (c.bes !== null) parca.push('Beş saatlik limit yüzde ' + Math.round(c.bes));
+    return parca.join('. ') + '.';
+  };
+
+  const sesEyle = (e: SesEylemi) => {
+    const c = canli.current;
+    const tepsiDolu = c.ekler.length > 0 || c.birakilanMetin.trim() !== '';
+    const varsayilan = c.tepsiHedef ?? c.hedefler[0]?.id ?? null;
+    switch (e.tur) {
+      case 'not': {
+        // "..., gönder" ile biten cumle hedefi belliyse hemen gider (bekleyen ekler de onunla).
+        if (e.gonder && e.hedef && e.metin) {
+          tepsiyiYolla(e.hedef.id, true, e.metin);
+          sesNotuGoster(e.hedef.ad + ' oturumuna gönderildi');
+          return;
+        }
+        if (e.metin) setBirakilanMetin(c.birakilanMetin.trim() ? c.birakilanMetin.trim() + ' ' + e.metin : e.metin);
+        if (e.hedef) setTepsiHedef(e.hedef.id);
+        setTepsiKaynak('ses');
+        bak(SES_BAKIS_MS);
+        return;
+      }
+      case 'gonder':
+      case 'yapistir':
+        if (!tepsiDolu || !varsayilan) return sesNotuGoster('Gönderilecek bir şey yok');
+        tepsiyiYolla(varsayilan, e.tur === 'gonder', c.birakilanMetin.trim());
+        return sesNotuGoster(e.tur === 'gonder' ? 'Gönderildi' : 'Yapıştırıldı');
+      case 'vazgec':
+        if (c.ekler.length) window.kokpit.adaEkSil('hepsi');
+        setBirakilanMetin('');
+        setTepsiHedef(null);
+        setTepsiKaynak(null);
+        return sesNotuGoster('Vazgeçildi');
+      case 'durum': {
+        const cumle = durumCumlesi();
+        sesNotuGoster(cumle);
+        void konus(cumle);
+        return;
+      }
+      default:
+        sesNotuGoster('Duyamadım');
+    }
+  };
+  const sesEyleRef = useRef(sesEyle);
+  sesEyleRef.current = sesEyle;
+
+  /** Bas-konus: dinlemiyorsa baslar, dinliyorsa bitirir (konusma varsa cozulur). */
+  const dinleDegistir = useCallback(async () => {
+    if (kayit.current) return kayit.current.durdur();
+    if (dinlemeRef.current !== 'yok') return;
+    window.kokpit.adaSesHazirla();
+    setDinleme('dinliyor');
+    setSesNotu(null);
+    bak(SES_BAKIS_MS);
+    try {
+      kayit.current = await kayitBaslat({
+        seviye: setSeviye,
+        bitti: (wav) => {
+          kayit.current = null;
+          if (!wav) {
+            setDinleme('yok');
+            return sesNotuGoster('Duyamadım');
+          }
+          setDinleme('cozuluyor');
+          void window.kokpit.adaSesCoz(wav).then((r) => {
+            setDinleme('yok');
+            if ('hata' in r) return sesNotuGoster(r.hata.charAt(0).toLocaleUpperCase('tr-TR') + r.hata.slice(1));
+            sesEyleRef.current(r.eylem);
+          });
+        },
+      });
+    } catch {
+      kayit.current = null;
+      setDinleme('yok');
+      sesNotuGoster('Mikrofon açılamadı');
+    }
+  }, [bak, sesNotuGoster]);
+
+  useEffect(() => window.kokpit.adaDinleDinle(() => void dinleDegistir()), [dinleDegistir]);
+
+  // v3.1 sesli bildirim: bir oturum seni beklemeye gecince ya da bitince Ada adini soyler. Kokpit ondeyse
+  // main susturur; dinlerken ve ayni oturum icin 20 sn icinde tekrar soylemez.
+  const durumAnahtari = satirlar.map(({ o, e }) => o.id + ':' + (e?.durum ?? 'bosta') + (o.dikkat ? '!' : '')).join('|');
+  useEffect(() => {
+    const yeni: Record<string, string> = {};
+    for (const { o, e } of satirlar) {
+      const d = e?.durum ?? 'bosta';
+      yeni[o.id] = d;
+      const once = oncekiDurum.current[o.id];
+      if (!once || once === d || !sesli || !sesKurulu.tts || dinlemeRef.current !== 'yok') continue;
+      if (Date.now() - (sonBildirim.current[o.id] ?? 0) < BILDIRIM_ARASI_MS) continue;
+      const cumle = d === 'bekliyor' ? o.ad + ' seni bekliyor' : d === 'bitti' && o.dikkat ? o.ad + ' bitti' : null;
+      if (!cumle) continue;
+      sonBildirim.current[o.id] = Date.now();
+      void konus(cumle, true);
+    }
+    oncekiDurum.current = yeni;
+    // Bagimlilik yalniz durum anahtari: satirlar her saniye yeniden kurulur, gecis olmadan konusulmaz.
+  }, [durumAnahtari]);
 
   useEffect(() => {
     if (!takilmaAnahtari) return;
@@ -538,14 +704,34 @@ export default function Ada() {
           </span>
           {/* Metin degisince (arac, durum) yumusak gecis. Sayilar anahtar disi: sayan sure her saniye metni yeniden dogurup titretiyordu. */}
           <span
-            key={ozet.replace(/\d+/g, '#')}
+            key={(sesOzeti ?? ozet).replace(/\d+/g, '#')}
             className={
               'ada-metin min-w-0 truncate ' +
-              (bekleyen.length || disBekleyen.length || takilan.length ? 'text-dikkat-metin' : uyku || !toplam ? 'text-metin-ikincil' : 'text-metin')
+              (sesOzeti
+                ? 'text-metin'
+                : bekleyen.length || disBekleyen.length || takilan.length
+                  ? 'text-dikkat-metin'
+                  : uyku || !toplam
+                    ? 'text-metin-ikincil'
+                    : 'text-metin')
             }
+            aria-live={sesOzeti ? 'polite' : undefined}
           >
-            {ozet}
+            {sesOzeti ?? ozet}
           </span>
+          {dinleme === 'dinliyor' && (
+            <span aria-hidden="true" className="ada-seviye" style={{ '--s': seviye } as React.CSSProperties}>
+              <i />
+              <i />
+              <i />
+            </span>
+          )}
+          {birakilanMetin && ekler.length === 0 && dinleme === 'yok' && (
+            <span className="flex shrink-0 items-center text-metin-ikincil" title="Sesli not gönderilmeyi bekliyor">
+              <Mic className="size-3.5" aria-hidden="true" />
+              <span className="sr-only">Not gönderilmeyi bekliyor</span>
+            </span>
+          )}
           {altSayisi > 0 && <span className="sr-only">, {altSayisi} alt ajan çalışıyor</span>}
           {ozetSure && <span className="enstruman shrink-0 text-metin-soluk">{ozetSure}</span>}
           {ekler.length > 0 && (
@@ -570,6 +756,23 @@ export default function Ada() {
             </span>
           )}
         </button>
+        {/* v3.1: konus. Ses kuruluysa acik kartta; Ctrl+Alt+Shift+Space her yerden ayni isi yapar. */}
+        {genis && sesKurulu.stt && (
+          <button
+            type="button"
+            data-ses-dugme
+            onClick={() => void dinleDegistir()}
+            aria-label={dinleme === 'dinliyor' ? 'Dinlemeyi bitir' : 'Konuş'}
+            aria-pressed={dinleme === 'dinliyor'}
+            title={(dinleme === 'dinliyor' ? 'Dinlemeyi bitir' : 'Konuş') + ' (Ctrl+Alt+Shift+Space)'}
+            className={
+              'mr-1 shrink-0 cursor-pointer rounded-kontrol p-1 transition-colors duration-[120ms] hover:bg-yuzey-guclu hover:text-metin ' +
+              (dinleme === 'dinliyor' ? 'text-metin' : 'text-metin-soluk')
+            }
+          >
+            <Mic className="size-3.5" aria-hidden="true" />
+          </button>
+        )}
         {/* Kenara sakla / geri getir: yalniz acik kartta (kapali hap kompakt kalir). Sinemada yok:
             orada Ada kendiliginden cekildi, tam ekran bitince yerine doner. */}
         {genis && kip !== 'sinema' && (
@@ -597,19 +800,19 @@ export default function Ada() {
                 ekler={ekler}
                 metin={birakilanMetin}
                 onMetin={setBirakilanMetin}
-                hedefler={satirlar.map(({ o, e }) => ({ id: o.id, ad: o.ad, durum: e?.durum ?? 'bosta' }))}
+                hedefler={hedefler}
+                hedef={tepsiHedef}
+                onHedef={setTepsiHedef}
+                kaynak={tepsiKaynak}
                 odakIstegi={ekIstegi}
                 birakiliyor={birakiliyor}
-                onGonder={(id, gonderMi, not) => {
-                  window.kokpit.adaEkGonder({ id, ekler: ekler.map((x) => x.id), metin: not, gonder: gonderMi });
-                  setBirakilanMetin('');
-                  setOnay((n) => n + 1);
-                  (document.activeElement as HTMLElement | null)?.blur();
-                }}
+                onGonder={tepsiyiYolla}
                 onSil={(k) => window.kokpit.adaEkSil(k)}
                 onVazgec={() => {
                   window.kokpit.adaEkSil('hepsi');
                   setBirakilanMetin('');
+                  setTepsiHedef(null);
+                  setTepsiKaynak(null);
                 }}
               />
             )}
@@ -802,6 +1005,9 @@ function EkTepsisi({
   metin,
   onMetin,
   hedefler,
+  hedef,
+  onHedef,
+  kaynak,
   odakIstegi,
   birakiliyor,
   onGonder,
@@ -812,13 +1018,16 @@ function EkTepsisi({
   metin: string;
   onMetin: (m: string) => void;
   hedefler: { id: string; ad: string; durum: OturumEtkinligi['durum'] }[];
+  /** Secili hedef Ada'da tutulur: sesli "Matbaa'ya yaz" onu secer, sesli "gönder" onu kullanir. */
+  hedef: string | null;
+  onHedef: (id: string) => void;
+  kaynak: 'ses' | null;
   odakIstegi: number;
   birakiliyor: boolean;
   onGonder: (id: string, gonder: boolean, not: string) => void;
   onSil: (kimlikler: string[]) => void;
   onVazgec: () => void;
 }) {
-  const [hedef, setHedef] = useState<string | null>(null);
   const kutu = useRef<HTMLInputElement>(null);
   const secili = hedefler.find((h) => h.id === hedef) ?? hedefler[0] ?? null;
 
@@ -833,7 +1042,9 @@ function EkTepsisi({
     ekler.length === 0
       ? birakiliyor
         ? 'Bırak: dosya ya da metin oturuma gider'
-        : 'Bırakılan metin'
+        : kaynak === 'ses'
+          ? 'Sesli not'
+          : 'Bırakılan metin'
       : goruntu === ekler.length
         ? goruntu + ' görüntü'
         : ekler.length + ' ek';
@@ -845,7 +1056,11 @@ function EkTepsisi({
   return (
     <section aria-label="Oturuma gönderilecekler" data-ek-tepsisi className="mb-1 space-y-2 border-b border-kenar px-2 pb-2.5 pt-1.5">
       <div className="flex items-center gap-2 text-xs">
-        <Camera className="size-3.5 shrink-0 text-metin-ikincil" aria-hidden="true" />
+        {kaynak === 'ses' && ekler.length === 0 ? (
+          <Mic className="size-3.5 shrink-0 text-metin-ikincil" aria-hidden="true" />
+        ) : (
+          <Camera className="size-3.5 shrink-0 text-metin-ikincil" aria-hidden="true" />
+        )}
         <span className="text-metin">{baslik}</span>
         {(ekler.length > 0 || metin) && (
           <button
@@ -896,7 +1111,7 @@ function EkTepsisi({
                     role="radio"
                     aria-checked={sec}
                     data-eylem={sec ? '' : undefined}
-                    onClick={() => setHedef(h.id)}
+                    onClick={() => onHedef(h.id)}
                     className={
                       'enstruman cursor-pointer rounded-full border px-2.5 py-0.5 text-xs transition-colors duration-[120ms] ' +
                       (sec ? 'border-kenar-guclu bg-yuzey-guclu text-metin' : 'border-kenar text-metin-ikincil hover:border-kenar-guclu hover:text-metin')
