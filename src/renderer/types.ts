@@ -561,7 +561,7 @@ export interface AriaOnerisi {
   oturumId?: string;
   kip?: 'simdi' | 'paralel';
   metin: string;
-  durum: 'bekliyor' | 'onaylandi' | 'reddedildi' | 'hata';
+  durum: 'bekliyor' | 'uygulaniyor' | 'onaylandi' | 'reddedildi' | 'hata';
   sonuc?: string;
   t: number;
   mesajId: string | null;
@@ -684,6 +684,7 @@ export type GeceEylemi =
   | { tur: 'isaretle'; id: string; durum: GeceDurumu; neden?: string; ozet?: string }
   | { tur: 'cevapla'; id: string; istek: { id: string; tur: 'cevap'; cevaplar: SoruCevabi[]; damga: number } }
   | { tur: 'kes'; id: string; oturumId: string }
+  | { tur: 'kapat'; id: string; oturumId: string }
   | { tur: 'baslat'; id: string }
   | { tur: 'bekle'; neden: string }
   | { tur: 'bitir'; neden: string };

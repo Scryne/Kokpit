@@ -183,7 +183,7 @@ function asilDurumSatiri() {
 function ayarDosyasiYaz(port, asil) {
   fs.mkdirSync(DIZIN, { recursive: true });
   for (const ad of fs.readdirSync(DIZIN)) {
-    const m = /^ayar-(\d+)\.json$/.exec(ad);
+    const m = /^ayar-(?:gece-)?(\d+)\.json$/.exec(ad);
     if (!m || Number(m[1]) === process.pid) continue;
     let yasiyor = true;
     try {
@@ -211,7 +211,14 @@ function ayarDosyasiYaz(port, asil) {
   const statusLine = { ...(asil || {}), type: 'command', command: 'node "' + betik + '"' };
   const dosya = path.join(DIZIN, 'ayar-' + process.pid + '.json');
   fs.writeFileSync(dosya, JSON.stringify({ hooks, statusLine }, null, 2));
+  // v3.5: gece gorevleri ayni kancalarla + teknik yasaklarla (gece.cjs YASAK) acilir.
+  const gece = path.join(DIZIN, 'ayar-gece-' + process.pid + '.json');
+  fs.writeFileSync(gece, JSON.stringify({ hooks, statusLine, permissions: { deny: require('./gece.cjs').YASAK } }, null, 2));
   return dosya;
+}
+
+function geceAyarDosyasi() {
+  return bilgi && bilgi.ayarDosyasi ? path.join(path.dirname(bilgi.ayarDosyasi), 'ayar-gece-' + process.pid + '.json') : null;
 }
 
 function baslat(yeniDinleyiciler) {
@@ -253,6 +260,7 @@ function ptyOrtami() {
   if (!bilgi || !bilgi.ayarDosyasi) return {};
   return {
     KOKPIT_KANCA_AYAR: bilgi.ayarDosyasi,
+    KOKPIT_KANCA_AYAR_GECE: geceAyarDosyasi(),
     KOKPIT_KANCA_PORT: String(bilgi.port),
     KOKPIT_KANCA_TOKEN: bilgi.token,
     ...(bilgi.asilDurumSatiri ? { KOKPIT_ASIL_DURUM_SATIRI: bilgi.asilDurumSatiri } : {}),
@@ -279,10 +287,12 @@ function durdur() {
     }
   }
   if (bilgi && bilgi.ayarDosyasi) {
-    try {
-      fs.unlinkSync(bilgi.ayarDosyasi);
-    } catch {
-      /* zaten yok */
+    for (const f of [bilgi.ayarDosyasi, geceAyarDosyasi()]) {
+      try {
+        fs.unlinkSync(f);
+      } catch {
+        /* zaten yok */
+      }
     }
   }
   sunucu = null;

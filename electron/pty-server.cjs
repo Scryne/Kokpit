@@ -245,7 +245,11 @@ wss.on('connection', (ws, istek) => {
       const claudeIle = (m.komut === 'claude' || m.komut === 'claude-devam') && !testKabugu;
       // Kanca koprusu (Kokpit main, kanca.cjs): claude kendi ayar dosyasiyla acilir; hook'lar
       // projeninkilerle birlesir (olculdu 2026-10-03). Dosya yoksa duz claude.
-      const kancaAyari = process.env.KOKPIT_KANCA_AYAR;
+      // v3.5: gece gorevi (metni gece.cjs onekiyle baslar) yasak kurallari olan ayarla acilir (push/silme teknik olarak kapali).
+      const geceAyari = process.env.KOKPIT_KANCA_AYAR_GECE;
+      const geceGorevi = m.komut === 'claude' && require('./gece.cjs').geceGoreviMi(m.gorev);
+      const kancaAyari = geceGorevi && geceAyari && fs.existsSync(geceAyari) ? geceAyari : process.env.KOKPIT_KANCA_AYAR;
+      if (geceGorevi) log('gece gorevi: ' + (kancaAyari === geceAyari ? 'yasakli ayarla' : 'UYARI: gece ayari yok, duz ayarla') + ' aciliyor');
       const ayarArgumani =
         kancaAyari && fs.existsSync(kancaAyari) && !kancaAyari.includes("'")
           ? " --settings '" + kancaAyari + "'"

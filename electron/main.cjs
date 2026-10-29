@@ -556,6 +556,8 @@ ipcMain.handle('paralel:at', async (_e, yol) => {
   const kayip = [
     durum && durum.kirli > 0 ? durum.kirli + ' commit edilmemiş dosya' : '',
     durum && durum.ileride > 0 ? durum.ileride + ' birleştirilmemiş commit' : '',
+    // .gitignore'daki uretilmis dosyalar (gece gorevinin ciktisi, yerel veritabani): git bunlari uyarmadan siler.
+    durum && durum.yoksayilan?.length ? durum.yoksayilan.length + " .gitignore'daki dosya/klasör (" + durum.yoksayilan.slice(0, 4).join(', ') + (durum.yoksayilan.length > 4 ? ', …' : '') + ')' : '',
   ].filter(Boolean);
   const secilen =
     TEST_SECIM !== null
@@ -689,8 +691,11 @@ ipcMain.handle('aria:oneri-karar', (_e, id, onay) => {
     ariaArac.oneriSonuc(k.id, 'reddedildi');
     return { tamam: true, id: k.id };
   }
-  if (!pencere) return { hata: 'Kokpit penceresi yok' };
+  if (!pencere || pencere.isDestroyed()) return { hata: 'Kokpit penceresi yok' };
+  if (!ariaArac.oneriBasla(k.id)) return { hata: 'Bu öneri için zaten karar verildi' };
   pencere.webContents.send('aria:oneri-uygula', k);
+  // Ana pencere sonucu bildirmezse (yeniden yuklendi, coktu) kart 'uygulaniyor'da takili kalmasin.
+  setTimeout(() => ariaArac.oneriSonuc(k.id, 'hata', 'Kokpit sonucu bildirmedi'), 120_000).unref?.();
   return { tamam: true, id: k.id };
 });
 ipcMain.on('aria:oneri-sonuc', (e, id, basarili, sonuc) => {

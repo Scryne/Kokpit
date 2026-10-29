@@ -858,6 +858,8 @@ export default function App() {
     sekmeAc: (p, gorev) => sekmeAc(p, false, null, { gorev, arkaPlan: true }),
     gonder: oturumaGonder,
     yaz: (id, veri) => oturumApileri.current.get(id)?.yaz(veri) ?? false,
+    // Calistiktan sonra cagrilir (render bitmis olur): guvenliKapat asagida tanimli.
+    kapat: (id) => void guvenliKapat([id], true),
   });
   const geceRef = useRef(gece);
   geceRef.current = gece;

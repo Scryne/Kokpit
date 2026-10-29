@@ -626,8 +626,17 @@ async function v32ParalelTesti() {
     kontrol('paralel: node_modules junction + .env kopyasi', fs.existsSync(path.join(agac, 'node_modules', 'paket', 'index.js')) && fs.lstatSync(path.join(agac, 'node_modules')).isSymbolicLink() && fs.readFileSync(path.join(agac, '.env'), 'utf8') === 'GIZLI=1\n', JSON.stringify(r.notlar));
     kontrol('paralel: ana depo status temiz (agac exclude\'da)', g(depo, 'status', '--porcelain').trim() === '', g(depo, 'status', '--porcelain'));
     kontrol('paralel: yollar() Teslim icin agaci tanir', par.yollar().includes(agac));
-    const r2 = await par.olustur(depo, 'Proje', '');
-    kontrol('paralel: ikinci agac p2', r2.kayit?.ad === 'p2', JSON.stringify(r2));
+    // v3.5: agacin icinden istenen yeni agac da ana deponun kokunde acilir (ic ice worktrees, kokpit/* taban olmaz).
+    const r2 = await par.olustur(agac, 'Proje', '');
+    kontrol('paralel: ikinci agac p2 (agacin icinden istense de ana kokte, taban main)', r2.kayit?.ad === 'p2' && path.resolve(r2.kayit.projeYol).toLowerCase() === path.resolve(depo).toLowerCase() && r2.kayit.taban === 'kokpit/p1' === false, JSON.stringify(r2));
+    // v3.5: .gitignore'daki uretilmis dosya "At"ta uyarilir (worktree remove onu kirli saymadan siler).
+    fs.writeFileSync(path.join(agac, '.gitignore'), 'node_modules/\n.env\nout/\n');
+    fs.mkdirSync(path.join(agac, 'out'));
+    fs.writeFileSync(path.join(agac, 'out', 'sonuc.json'), '{}');
+    let l0 = (await par.liste()).find((x) => x.ad === 'p1');
+    kontrol('paralel: yok sayilan uretilmis dosya listelenir (bagli klasor ve .env haric)', JSON.stringify(l0?.yoksayilan) === '["out"]', JSON.stringify(l0));
+    fs.rmSync(path.join(agac, 'out'), { recursive: true });
+    g(agac, 'checkout', '--', '.gitignore');
     fs.writeFileSync(path.join(agac, 'a.txt'), 'bir\niki\n');
     let l = (await par.liste()).find((x) => x.ad === 'p1');
     kontrol('paralel: liste kirli dosyayi sayar', l?.kirli === 1 && l.ileride === 0, JSON.stringify(l));
@@ -673,17 +682,30 @@ function v32GeceTesti() {
   kontrol('gece: suzgec (bilinmeyen durum -> bekliyor, kontrol karakteri, eksik gorev, rastgele alan)', s.gorevler.length === 1 && s.gorevler[0].durum === 'bekliyor' && s.gorevler[0].metin === 'xy' && !('zararli' in s.gorevler[0]) && !('tehlike' in s) && s.baslaZamani === 5, JSON.stringify(s));
   const T = 1_800_000_000_000;
   const v = (gorevler, ek = {}) => ({ aktif: true, baslaZamani: null, gorevler, ...ek });
-  const k = (vv, oturumlar = [], etkinlik = {}, limitler = null, simdi = T) => gece.karar({ v: vv, oturumlar, etkinlik, simdi, limitler });
+  // v3.5: limit olcumu taze olmali (olculdu); varsayilan fikstur 1 dk once olculmus dusuk limit.
+  const L = { olculdu: T - 60_000, besSaat: { yuzde: 10 }, hafta: { yuzde: 10 } };
+  const k = (vv, oturumlar = [], etkinlik = {}, limitler = L, simdi = T) => gece.karar({ v: vv, oturumlar, etkinlik, simdi, limitler });
   let e = k(v([{ id: 'a', durum: 'bekliyor' }]));
   kontrol('gece: bos vardiyada ilk gorev baslar', e.length === 1 && e[0].tur === 'baslat' && e[0].id === 'a', JSON.stringify(e));
   e = k(v([{ id: 'a', durum: 'bekliyor' }], { baslaZamani: T + 60_000 }));
   kontrol('gece: baslangic saatinden once bekler', e[0]?.tur === 'bekle', JSON.stringify(e));
-  e = k(v([{ id: 'a', durum: 'bekliyor' }]), [], {}, { besSaat: { yuzde: 95, sifirlanma: T + 3600_000 }, hafta: { yuzde: 50 } });
+  e = k(v([{ id: 'a', durum: 'bekliyor' }]), [], {}, { olculdu: T, besSaat: { yuzde: 95, sifirlanma: T + 3600_000 }, hafta: { yuzde: 50 } });
   kontrol('gece: 5 saat limiti doluyken baslamaz, bekler', e[0]?.tur === 'bekle' && /limit/.test(e[0].neden), JSON.stringify(e));
-  e = k(v([{ id: 'a', durum: 'bekliyor' }]), [], {}, { besSaat: { yuzde: 95, sifirlanma: T - 1 } });
+  e = k(v([{ id: 'a', durum: 'bekliyor' }]), [], {}, { olculdu: T, besSaat: { yuzde: 95, sifirlanma: T - 1 } });
   kontrol('gece: sifirlanma gectiyse limit 0 sayilir, baslar', e[0]?.tur === 'baslat', JSON.stringify(e));
-  e = k(v([{ id: 'a', durum: 'bekliyor' }]), [], {}, { hafta: { yuzde: 98 } });
+  e = k(v([{ id: 'a', durum: 'bekliyor' }]), [], {}, { olculdu: T, hafta: { yuzde: 98 } });
   kontrol('gece: haftalik limit doluyken vardiya biter', e[0]?.tur === 'bitir', JSON.stringify(e));
+  // v3.5: limit bilinmiyorsa gozetimsiz gorev baslamaz (fail-closed); bir saat surerse vardiya biter.
+  e = k(v([{ id: 'a', durum: 'bekliyor' }], { baslaZamani: T - 10 * 60_000 }), [], {}, null);
+  kontrol('gece: limit olculemezse baslamaz, bekler', e.length === 1 && e[0].tur === 'bekle' && /limit/.test(e[0].neden), JSON.stringify(e));
+  e = k(v([{ id: 'a', durum: 'bekliyor' }], { baslaZamani: T - 10 * 60_000 }), [], {}, { olculdu: T - 31 * 60_000, hafta: { yuzde: 10 } });
+  kontrol('gece: eski limit olcumu (31 dk) bilinmeyen sayilir', e[0]?.tur === 'bekle', JSON.stringify(e));
+  e = k(v([{ id: 'a', durum: 'bekliyor' }], { baslaZamani: T - 61 * 60_000 }), [], {}, null);
+  kontrol('gece: limit bir saattir olculemiyorsa vardiya biter', e[0]?.tur === 'bitir' && /limit/.test(e[0].neden), JSON.stringify(e));
+  // v3.5: toplam vardiya siniri (12 gorev x 150 dk = 30 saat olmasin).
+  e = k(v([{ id: 'x', durum: 'bitti', basladi: T - 10.5 * 3600_000, bitti: T - 60_000 }, { id: 'a', durum: 'bekliyor' }]));
+  kontrol('gece: 10 saatlik vardiya suresi dolunca yeni gorev baslamaz, biter', e[0]?.tur === 'bitir' && /vardiya/.test(e[0].neden), JSON.stringify(e));
+  kontrol('gece: gece gorevi oneki tanimlanir; yasaklar push/silme/gh icerir', gece.geceGoreviMi(gece.gorevIstemi('x', 'kokpit/gece1')) && !gece.geceGoreviMi('Normal gorev') && !gece.geceGoreviMi(undefined) && gece.YASAK.includes('Bash(git push:*)') && gece.YASAK.includes('Bash(rm -rf:*)') && gece.YASAK.includes('Bash(gh:*)'));
   const calisan = { id: 'a', durum: 'calisiyor', oturumId: 'o1', basladi: T - 60_000 };
   e = k(v([calisan, { id: 'b', durum: 'bekliyor' }]), [{ id: 'o1', durumu: 'acik' }], { o1: { durum: 'calisiyor', degisti: T - 1000 } });
   kontrol('gece: calisan varken ikinci gorev baslamaz', e.length === 0, JSON.stringify(e));
@@ -702,8 +724,10 @@ function v32GeceTesti() {
   kontrol('gece: izin istemi -> takildi (cevaplanmaz)', e[0]?.durum === 'takildi' && /izin/.test(e[0].neden), JSON.stringify(e));
   e = k(v([calisan]), [{ id: 'o1', durumu: 'acik' }], { o1: { durum: 'calisiyor', degisti: T - 26 * 60_000 } });
   kontrol('gece: 25 dk sessizlik -> Esc + takildi', e[0]?.tur === 'kes' && e[0].oturumId === 'o1' && e[1]?.durum === 'takildi', JSON.stringify(e));
+  e = k(v([calisan]), [{ id: 'o1', durumu: 'acik' }], { o1: { durum: 'calisiyor', degisti: T - 26 * 60_000, arac: { ad: 'Bash', bitti: null } } });
+  kontrol('gece: uzun suren arac (build) varken esik iki kat: 26 dk takildi sayilmaz', e.length === 0, JSON.stringify(e));
   e = k(v([{ ...calisan, basladi: T - 151 * 60_000 }]), [{ id: 'o1', durumu: 'acik' }], { o1: { durum: 'calisiyor', degisti: T } });
-  kontrol('gece: 150 dk -> Esc + sure', e[0]?.tur === 'kes' && e[1]?.durum === 'sure', JSON.stringify(e));
+  kontrol('gece: 150 dk -> Esc + oturum kapanir + sure', e[0]?.tur === 'kes' && e[1]?.tur === 'kapat' && e[1].oturumId === 'o1' && e[2]?.durum === 'sure', JSON.stringify(e));
   e = k(v([calisan]), [], {});
   kontrol('gece: oturum kapandiysa hata, sira bossa bitir', e[0]?.durum === 'hata' && e[1]?.tur === 'bitir', JSON.stringify(e));
   e = k({ ...v([{ id: 'a', durum: 'bekliyor' }]), aktif: false });
@@ -769,7 +793,9 @@ async function v33AriaTesti() {
   await new Promise((r2) => setTimeout(r2, 300));
   kontrol('aria surec: kesme calisan turu durdurur', aria.kes() === true);
   for (let i = 0; i < 40 && ikiBitti.length < 2; i++) await new Promise((r2) => setTimeout(r2, 150));
-  kontrol('aria surec: kesme kuyrugu da bosaltir (ikinci gitmez)', ikiBitti.length === 1 && ikiBitti[0].kesildi === true, j(ikiBitti.map((x) => x.metin.slice(0, 20))));
+  // v3.5: kuyruktaki mesaj sessizce atilmaz, "kesildi" diye kapanir (ekranda "yaziyor" diye kalan balon olmasin).
+  await new Promise((r2) => setTimeout(r2, 600));
+  kontrol('aria surec: kesme kuyrugu da bosaltir (ikinci gitmez, cevapsiz "kesildi" kapanir)', ikiBitti.length === 2 && ikiBitti.every((x) => x.kesildi === true) && !ikiBitti.some((x) => x.metin.includes('ikinci') && !x.metin.includes('birinci')), j(ikiBitti.map((x) => [x.kesildi, x.metin.slice(0, 20)])));
   aria.kapat();
   await new Promise((r2) => setTimeout(r2, 600));
   b = bitti();
@@ -865,8 +891,12 @@ async function v33AracTesti() {
   p.kill();
   // Oneri deposu: karar bir kez; metin model icin.
   const id = kartlar[0].id;
+  // v3.5: onay ani 'uygulaniyor' (cift onay ayni isi iki kez yaptirmasin); sonuc yalniz uygulanmakta olana.
+  kontrol('oneri: baslamadan sonuc kabul edilmez', ariaArac.oneriSonuc(id, 'onaylandi', 'x') === null);
+  kontrol('oneri: onay ani uygulaniyor; ikinci onay null', ariaArac.oneriBasla(id)?.durum === 'uygulaniyor' && kartlar[kartlar.length - 1].durum === 'uygulaniyor' && ariaArac.oneriBasla(id) === null);
+  kontrol('oneri: uygulanirken red kabul edilmez', ariaArac.oneriSonuc(id, 'reddedildi') === null);
   kontrol('oneri: karar verilince durum ve sonuc yayinlanir', ariaArac.oneriSonuc(id, 'onaylandi', 'Kokpit oturumu acildi')?.durum === 'onaylandi' && kartlar[kartlar.length - 1].sonuc === 'Kokpit oturumu acildi');
-  kontrol('oneri: ikinci karar yok sayilir', ariaArac.oneriSonuc(id, 'reddedildi') === null);
+  kontrol('oneri: ikinci karar yok sayilir', ariaArac.oneriSonuc(id, 'reddedildi') === null && ariaArac.oneriSonuc(id, 'hata', 'zaman asimi') === null);
   kontrol('oneri: model icin metin (ONAYLANDI + sonuc)', /ONAYLANDI \(Kokpit oturumu acildi\)/.test(ariaArac.onerilerMetni(ariaArac.oneriler())));
   let bos = null;
   try {

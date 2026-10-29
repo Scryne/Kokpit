@@ -91,7 +91,10 @@ async function disla(projeYol) {
 async function olustur(projeYol, projeAd, istenenAd) {
   const kok = await git(projeYol, ['rev-parse', '--show-toplevel']);
   if (!kok.tamam) return { hata: projeAd + ' bir git deposu değil' };
-  const anaKok = path.resolve(kok.cikti.trim());
+  // Paralel agacin icinden istense de agac ana deponun kokunde acilir (ic ice .claude/worktrees ve kokpit/* taban olmasin).
+  const ortak = await git(projeYol, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const ortakYol = ortak.tamam ? path.resolve(ortak.cikti.trim()) : '';
+  const anaKok = path.basename(ortakYol).toLowerCase() === '.git' ? path.dirname(ortakYol) : path.resolve(kok.cikti.trim());
   const dal = await git(anaKok, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
   if (!dal.tamam) return { hata: 'Ana ağaç bir dalda değil (detached HEAD)' };
   const taban = dal.cikti.trim();
@@ -135,16 +138,29 @@ async function olustur(projeYol, projeAd, istenenAd) {
   return { kayit, notlar };
 }
 
-/** Kayitlar + her birinin hali (taban'a gore ileride commit, kirli dosya, satir farki). Silinmis agac kayittan duser. */
+/** SAF: `git status --porcelain --ignored` ciktisindan "At" ile sessizce silinecek yok sayilan dosyalar (bagli klasorler ve kopyalanan .env haric). */
+function yoksayilanlar(cikti) {
+  return String(cikti)
+    .split(/\r?\n/)
+    .filter((s) => s.startsWith('!! '))
+    .map((s) => s.slice(3).replace(/\/$/, ''))
+    .filter((f) => !BAGLANACAK.includes(f) && !/^\.env(\..+)?$/.test(f));
+}
+
+/**
+ * Kayitlar + her birinin hali (taban'a gore ileride commit, kirli dosya, yok sayilan uretilmis dosya, satir farki).
+ * Silinmis agac kayittan duser; ama ana depo da yoksa (surucu cikarilmis) kayit kalir: dal ve commit'ler kaybolmasin.
+ */
 async function liste() {
   const kayitlar = kayitOku();
-  const yasayan = kayitlar.filter((k) => fs.existsSync(k.yol));
+  const yasayan = kayitlar.filter((k) => fs.existsSync(k.yol) || !fs.existsSync(k.projeYol));
   if (yasayan.length !== kayitlar.length) kayitYaz(yasayan);
   return Promise.all(
     yasayan.map(async (k) => {
+      if (!fs.existsSync(k.yol)) return { ...k, gece: k.ad.startsWith('gece'), erisilemez: true, ileride: 0, geride: 0, kirli: 0, yoksayilan: [], dosya: 0, arti: 0, eksi: 0 };
       const [ileri, kirli, fark, tabanIleri] = await Promise.all([
         git(k.projeYol, ['rev-list', '--count', k.taban + '..' + k.dal]),
-        git(k.yol, ['status', '--porcelain']),
+        git(k.yol, ['status', '--porcelain', '--ignored']),
         git(k.projeYol, ['diff', '--shortstat', k.taban + '...' + k.dal]),
         git(k.projeYol, ['rev-list', '--count', k.dal + '..' + k.taban]),
       ]);
@@ -154,7 +170,9 @@ async function liste() {
         gece: k.ad.startsWith('gece'),
         ileride: Number(ileri.cikti.trim()) || 0,
         geride: Number(tabanIleri.cikti.trim()) || 0,
-        kirli: kirli.cikti.split(/\r?\n/).filter(Boolean).length,
+        kirli: kirli.cikti.split(/\r?\n/).filter((s) => s && !s.startsWith('!! ')).length,
+        // .gitignore'daki uretilmis dosyalar (out/, *.db, dist/): `worktree remove` bunlari "kirli" saymadan siler.
+        yoksayilan: yoksayilanlar(kirli.cikti),
         dosya: m ? Number(m[1]) : 0,
         arti: m && m[2] ? Number(m[2]) : 0,
         eksi: m && m[3] ? Number(m[3]) : 0,
@@ -183,9 +201,21 @@ async function fark(yol) {
  * edilmemis is kaybolmasin), ana agac temiz ve taban dalda. Cakisma olursa merge geri alinir (--abort), ana
  * agac eski haline doner; Scryne'a dosyalar soylenir. Basarida agac ve dal silinmez: "At" ayri karar.
  */
+const birlesen = new Set(); // ayni agacin iki birlestirmesi ayni anda kosmasin (cift tik)
+
 async function birlestir(yol) {
   const k = bul(yol);
   if (!k) return { tamam: false, cikti: 'paralel ağaç bulunamadı' };
+  if (birlesen.has(k.yol)) return { tamam: false, cikti: 'Bu ağaç zaten birleştiriliyor.' };
+  birlesen.add(k.yol);
+  try {
+    return await birlestirIc(k);
+  } finally {
+    birlesen.delete(k.yol);
+  }
+}
+
+async function birlestirIc(k) {
   const pk = await git(k.yol, ['status', '--porcelain']);
   if (pk.cikti.trim()) return { tamam: false, cikti: 'Paralel ağaçta commit edilmemiş değişiklik var: önce commit et (ya da claude\'a ettir).' };
   const ak = await git(k.projeYol, ['status', '--porcelain', '--untracked-files=no']);
@@ -219,7 +249,21 @@ async function at(yol, zorla) {
     }
   }
   const r = await git(k.projeYol, ['worktree', 'remove', ...(zorla ? ['--force'] : []), k.yol], 60_000);
-  if (!r.tamam) return { tamam: false, cikti: (r.hata.trim() || r.cikti.trim()).slice(0, 600) };
+  if (!r.tamam) {
+    // Silinemedi (kilitli dosya, kirli agac): baglantilar geri kurulur, agac calisir halde kalir.
+    for (const ad2 of BAGLANACAK) {
+      const kaynak = path.join(k.projeYol, ad2);
+      const h = path.join(k.yol, ad2);
+      if (fs.existsSync(kaynak) && fs.existsSync(k.yol) && !fs.existsSync(h)) {
+        try {
+          fs.symlinkSync(kaynak, h, 'junction');
+        } catch {
+          /* kurulamadi */
+        }
+      }
+    }
+    return { tamam: false, cikti: (r.hata.trim() || r.cikti.trim()).slice(0, 600) };
+  }
   const d = await git(k.projeYol, ['branch', zorla ? '-D' : '-d', k.dal]);
   kayitYaz(kayitOku().filter((x) => x.yol !== k.yol));
   log('paralel: ' + k.ad + ' atildi' + (d.tamam ? '' : ' (dal kaldi: ' + d.hata.trim().slice(0, 80) + ')'));
@@ -235,6 +279,7 @@ module.exports = {
   bul,
   adTemizle,
   adUret,
+  yoksayilanlar,
   /** Teslim'in yol denetimi: Kokpit'in actigi agaclar. */
   yollar: () => kayitOku().map((k) => k.yol),
 };

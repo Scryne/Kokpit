@@ -29,6 +29,8 @@ export function useGeceVardiyasi(o: {
   sekmeAc: (p: Pick<Proje, 'ad' | 'yol'>, gorev: string) => string;
   gonder: (istek: GonderIstegi) => Promise<string | null>;
   yaz: (oturumId: string, veri: string) => boolean;
+  /** v3.5: suresi dolan gorevin oturumunu guvenli kapatir (Esc'e cevap vermeyen claude kalmasin). */
+  kapat: (oturumId: string) => void;
 }) {
   const [gece, setGece] = useState<GeceVardiyasi | null>(null);
   const [durum, setDurum] = useState<string | null>(null);
@@ -42,8 +44,11 @@ export function useGeceVardiyasi(o: {
   }, []);
 
   const kaydet = useCallback(async (v: GeceVardiyasi) => {
+    // Ref de hemen guncellenir: ayni adimdaki sonraki yama render'i beklemeden en guncel kaydi gorur.
+    geceRef.current = v;
     setGece(v); // iyimser: kutu hemen guncellenir
     const k = await window.kokpit.geceYaz(v);
+    geceRef.current = k;
     setGece(k);
     return k;
   }, []);
@@ -61,47 +66,67 @@ export function useGeceVardiyasi(o: {
     gorevler: v.gorevler.map((g) => (g.id === id ? { ...g, ...yama } : g)),
   });
 
-  /** Bir adim: kararlari al, uygula, kaydet. */
+  /**
+   * Bir adim: kararlari al, uygula, kaydet. Her degisiklik o anki EN GUNCEL kayda yama olarak uygulanir (v3.5): adim
+   * saniyeler suren await'ler icerir (git worktree add 120 sn'ye kadar); bu sirada basilan "Durdur" ya da Ada'nin
+   * ekledigi gorev, adimin basta aldigi eski kopyayla ezilmesin.
+   */
   const adim = useCallback(async () => {
     const oturumlar = ortam.current.oturumlar().map((x) => ({ id: x.id, durumu: x.durumu }));
     const eylemler = await window.kokpit.geceKarar(oturumlar);
     if (eylemler.length === 0) return;
-    let v = geceRef.current ?? (await window.kokpit.geceOku());
+    const guncel = async () => geceRef.current ?? (await window.kokpit.geceOku());
+    const yamala = async (id: string, yama: Partial<GeceGorevi>) => kaydet(gorevGuncelle(await guncel(), id, yama));
     for (const e of eylemler) {
       if (e.tur === 'isaretle') {
-        v = gorevGuncelle(v, e.id, { durum: e.durum, bitti: Date.now(), ...(e.neden ? { neden: e.neden } : {}), ...(e.ozet ? { ozet: e.ozet } : {}) });
-        const g = v.gorevler.find((x) => x.id === e.id);
+        await yamala(e.id, { durum: e.durum, bitti: Date.now(), ...(e.neden ? { neden: e.neden } : {}), ...(e.ozet ? { ozet: e.ozet } : {}) });
+        const g = (await guncel()).gorevler.find((x) => x.id === e.id);
         if (g) window.kokpit.geceNot('Gece: ' + g.proje + ' ' + (e.durum === 'bitti' ? 'bitti' : e.durum === 'takildi' ? 'takıldı' : e.durum === 'sure' ? 'süresi doldu' : 'açılamadı') + (e.neden ? ' (' + e.neden + ')' : ''));
       } else if (e.tur === 'cevapla') {
         const hata = await ortam.current.gonder(e.istek as GonderIstegi);
-        const g = v.gorevler.find((x) => x.id === e.id);
-        v = gorevGuncelle(v, e.id, { cevaplanan: (g?.cevaplanan ?? 0) + 1, cevapDamga: e.istek.damga });
+        const g = (await guncel()).gorevler.find((x) => x.id === e.id);
+        await yamala(e.id, { cevaplanan: (g?.cevaplanan ?? 0) + 1, cevapDamga: e.istek.damga });
         if (hata) console.warn('[gece] cevap gitmedi: ' + hata);
       } else if (e.tur === 'kes') {
         ortam.current.yaz(e.oturumId, '\x1b');
+      } else if (e.tur === 'kapat') {
+        ortam.current.kapat(e.oturumId);
       } else if (e.tur === 'bekle') {
         setDurum(e.neden);
       } else if (e.tur === 'bitir') {
+        const v = await guncel();
         const biten = v.gorevler.filter((g) => g.basladi && g.durum !== 'bekliyor');
-        v = { ...v, aktif: false, son: Date.now(), baslaZamani: null };
+        await kaydet({ ...v, aktif: false, son: Date.now(), baslaZamani: null });
         setDurum(null);
         window.kokpit.geceNot('Gece vardiyası bitti: ' + biten.filter((g) => g.durum === 'bitti').length + '/' + biten.length + ' görev tamam (' + e.neden + ')');
       } else if (e.tur === 'baslat') {
-        const g = v.gorevler.find((x) => x.id === e.id);
+        // Karar alindiktan sonra vardiya durdurulduysa yeni gozetimsiz oturum acilmaz.
+        if (!(await guncel()).aktif) return;
+        const g = (await guncel()).gorevler.find((x) => x.id === e.id && x.durum === 'bekliyor');
         if (!g) continue;
         setDurum(null);
         const r = await window.kokpit.paralelAc(g.projeYol, 'gece');
         if ('hata' in r) {
-          v = gorevGuncelle(v, g.id, { durum: 'hata', basladi: Date.now(), bitti: Date.now(), neden: r.hata });
+          await yamala(g.id, { durum: 'hata', basladi: Date.now(), bitti: Date.now(), neden: r.hata });
           continue;
         }
-        const istem = await window.kokpit.geceIstem(g.metin, r.kayit.dal);
-        const id = ortam.current.sekmeAc({ ad: g.proje + '/' + r.kayit.ad, yol: r.kayit.yol }, istem);
-        v = gorevGuncelle(v, g.id, { durum: 'calisiyor', basladi: Date.now(), agacYol: r.kayit.yol, agacAd: r.kayit.ad, oturumId: id });
-        window.kokpit.geceNot('Gece: ' + g.proje + ' başladı (' + r.kayit.dal + ')');
+        // Agac acildi: gorev hemen "calisiyor" olarak yazilir. Sonraki adim hata verirse sonraki tikte ayni gorev icin
+        // ikinci agac (ve ikinci gozetimsiz claude) acilmasin.
+        await yamala(g.id, { durum: 'calisiyor', basladi: Date.now(), agacYol: r.kayit.yol, agacAd: r.kayit.ad });
+        try {
+          const istem = await window.kokpit.geceIstem(g.metin, r.kayit.dal);
+          if (!(await guncel()).aktif) {
+            await yamala(g.id, { durum: 'iptal', bitti: Date.now(), neden: 'vardiya durduruldu' });
+            return;
+          }
+          const id = ortam.current.sekmeAc({ ad: g.proje + '/' + r.kayit.ad, yol: r.kayit.yol }, istem);
+          await yamala(g.id, { oturumId: id });
+          window.kokpit.geceNot('Gece: ' + g.proje + ' başladı (' + r.kayit.dal + ')');
+        } catch (h) {
+          await yamala(g.id, { durum: 'hata', bitti: Date.now(), neden: 'oturum açılamadı: ' + (h as Error).message });
+        }
       }
     }
-    await kaydet(v);
   }, [kaydet]);
 
   // Kosucu: vardiya aktifken ADIM_MS'de bir. Makine uykusu main'de engellenir.

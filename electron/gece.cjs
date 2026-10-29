@@ -17,13 +17,43 @@ const { log } = require('./log.cjs');
 
 const DOSYA = path.join(KOKPIT_DIZIN, 'gece.json');
 const AZAMI_GOREV = 12;
+const ONEK = 'GECE VARDİYASI görevi.';
+
+/**
+ * v3.5: gece oturumlarinin teknik sinirlari. Istem metni tek basina yetmez (gozetimsiz claude, kullanicinin varsayilan
+ * izin modu); bunlar claude'a `--settings` ile `permissions.deny` olarak verilir ve izinleri atlayan modda bile
+ * gecerlidir (2026-10-29 spike: `git push` reddedildi, permission_denials'ta goruldu).
+ */
+const YASAK = [
+  'Bash(git push:*)',
+  'Bash(git push *)',
+  'Bash(git reset --hard:*)',
+  'Bash(git branch -D:*)',
+  'Bash(git filter-branch:*)',
+  'Bash(git filter-repo:*)',
+  'Bash(git rebase:*)',
+  'Bash(rm -rf:*)',
+  'Bash(rm -fr:*)',
+  'Bash(gh:*)',
+  'Bash(curl:*)',
+  'Bash(Remove-Item:*)',
+  'PowerShell(git push:*)',
+  'PowerShell(Remove-Item:*)',
+  'PowerShell(gh:*)',
+];
+
+/** Gorev metni bir gece gorevi mi (PTY sunucusu gece ayarini secer). SAF. */
+function geceGoreviMi(metin) {
+  return typeof metin === 'string' && metin.startsWith(ONEK);
+}
 const DURUMLAR = new Set(['bekliyor', 'calisiyor', 'bitti', 'takildi', 'sure', 'hata', 'iptal']);
 
 /** Gece gorevinin claude'a giden ilk mesaji: sinirlar + gorev. SAF. */
 function gorevIstemi(metin, dal) {
   return [
-    'GECE VARDİYASI görevi. Scryne uyuyor: soru sorma; belirsizlikte makul bir varsayım yap ve özette belirt.',
+    ONEK + ' Scryne uyuyor: soru sorma; belirsizlikte makul bir varsayım yap ve özette belirt.',
     'Bu ayrı bir git çalışma ağacı (dal ' + dal + '). İşi burada yap, anlamlı ve küçük commit\'ler at; testleri koş.',
+    'node_modules / .venv ana ağaca bağlıdır (junction): bağımlılık eklemen gerekirse önce bu bağlantıyı kaldır (`cmd /c rmdir node_modules`, klasör silinmez, yalnız bağ), sonra kur; ana ağacın kurulumu değişmesin.',
     'YASAK: push, dışarı mesaj/yayın/PR, dosya ya da dal silme, git geçmişini yeniden yazma, para harcayan işlem, gizli bilgiye dokunma. Gerekirse yapma, özette yaz.',
     'Bitince 3-6 satırlık özet yaz: ne yaptın, neyi doğruladın, ne kaldı, sabah Scryne\'ın karar vermesi gereken ne var.',
     '',
@@ -119,6 +149,8 @@ function ozetKur(v, simdi = Date.now()) {
 const SINIR = {
   sessizDk: 25, // calisiyor ama bu kadar olay yok: takildi sayilir, tur kesilir (Esc)
   gorevDk: 150, // bir gorev en fazla bu kadar
+  vardiyaSaat: 10, // ilk gorev basladiktan sonra vardiya en fazla bu kadar (12 gorev x 150 dk = 30 saat olmasin)
+  limitYasDk: 30, // limit olcumu bundan eskiyse yeni gorev baslamaz (bilinmeyen limitle gozetimsiz is yok)
   cevap: 6, // bir gorevde Ada'nin kendiliginden cevapladigi soru siniri
   besSaat: 92, // 5 saatlik limit bunun ustundeyse yeni gorev baslamaz (sifirlanma beklenir)
   hafta: 97, // haftalik limit bunun ustundeyse vardiya durur
@@ -159,7 +191,8 @@ function karar({ v, oturumlar, etkinlik, simdi, limitler }) {
       continue;
     }
     if (simdi - (g.basladi ?? simdi) > SINIR.gorevDk * 60_000) {
-      eylem.push({ tur: 'kes', id: g.id, oturumId: g.oturumId }, { tur: 'isaretle', id: g.id, durum: 'sure', neden: SINIR.gorevDk + ' dakikayı aştı' });
+      // Esc'e cevap vermeyen (arka plan isi suren) claude kalmasin: sure dolunca oturum kapatilir, tek gorev kurali korunur.
+      eylem.push({ tur: 'kes', id: g.id, oturumId: g.oturumId }, { tur: 'kapat', id: g.id, oturumId: g.oturumId }, { tur: 'isaretle', id: g.id, durum: 'sure', neden: SINIR.gorevDk + ' dakikayı aştı' });
       continue;
     }
     if (e && e.durum === 'bekliyor') {
@@ -181,7 +214,9 @@ function karar({ v, oturumlar, etkinlik, simdi, limitler }) {
       eylem.push({ tur: 'isaretle', id: g.id, durum: 'takildi', neden: !s ? 'izin ya da seçeneksiz soru bekliyor' : !s.cevaplanabilir ? 'çoklu seçimli soru' : 'çok fazla soru sordu' });
       continue;
     }
-    if (e && e.durum === 'calisiyor' && simdi - e.degisti > SINIR.sessizDk * 60_000) {
+    // Uzun suren tek arac (build, test) olay uretmez: arac surerken esik iki katina cikar.
+    const sessizEsik = SINIR.sessizDk * 60_000 * (e && e.arac && e.arac.bitti === null ? 2 : 1);
+    if (e && e.durum === 'calisiyor' && simdi - e.degisti > sessizEsik) {
       eylem.push({ tur: 'kes', id: g.id, oturumId: g.oturumId }, { tur: 'isaretle', id: g.id, durum: 'takildi', neden: SINIR.sessizDk + ' dakika hiç olay yok' });
       continue;
     }
@@ -192,10 +227,24 @@ function karar({ v, oturumlar, etkinlik, simdi, limitler }) {
     eylem.push({ tur: 'bekle', neden: 'başlangıç saati' });
     return eylem;
   }
+  // Toplam vardiya suresi: ilk gorevin baslangicindan beri.
+  const ilk = Math.min(...v.gorevler.filter((x) => Number.isFinite(x.basladi) && (!v.baslaZamani || x.basladi >= v.baslaZamani - 60_000)).map((x) => x.basladi));
+  if (Number.isFinite(ilk) && simdi - ilk > SINIR.vardiyaSaat * 3600_000) {
+    eylem.push({ tur: 'bitir', neden: SINIR.vardiyaSaat + ' saatlik vardiya süresi doldu' });
+    return eylem;
+  }
   const bitenler = new Set(eylem.filter((x) => x.tur === 'isaretle').map((x) => x.id));
   const sira = v.gorevler.find((x) => x.durum === 'bekliyor' && !bitenler.has(x.id));
   if (!sira) {
     eylem.push({ tur: 'bitir', neden: 'sıra boş' });
+    return eylem;
+  }
+  // Limit bilinmiyorsa (olcum yok ya da eski) gozetimsiz gorev baslamaz: bekler, bir saatte gelmezse vardiya biter.
+  const limitTaze = limitler && Number.isFinite(limitler.olculdu) && simdi - limitler.olculdu <= SINIR.limitYasDk * 60_000 && (limitler.hafta || limitler.besSaat);
+  if (!limitTaze) {
+    const bekleyen = Math.max(v.baslaZamani ?? 0, ...v.gorevler.filter((x) => Number.isFinite(x.bitti)).map((x) => x.bitti));
+    if (bekleyen && simdi - bekleyen > 60 * 60_000) eylem.push({ tur: 'bitir', neden: 'limit bir saattir ölçülemiyor' });
+    else eylem.push({ tur: 'bekle', neden: 'limit ölçülemedi (Claude oturumu ya da limit ucu yok), bekleniyor' });
     return eylem;
   }
   const haf = etkinYuzde(limitler?.hafta, simdi);
@@ -221,6 +270,8 @@ module.exports = {
   ozetKur,
   karar,
   SINIR,
+  YASAK,
+  geceGoreviMi,
   /** Brifing icin (main). */
   sabahOzeti: () => ozetKur(oku()),
 };

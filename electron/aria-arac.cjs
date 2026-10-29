@@ -47,9 +47,23 @@ function oneriEkle(o) {
   return kart;
 }
 
-function oneriSonuc(id, durum, sonuc) {
+/**
+ * Onay aninda kart 'uygulaniyor'a gecer: ikinci onay (Ada karti, sesli "onayla", Aria sayfasi ayni anda) ayni isi iki kez
+ * yaptirmasin. Doner: kart ya da null (zaten karar verilmis).
+ */
+function oneriBasla(id) {
   const k = oneriler.find((x) => x.id === id);
   if (!k || k.durum !== 'bekliyor') return null;
+  k.durum = 'uygulaniyor';
+  log('aria: oneri ' + id + ' -> uygulaniyor');
+  oneriYayin(k);
+  return k;
+}
+
+function oneriSonuc(id, durum, sonuc) {
+  const k = oneriler.find((x) => x.id === id);
+  // Red yalniz bekleyene; sonuc (onaylandi/hata) yalniz uygulanmakta olana.
+  if (!k || (durum === 'reddedildi' ? k.durum !== 'bekliyor' : k.durum !== 'uygulaniyor')) return null;
   k.durum = durum;
   if (sonuc) k.sonuc = String(sonuc).slice(0, 300);
   log('aria: oneri ' + id + ' -> ' + durum);
@@ -60,7 +74,7 @@ function oneriSonuc(id, durum, sonuc) {
 /** Oneri listesinin model icin metni. SAF. */
 function onerilerMetni(liste) {
   if (!liste.length) return 'Bugun oneri yok.';
-  const ad = { bekliyor: 'onay bekliyor', onaylandi: 'ONAYLANDI', reddedildi: 'reddedildi', hata: 'uygulanamadi' };
+  const ad = { bekliyor: 'onay bekliyor', uygulaniyor: 'uygulaniyor', onaylandi: 'ONAYLANDI', reddedildi: 'reddedildi', hata: 'uygulanamadi' };
   return liste
     .map((k) => '#' + k.id + ' ' + k.tur + (k.proje ? ' ' + k.proje : '') + (k.oturum ? ' -> ' + k.oturum : '') + ': ' + (ad[k.durum] ?? k.durum) + (k.sonuc ? ' (' + k.sonuc + ')' : '') + ' | ' + k.metin.slice(0, 120))
     .join('\n');
@@ -156,4 +170,4 @@ function durdur() {
   }
 }
 
-module.exports = { baslat, durdur, oneriEkle, oneriSonuc, onerilerMetni, oneriler: () => oneriler.slice(), ONERI_TURLERI };
+module.exports = { baslat, durdur, oneriEkle, oneriBasla, oneriSonuc, onerilerMetni, oneriler: () => oneriler.slice(), ONERI_TURLERI };

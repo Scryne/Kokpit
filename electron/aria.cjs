@@ -45,6 +45,11 @@ let aktif = null; // { id (aria mesaj), metin, araclar, hafiza, t0, kaynak }
 let kuyruk = []; // surec mesgulken gelen kullanici mesajlari
 let bostaZamanlayici = null;
 let baslangic = 0;
+let hazir = false; // surec init gonderdi (oturum gercekten acildi)
+let ilkIstek = null; // init gelmeden yazilan istek: oturum acilamazsa kurtarmada yeniden yazilir
+let kapanan = null; // kapatilan ama SessionEnd hook'u suren surec
+let kapananKimlik = null;
+const kurtarilan = new Set(); // kimlik kurtarmasi denenen oturumlar (gunde bir kez)
 
 function gunAnahtari(t = Date.now()) {
   const d = new Date(t - GUN_SINIRI_SAAT * 3600_000);
@@ -64,6 +69,14 @@ function kayitYaz(k) {
   const gecici = KAYIT + '.' + process.pid + '.tmp';
   fs.writeFileSync(gecici, JSON.stringify({ gunler: k.gunler.slice(-90) }, null, 2) + '\n', 'utf8');
   fs.renameSync(gecici, KAYIT);
+  // Kayittan dusen (90 gunden eski) gunlerin mesaj dosyalari da silinir; yoksa yetim birikir.
+  for (const g of k.gunler.slice(0, -90)) {
+    try {
+      fs.unlinkSync(mesajYolu(g.id));
+    } catch {
+      /* zaten yok */
+    }
+  }
 }
 
 /** Bugunun oturumu (yoksa yeni kimlik). `yeni`: kimlik henuz claude'a verilmedi (--session-id), degilse --resume. */
@@ -222,6 +235,36 @@ function bostaKur() {
   bostaZamanlayici.unref?.();
 }
 
+/** Cevapsiz kalan bir istegi ekranda ve gecmiste kapatir ("yaziyor" diye kalan balon olmasin). */
+function istegiKapat(oturumId, id, { metin = '', hata = null, araclar = [], hafiza = [] } = {}) {
+  ayar.yayin({ tur: 'bitti', id, metin, kesildi: true, hata, araclar, hafiza });
+  if (oturumId) mesajKaydet(oturumId, { id, rol: 'aria', metin, t: Date.now(), araclar, hafiza, kesildi: true, hata: hata || undefined });
+}
+
+/** Surec bitti (cikis, baslatma hatasi ya da kapat): suren tur ve kuyruk cevapsiz kapanir. */
+function surecBitti(hata) {
+  if (aktif) {
+    istegiKapat(surecKimligi, aktif.id, { metin: aktif.metinBirikmis || '', hata, araclar: aktif.araclar, hafiza: aktif.hafiza });
+    aktif = null;
+  }
+  for (const k of kuyruk) istegiKapat(surecKimligi, k.ariaId, { hata });
+  kuyruk = [];
+  durumYayinla('bosta');
+}
+
+/** stdin'e guvenli yazim: olmus surece yazmak EPIPE firlatir (yakalanmazsa main'in genel isleyicisine duser). */
+function stdinYaz(s, nesne) {
+  try {
+    s.stdin.write(JSON.stringify(nesne) + '\n', (e) => {
+      if (e) log('aria: stdin yazilamadi: ' + e.message);
+    });
+    return true;
+  } catch (e) {
+    log('aria: stdin yazilamadi: ' + e.message);
+    return false;
+  }
+}
+
 function satirIsle(satir) {
   let j;
   try {
@@ -230,7 +273,11 @@ function satirIsle(satir) {
     return;
   }
   if (j.type === 'system' && j.subtype === 'init') {
+    hazir = true;
+    ilkIstek = null;
     if (durum === 'aciliyor' && !aktif) durumYayinla('bosta');
+    // Isinip hic mesaj almayan surec de 20 dk sonra kapanir.
+    if (!aktif) bostaKur();
     log('aria: oturum hazir (' + ((Date.now() - baslangic) / 1000).toFixed(1) + ' sn, ' + (j.tools || []).length + ' arac)');
     return;
   }
@@ -250,6 +297,11 @@ function satirIsle(satir) {
     const sonraki = kuyruk.shift();
     if (sonraki) yaz(sonraki);
   }
+}
+
+/** Ayni kimligin onceki sureci hala kapaniyor (SessionEnd hook'u): ayni transcript'e iki yazar acilmasin. */
+function kapanisBekleniyor(id) {
+  return !!kapanan && kapananKimlik === id && kapanan.exitCode === null && kapanan.signalCode === null;
 }
 
 function baslat() {
@@ -273,6 +325,8 @@ function baslat() {
   ];
   baslangic = Date.now();
   surecKimligi = g.id;
+  hazir = false;
+  ilkIstek = null;
   durumYayinla('aciliyor');
   const { ortam } = ortamModulu.temizOrtam();
   try {
@@ -289,8 +343,11 @@ function baslat() {
   log('aria: oturum ' + (g.basladi ? 'surduruluyor ' : 'basliyor ') + g.id.slice(0, 8) + ' (' + g.gun + ')');
   tampon = '';
   const benim = surec;
-  surec.stdout.setEncoding('utf8');
-  surec.stdout.on('data', (d) => {
+  benim.stdin.on('error', (e) => log('aria: stdin hatasi: ' + e.message));
+  benim.stdout.setEncoding('utf8');
+  benim.stdout.on('data', (d) => {
+    // Kapatilan (ya da yerine yenisi acilan) surecin son satirlari yeni turun durumuna karismaz.
+    if (surec !== benim) return;
     tampon += d;
     let i;
     while ((i = tampon.indexOf('\n')) >= 0) {
@@ -299,27 +356,50 @@ function baslat() {
       if (s) satirIsle(s);
     }
   });
-  surec.stderr.on('data', (d) => log('aria stderr: ' + String(d).trim().slice(0, 300)));
-  surec.on('error', (e) => log('aria: surec hatasi: ' + e.message));
-  surec.on('exit', (kod) => {
+  benim.stderr.on('data', (d) => log('aria stderr: ' + String(d).trim().slice(0, 300)));
+  // Baslatma hatasi (ENOENT: claude guncellenirken exe yok) async gelir ve 'exit' tetiklenmez: surec takili kalmasin.
+  benim.on('error', (e) => {
+    log('aria: surec hatasi: ' + e.message);
+    if (surec !== benim) return;
+    surec = null;
+    hazir = false;
+    surecBitti('Aria başlatılamadı: ' + e.message);
+    ayar.yayin({ tur: 'hata', metin: 'Aria başlatılamadı: ' + e.message });
+  });
+  benim.on('exit', (kod) => {
     if (surec !== benim) return;
     log('aria: surec kapandi (kod ' + kod + ')');
     surec = null;
-    if (aktif) {
-      ayar.yayin({ tur: 'bitti', id: aktif.id, metin: aktif.metinBirikmis || '', kesildi: true, hata: kod ? 'Aria süreci kapandı (kod ' + kod + ')' : null, araclar: aktif.araclar, hafiza: aktif.hafiza });
+    const erken = !hazir;
+    hazir = false;
+    // Oturum hic acilamadi (init gelmedi): kimlik durumu bozuk. `--session-id` "kullanimda" (ilk tur bitmeden olmus,
+    // transcript dogmus) ise `--resume`; `--resume` "konusma yok" (transcript silinmis) ise yeni kimlik. Gunde bir kez.
+    if (erken && kod && !kurtarilan.has(g.id)) {
+      kurtarilan.add(g.id);
+      if (g.basladi) bugunkuOturum(true);
+      else oturumGuncelle(g.id, { basladi: true });
+      log('aria: oturum acilamadi, ' + (g.basladi ? 'yeni kimlikle' : '--resume ile') + ' yeniden deneniyor');
+      const istek = ilkIstek;
+      ilkIstek = null;
       aktif = null;
+      if (istek) yaz(istek);
+      else baslat();
+      return;
     }
-    kuyruk = [];
-    durumYayinla('bosta');
+    surecBitti(kod ? 'Aria süreci kapandı (kod ' + kod + ')' : null);
   });
 }
 
 function yaz(m) {
   if (!surec) baslat();
-  if (!surec) return;
+  if (!surec) {
+    istegiKapat(surecKimligi, m.ariaId, { hata: 'Aria başlatılamadı' });
+    return;
+  }
   aktif = { id: m.ariaId, metinBirikmis: '', taslak: '', araclar: [], hafiza: [], kaynak: m.kaynak };
+  if (!hazir) ilkIstek = m;
   durumYayinla('dusunuyor');
-  surec.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: m.icerik } }) + '\n');
+  stdinYaz(surec, { type: 'user', message: { role: 'user', content: m.icerik } });
 }
 
 /**
@@ -340,17 +420,19 @@ function gonder(metin, { kaynak = 'yazi' } = {}) {
   ayar.yayin({ tur: 'mesaj', mesaj: sen, ariaId });
   const istek = { ariaId, kaynak, icerik: kaynak === 'ses' || kaynak === 'ada' ? '[ses] ' + temiz : temiz };
   // Mesgul = bir tur suruyor. 'aciliyor' mesgul degil: claude stdin'i kendisi tamponlar (isinan surece ilk mesaj
-  // dogrudan yazilir; kuyruk yalniz tur bitince bosaldigi icin aciliyorken kuyruga almak kilitlenirdi).
-  if (surec && aktif) kuyruk.push(istek);
+  // dogrudan yazilir; kuyruk yalniz tur bitince bosaldigi icin aciliyorken kuyruga almak kilitlenirdi). Ayni kimligin
+  // onceki sureci kapaniyorsa mesaj bekler, o cikinca yeni surec acilir.
+  if ((surec && aktif) || (!surec && kapanisBekleniyor(g.id))) kuyruk.push(istek);
   else yaz(istek);
   return { senId, ariaId };
 }
 
-/** Suren turu keser (claude'un kendi kesmesi; surec yasar). */
+/** Suren turu keser (claude'un kendi kesmesi; surec yasar). Bekleyen mesajlar cevapsiz kapanir. */
 function kes() {
   if (!surec || durum === 'bosta') return false;
+  for (const k of kuyruk) istegiKapat(surecKimligi, k.ariaId);
   kuyruk = [];
-  surec.stdin.write(JSON.stringify({ type: 'control_request', request_id: 'kes-' + Date.now(), request: { subtype: 'interrupt' } }) + '\n');
+  stdinYaz(surec, { type: 'control_request', request_id: 'kes-' + Date.now(), request: { subtype: 'interrupt' } });
   return true;
 }
 
@@ -359,6 +441,19 @@ function kapat() {
   if (!surec) return;
   const s = surec;
   surec = null;
+  hazir = false;
+  ilkIstek = null;
+  surecBitti(null);
+  kapanan = s;
+  kapananKimlik = surecKimligi;
+  s.once('exit', () => {
+    if (kapanan === s) {
+      kapanan = null;
+      kapananKimlik = null;
+    }
+    // Kapanis beklerken gelen mesajlar: simdi yeni surec acilir.
+    if (!surec && kuyruk.length) yaz(kuyruk.shift());
+  });
   try {
     s.stdin.end();
   } catch {
@@ -371,7 +466,6 @@ function kapat() {
       /* zaten bitti */
     }
   }, 90_000).unref?.();
-  durumYayinla('bosta');
 }
 
 // --- v3.3 Faz 63: gunluk "fark ettiklerim" notu ---
@@ -426,7 +520,11 @@ function gunlukNot({ zorla = false } = {}) {
     const zaman = setTimeout(() => p.kill(), 240_000);
     p.stdout.setEncoding('utf8');
     p.stdout.on('data', (d) => (cikti += d));
-    p.on('error', (e) => coz({ hata: e.message }));
+    p.stderr.resume(); // tuketilmeyen stderr tamponu dolarsa surec takilir
+    p.on('error', (e) => {
+      clearTimeout(zaman);
+      coz({ hata: e.message });
+    });
     p.on('exit', () => {
       clearTimeout(zaman);
       let metin = '';
@@ -466,7 +564,14 @@ function gecmis(id) {
       .readFileSync(mesajYolu(g.id), 'utf8')
       .split('\n')
       .filter(Boolean)
-      .map((s) => JSON.parse(s));
+      .flatMap((s) => {
+        // Yarim yazilmis tek satir (cokme ani) butun gunun gecmisini silmesin.
+        try {
+          return [JSON.parse(s)];
+        } catch {
+          return [];
+        }
+      });
   } catch {
     mesajlar = [];
   }
@@ -497,7 +602,7 @@ module.exports = {
   },
   /** Sayfa acilinca isinmak: ilk mesajda 2 sn kaybedilmesin. */
   isit() {
-    if (!surec && ayar.vault) baslat();
+    if (!surec && ayar.vault && !kapanisBekleniyor(bugunkuOturum().id)) baslat();
   },
   durum: () => ({ durum, canli: !!surec, id: surecKimligi }),
   gunlukNot,

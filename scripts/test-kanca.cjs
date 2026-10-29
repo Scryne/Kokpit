@@ -426,6 +426,10 @@ const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
   kontrol('ayar: alt ajan olaylari da kayitli (SubagentStart/Stop)', !!(ayar.hooks.SubagentStart && ayar.hooks.SubagentStop), Object.keys(ayar.hooks));
   kontrol('ayar: token dosyada YOK', !fs.readFileSync(b.ayarDosyasi, 'utf8').includes(b.token));
   kontrol('ayar: statusline koprusu + kullanicinin padding alani korunur', /durum-satiri\.cjs/.test(ayar.statusLine.command) && ayar.statusLine.padding === 0, ayar.statusLine);
+  // v3.5: gece gorevleri ayri ayarla: ayni kancalar + permissions.deny (push/silme teknik olarak kapali).
+  const geceYol = kanca.ptyOrtami().KOKPIT_KANCA_AYAR_GECE;
+  const geceAyar = geceYol && fs.existsSync(geceYol) ? JSON.parse(fs.readFileSync(geceYol, 'utf8')) : null;
+  kontrol('gece ayari: ayni kancalar + push/silme/gh yasagi, token yok', !!geceAyar && JSON.stringify(geceAyar.hooks) === JSON.stringify(ayar.hooks) && geceAyar.permissions.deny.includes('Bash(git push:*)') && geceAyar.permissions.deny.includes('Bash(rm -rf:*)') && !fs.readFileSync(geceYol, 'utf8').includes(b.token), geceYol);
 
   const yetki = { Authorization: 'Bearer ' + b.token, 'X-Kokpit-Oturum': 'sekme-1' };
   kontrol('yanlis token 401', (await post(b.port, '/kanca', P({ hook_event_name: 'Stop' }), { ...yetki, Authorization: 'Bearer yanlis' })) === 401);
@@ -469,7 +473,7 @@ const uyu = (ms) => new Promise((r) => setTimeout(r, ms));
   });
   const sure = Date.now() - t0;
   kontrol('Kokpit kapaliyken statusline yine basar, takilmaz', kapali === 'ASIL' && sure < 2000, { kapali, sure });
-  kontrol('kapaninca ayar dosyasi silinir', !fs.existsSync(b.ayarDosyasi));
+  kontrol('kapaninca ayar dosyasi silinir (gece ayari da)', !fs.existsSync(b.ayarDosyasi) && !fs.existsSync(path.join(path.dirname(b.ayarDosyasi), 'ayar-gece-' + process.pid + '.json')));
 
   fs.rmSync(GECICI, { recursive: true, force: true });
   console.log('\n' + gecen + ' gecti, ' + kalan + ' kaldi');
