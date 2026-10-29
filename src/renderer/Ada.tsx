@@ -191,6 +191,11 @@ export default function Ada() {
   dinlemeRef.current = dinleme;
   const oncekiDurum = useRef<Record<string, string>>({});
   const sonBildirim = useRef<Record<string, number>>({});
+  // v3.3: Ada Aria'nin yuzu. Sesli soru Aria'ya gider; cevap gelene kadar goz "calisiyor", gelince sesli.
+  const [ariaBekleyen, setAriaBekleyen] = useState<string | null>(null);
+  const ariaBekleyenRef = useRef<string | null>(null);
+  ariaBekleyenRef.current = ariaBekleyen;
+  const [ariaCevabi, setAriaCevabi] = useState(false);
   // v3.2: gunun brifingi (ses, palet ya da gunun ilk ani). "Tamam" ya da BRIFING_MS sonra kalkar.
   const [brifing, setBrifing] = useState<{ b: Brifing; t: number } | null>(null);
 
@@ -410,6 +415,8 @@ export default function Ada() {
       ? 'Dinliyorum…'
       : dinleme === 'cozuluyor'
         ? 'Anlıyorum…'
+        : ariaBekleyen
+          ? 'Aria düşünüyor…'
         : sesNotu && simdi - sesNotu.t < SES_NOTU_MS
           ? sesNotu.metin
           : null;
@@ -425,6 +432,8 @@ export default function Ada() {
   const sakinHal: GozHali = biten.length && !uyku ? 'bitti' : uyku ? 'uyku' : 'bosta';
   const gozHali: GozHali = dinleme !== 'yok'
     ? 'dinliyor'
+    : ariaBekleyen
+      ? 'calisiyor'
     : bekleyen.length || disBekleyen.length
     ? 'bekliyor'
     : simdi - paraZamani < PARA_MS
@@ -538,6 +547,22 @@ export default function Ada() {
       case 'git':
         window.kokpit.adaGit(e.hedef.id);
         return sesNotuGoster(e.hedef.ad);
+      // v3.3: Aria'nin en son bekleyen onerisine karar.
+      case 'onayla':
+      case 'reddet':
+        void window.kokpit.ariaOneriKarar('son', e.tur === 'onayla').then((r) => {
+          const m = 'hata' in r ? r.hata : e.tur === 'onayla' ? 'Onaylandı, uygulanıyor' : 'Vazgeçildi';
+          sesNotuGoster(m);
+          void konus(m);
+        });
+        return;
+      // v3.3: Aria'ya soru. Cevap aria:olay 'bitti' ile gelir (asagidaki dinleyici), sesli okunur.
+      case 'aria':
+        setAriaCevabi(false);
+        sesNotuGoster('Aria düşünüyor…');
+        bak(SES_CEVAP_MS);
+        void window.kokpit.ariaGonder(e.metin, 'ada').then((r) => r && setAriaBekleyen(r.ariaId));
+        return;
       case 'brifing':
         sesNotuGoster('Bakıyorum…');
         void window.kokpit.adaBrifing().then((b) => {
@@ -646,6 +671,19 @@ export default function Ada() {
     [bak, konus]
   );
   useEffect(() => window.kokpit.adaBrifingDinle((v) => brifingGoster(v.brifing, v.konus, v.acil)), [brifingGoster]);
+  useEffect(
+    () =>
+      window.kokpit.ariaDinle((o) => {
+        if (o.tur !== 'bitti' || o.id !== ariaBekleyenRef.current) return;
+        setAriaBekleyen(null);
+        const m = o.hata ?? (o.kesildi ? 'Aria durduruldu.' : o.metin || 'Aria cevap vermedi.');
+        setAriaCevabi(true);
+        setSesNotu({ metin: m, t: Date.now() });
+        bak(SES_CEVAP_MS);
+        if (!o.hata && !o.kesildi && o.metin) void konus(o.metin.replace(/[*_`#>]/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'));
+      }),
+    [bak, konus]
+  );
   // v3.2: main'den kisa not (secili metin bulunamadi gibi): hapta birkac saniye.
   useEffect(() => window.kokpit.adaNotDinle((m) => sesNotuGoster(m)), [sesNotuGoster]);
 
@@ -901,10 +939,20 @@ export default function Ada() {
         {genis && (
           <div className="max-h-[440px] overflow-y-auto border-t border-kenar px-1.5 pb-1.5 pt-1">
             {/* v3.2: Ada'nin uzun sesli cevabi (ozet, brifing) hapa sigmaz; kartin basinda tam hali. */}
-            {sesNotu && sesNotu.metin.length > 48 && simdi - sesNotu.t < SES_CEVAP_MS && (
-              <p data-ada-cevap role="status" className="mb-1 border-b border-kenar px-2 pb-2 pt-1 text-xs leading-relaxed text-metin-ikincil">
-                {sesNotu.metin}
-              </p>
+            {sesNotu && (sesNotu.metin.length > 48 || ariaCevabi) && simdi - sesNotu.t < SES_CEVAP_MS && (
+              <div data-ada-cevap role="status" className="mb-1 border-b border-kenar px-2 pb-2 pt-1 text-xs leading-relaxed text-metin-ikincil">
+                <p>{sesNotu.metin}</p>
+                {ariaCevabi && (
+                  <button
+                    type="button"
+                    data-aria-ac
+                    onClick={() => window.kokpit.adaAriaAc()}
+                    className="mt-1 cursor-pointer text-metin-soluk underline decoration-kenar-guclu underline-offset-2 hover:text-metin"
+                  >
+                    Aria'da aç
+                  </button>
+                )}
+              </div>
             )}
             {(tepsiVar || birakiliyor) && (
               <EkTepsisi

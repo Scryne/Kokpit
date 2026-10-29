@@ -223,6 +223,8 @@ async function baslat(ekOrtam = {}) {
       KOKPIT_TEST_NOBET: '1',
       KOKPIT_TEST_MIKROFON: SES_WAV,
       KOKPIT_TEST_SES_DOSYA: SES_METNI,
+      // v3.3: Aria sahte claude ile (gercek claude vault hook'larini calistirir, limit harcar).
+      KOKPIT_TEST_ARIA_SAHTE: path.join(__dirname, 'sahte-claude.cjs'),
       ...ekOrtam,
     },
   });
@@ -777,6 +779,41 @@ async function v3Testi(cdp, adaCdp) {
   kontrol('paletten brifing: Ada karti acilir', await adaCdp.bekle(`!!document.querySelector('[data-ada-brifing]')`, 20000, 'palet brifing').catch(() => false));
   await adaCdp.js(`(() => { [...document.querySelectorAll('[data-ada-brifing] button')].find(b => b.textContent.trim() === 'Tamam')?.click(); return true; })()`);
   await adaKapat();
+
+  console.log('v3.3 Aria: Ada uzerinden sesli soru, Aria sayfasi, yazili sohbet, kesme');
+  // 7) "Aria, ..." -> Aria'ya gider (sahte claude "[ses]" onekini "Sesli:" diye yansitir), Ada cevabi gosterir.
+  fs.writeFileSync(SES_METNI, 'Aria, Matbaa ölçümü ne zaman?');
+  await adaAc();
+  await adaCdp.js(`(() => { document.querySelector('[data-ses-dugme]').click(); return true; })()`);
+  kontrol('ada -> aria: sesli sorunun cevabi kartta (kisa, [ses] onekli)', await adaCdp.bekle(`(document.querySelector('[data-ada-cevap]')?.textContent ?? '').includes('Sesli: Matbaa ölçümü ne zaman')`, 20000, 'aria cevabi').catch(() => false), await adaCdp.js(`document.querySelector('[data-ada-cevap]')?.textContent ?? document.querySelector('.ada-metin')?.textContent ?? ''`));
+  kontrol('log: ada sesi aria', fs.readFileSync(LOG('kokpit.log'), 'utf8').includes('ada sesi: aria'));
+  await adaCdp.js(`(() => { document.querySelector('[data-aria-ac]').click(); return true; })()`);
+  kontrol("ada \"Aria'da aç\" -> Kokpit Aria sayfasinda, ayni konusma orada", await cdp.bekle(`(() => { const s = document.querySelector('section[aria-label="Aria"]'); return !!s && !s.classList.contains('hidden') && [...s.querySelectorAll('[data-aria-mesaj="aria"]')].some(m => m.textContent.includes('Sesli: Matbaa')); })()`, 8000, 'aria sayfasi').catch(() => false));
+  await adaKapat();
+  // 8) Yazili sohbet: Enter gonderir, cevap akar ve biter.
+  await cdp.js(`(() => { const t = document.querySelector('[data-aria-kutu]'); const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; set.call(t, 'merhaba aria'); t.dispatchEvent(new Event('input', { bubbles: true })); t.focus(); return true; })()`);
+  await cdp.tus('Enter');
+  kontrol('aria sayfasi: yazili mesaj gitti, cevap akti ve bitti', await cdp.bekle(`(() => { const m = [...document.querySelectorAll('[data-aria-mesaj="aria"]')].pop(); return !!m && m.textContent.includes('Yanki: merhaba aria') && !m.hasAttribute('data-akiyor'); })()`, 10000, 'yazili cevap').catch(() => false));
+  kontrol('aria sayfasi: arac izi (sahte Read)', await (async () => {
+    await cdp.js(`window.kokpit.ariaGonder('arac kullan')`);
+    return cdp.bekle(`[...document.querySelectorAll('[data-aria-mesaj="aria"]')].some(m => m.textContent.includes('Read') && m.textContent.includes('Threads.md'))`, 10000, 'arac izi').catch(() => false);
+  })());
+  // 9) Kesme: yavas cevap surerken Durdur.
+  await cdp.js(`window.kokpit.ariaGonder('yavas yaz')`);
+  await cdp.bekle(`!!document.querySelector('[data-aria-kes]')`, 5000, 'durdur dugmesi').catch(() => false);
+  await uyu(300);
+  await cdp.js(`(() => { document.querySelector('[data-aria-kes]').click(); return true; })()`);
+  kontrol('aria sayfasi: Durdur turu keser ("kesildi")', await cdp.bekle(`(() => { const m = [...document.querySelectorAll('[data-aria-mesaj="aria"]')].pop(); return !!m && !m.hasAttribute('data-akiyor') && m.textContent.includes('kesildi'); })()`, 8000, 'kesildi').catch(() => false));
+  kontrol('aria: sohbet diske yazildi (~/.kokpit/aria test dizininde)', fs.readdirSync(path.join(TEST_DIZIN, 'aria')).some((f) => f.endsWith('.jsonl')));
+  // 10) Oneri karti: sahte claude Kokpit'in arac ucuna (gercek HTTP + token) oneri_gorev yollar -> kart -> Onayla -> App oturum acar.
+  const sekmeOnce = await cdp.js(`document.querySelectorAll('[role="tab"]').length`);
+  await cdp.js(`window.kokpit.ariaGonder(${JSON.stringify('oneri proje=' + adim)})`);
+  kontrol('aria oneri: kart cizildi (bekliyor, proje adi)', await cdp.bekle(`[...document.querySelectorAll('[data-aria-oneri="bekliyor"]')].some(k => k.textContent.includes(${JSON.stringify(adim)}) && k.textContent.includes('README'))`, 10000, 'oneri karti').catch(() => false));
+  kontrol('aria oneri: onaysiz hicbir oturum acilmadi', (await cdp.js(`document.querySelectorAll('[role="tab"]').length`)) === sekmeOnce);
+  await cdp.js(`(() => { document.querySelector('[data-aria-oneri="bekliyor"] [data-oneri-onayla]').click(); return true; })()`);
+  kontrol('aria oneri: Onayla -> kart "Onaylandı · ... oturumu açıldı"', await cdp.bekle(`[...document.querySelectorAll('[data-aria-oneri="onaylandi"]')].some(k => k.textContent.includes('oturumu açıldı'))`, 10000, 'onaylandi').catch(() => false), await cdp.js(`[...document.querySelectorAll('[data-aria-oneri]')].map(k => k.getAttribute('data-aria-oneri') + ':' + k.textContent.slice(-60)).join(' | ')`));
+  kontrol('aria oneri: onaydan sonra yeni oturum sekmesi acildi', await cdp.bekle(`document.querySelectorAll('[role="tab"]').length > ${sekmeOnce}`, 8000, 'yeni sekme').catch(() => false));
+  await cdp.tus('1', 2, 'Digit1');
   await uyu(400);
 
   console.log('v3.0 bot nobeti + vadeler (durum.py fiksturu)');

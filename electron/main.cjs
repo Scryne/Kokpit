@@ -30,6 +30,8 @@ const teslim = require('./teslim.cjs');
 const onizleme = require('./onizleme.cjs');
 const paralel = require('./paralel.cjs');
 const aria = require('./aria.cjs');
+const hafiza = require('./hafiza.cjs');
+const ariaArac = require('./aria-arac.cjs');
 const geceVardiyasi = require('./gece.cjs');
 const surum = require('./surum.cjs');
 
@@ -495,6 +497,8 @@ async function brifingVer(neden) {
   ayarlar.yaz({ sonBrifing: b.gun });
   log('brifing (' + neden + '): ' + b.maddeler.length + ' madde');
   ada.brifing(b, { konus: neden !== 'gun' || ayarlar.oku().adaSesli !== false, neden });
+  // v3.3 Faz 63: gunun ilk brifingi Aria'nin notunu da tetikler (ayar acikken; gunde bir, limit harcar).
+  if (neden === 'gun' && ayarlar.oku().ariaNotlar === true) void aria.gunlukNot().catch((e) => logHata('aria notu', e));
   return b;
 }
 /**
@@ -570,15 +574,128 @@ ipcMain.handle('paralel:at', async (_e, yol) => {
 });
 
 // --- v3.3: Aria (aria.cjs): vault'ta kalici sohbet; ana pencere (Aria sayfasi) ve Ada (ses) dinler ---
-function ariaKur() {
-  aria.kur({
-    vault: require('./config.cjs').VAULT,
-    yayin: (o) => {
-      if (pencere) pencere.webContents.send('aria:olay', o);
-      ada.ariaOlay(o);
-    },
-  });
+function ariaYayin(o) {
+  if (pencere) pencere.webContents.send('aria:olay', o);
+  ada.ariaOlay(o);
 }
+async function ariaKur() {
+  aria.kur({ vault: require('./config.cjs').VAULT, yayin: ariaYayin });
+  // Faz 62: Kokpit araclari (MCP). Sunucu kurulamazsa Aria araclarsiz konusur.
+  try {
+    const a = await ariaArac.baslat({
+      isleyiciler: ariaIsleyicileri(),
+      onOneri: (kart) => ariaYayin({ tur: 'oneri', oneri: kart }),
+      aktifMesaj: () => aria.aktifMesajId(),
+    });
+    aria.kur({ mcpConfig: a.mcpConfig });
+  } catch (e) {
+    logHata('aria araclari kurulamadi', e);
+  }
+}
+
+/** Oturum adi -> Ada listesindeki oturum (Turkce duyarsiz). */
+function oturumBul(ad) {
+  const a = sesKomut.anahtar(ad);
+  return ada.oturumListesi().find((o) => sesKomut.anahtar(o.ad) === a) ?? null;
+}
+/** Ana pencere henuz listeyi yollamadiysa (acilisin ilk saniyeleri) main'in kendi durum olcumu yedektir. */
+function projeBul(ad) {
+  const a = sesKomut.anahtar(ad);
+  const liste = ada.projeListesi().length
+    ? ada.projeListesi()
+    : (sonDurum?.veri?.projeler ?? []).map((p) => ({ ad: p.ad, yol: p.yol, grup: p.envanter && !/^(🟢|✅)/.test(p.envanter) ? 'arsiv' : '' }));
+  return liste.find((p) => sesKomut.anahtar(p.ad) === a) ?? null;
+}
+
+/** Aria'nin Kokpit araclari: okuma metne cevirir, oneri karti dogurur (uygulama Scryne onaylayinca ana pencerede). */
+function ariaIsleyicileri() {
+  const simdi = () => Date.now();
+  return {
+    kokpit_oturumlar: () => {
+      const a = kanca.anlik();
+      const ic = ada.oturumListesi().map((o) => '- ' + sesliOzet.ozetCumlesi({ ad: o.ad, e: a.oturumlar?.[o.id] ?? null, git: a.gitler?.[o.id] ?? null, simdi: simdi(), tam: false }));
+      const dis = ada.disListesi().map((d) => '- ' + d.ad + ' (Kokpit disinda): ' + (d.durum === 'bekliyor' ? 'seni bekliyor' : d.durum === 'calisiyor' ? 'calisiyor' : 'hazir'));
+      return [ic.length ? 'Kokpit oturumlari:\n' + ic.join('\n') : 'Kokpit\'te acik oturum yok.', ...(dis.length ? ['Kokpit disinda:\n' + dis.join('\n')] : [])].join('\n\n');
+    },
+    kokpit_oturum_ozeti: ({ oturum }) => {
+      const o = oturumBul(String(oturum || ''));
+      if (!o) return 'Acik oturum bulunamadi: ' + oturum + '. Acik olanlar: ' + (ada.oturumListesi().map((x) => x.ad).join(', ') || 'yok');
+      const a = kanca.anlik();
+      return sesliOzet.ozetCumlesi({ ad: o.ad, e: a.oturumlar?.[o.id] ?? null, git: a.gitler?.[o.id] ?? null, simdi: simdi(), tam: true });
+    },
+    kokpit_brifing: async () => {
+      const b = await brifingHazirla();
+      return b.maddeler.length ? b.maddeler.map((m) => '- [' + m.tur + (m.onem === 'dikkat' ? ', dikkat' : '') + '] ' + m.metin).join('\n') + (b.oneri ? '\nOnerilen ilk is: ' + b.oneri : '') : 'Bekleyen bir sey yok.';
+    },
+    kokpit_nobet: () => {
+      const n = nobet.anlik();
+      if (!n || !n.isler) return 'Nobet henuz okunmadi.';
+      return n.isler.map((x) => '- ' + x.proje + ' / ' + x.ad + ': ' + x.hal + (x.ayrinti ? ' (' + x.ayrinti + ')' : '') + (x.son ? ', son ' + x.son : '')).join('\n');
+    },
+    kokpit_teslim: async () => {
+      const projeler = (sonDurum?.veri?.projeler ?? []).filter((p) => p.git && ((p.git.ahead ?? 0) > 0 || p.git.kirli > 0));
+      const agaclar = await paralel.liste();
+      const p = projeler.map((x) => '- ' + x.ad + ': ' + (x.git.ahead ? x.git.ahead + ' commit push bekliyor' : '') + (x.git.ahead && x.git.kirli ? ', ' : '') + (x.git.kirli ? x.git.kirli + ' dosya commit edilmedi' : ''));
+      const g = agaclar.map((a) => '- ' + a.proje + '/' + a.ad + ' (' + a.dal + ' <- ' + a.taban + '): ' + a.ileride + ' commit' + (a.kirli ? ', ' + a.kirli + ' kirli' : ''));
+      return (p.length ? 'Push / commit bekleyen:\n' + p.join('\n') : 'Push ya da commit bekleyen proje yok.') + (g.length ? '\n\nParalel dallar:\n' + g.join('\n') : '');
+    },
+    kokpit_gece: () => {
+      const v = geceVardiyasi.oku();
+      if (!v.gorevler.length) return 'Gece vardiyasinda gorev yok.';
+      return (v.aktif ? 'Vardiya ACIK' + (v.baslangic ? ' (baslangic ' + v.baslangic + ')' : '') : 'Vardiya kapali') + '\n' + v.gorevler.map((g) => '- ' + g.proje + ': ' + g.durum + (g.neden ? ' (' + g.neden + ')' : '') + ' | ' + g.metin.slice(0, 120) + (g.ozet ? '\n  ozet: ' + g.ozet.slice(0, 300) : '')).join('\n');
+    },
+    kokpit_limit: () => {
+      const l = kanca.anlik().limitler;
+      if (!l) return 'Limit olcumu yok.';
+      const f = (x) => (x ? '%' + Math.round(x.yuzde) + (x.sifirlanma ? ', sifirlanma ' + new Date(x.sifirlanma).toLocaleString('tr-TR') : '') : 'bilinmiyor');
+      return '5 saatlik: ' + f(l.besSaat) + '\nHaftalik: ' + f(l.hafta);
+    },
+    kokpit_oneriler: () => ariaArac.onerilerMetni(ariaArac.oneriler()),
+    oneri_gorev: ({ proje, metin, kip }) => {
+      const p = projeBul(String(proje || ''));
+      if (!p) return 'Proje bulunamadi: ' + proje + '. Projeler: ' + ada.projeListesi().map((x) => x.ad).join(', ');
+      const k = ariaArac.oneriEkle({ tur: 'gorev', proje: p.ad, metin, kip: kip === 'paralel' && p.grup !== 'vault' ? 'paralel' : 'simdi' });
+      return 'Oneri #' + k.id + " Scryne'in onayina sunuldu (Kokpit'te kart). Onaylanmadan hicbir sey yapilmaz; durumu kokpit_oneriler ile gorebilirsin.";
+    },
+    oneri_gece: ({ proje, metin }) => {
+      const p = projeBul(String(proje || ''));
+      if (!p || p.grup === 'vault') return 'Gece vardiyasina eklenebilecek proje bulunamadi: ' + proje;
+      const k = ariaArac.oneriEkle({ tur: 'gece', proje: p.ad, metin });
+      return 'Oneri #' + k.id + " Scryne'in onayina sunuldu: gece vardiyasina eklenecek.";
+    },
+    oneri_mesaj: ({ oturum, metin }) => {
+      const o = oturumBul(String(oturum || ''));
+      if (!o) return 'Acik oturum bulunamadi: ' + oturum + '. Acik olanlar: ' + (ada.oturumListesi().map((x) => x.ad).join(', ') || 'yok');
+      const k = ariaArac.oneriEkle({ tur: 'mesaj', oturum: o.ad, oturumId: o.id, metin });
+      return 'Oneri #' + k.id + " Scryne'in onayina sunuldu: " + o.ad + ' oturumuna mesaj.';
+    },
+  };
+}
+ipcMain.handle('aria:oneriler', () => ariaArac.oneriler());
+// v3.3 Faz 63: gunluk not. Ayar acikken gunun brifingiyle birlikte (gunde bir), ya da Aria sayfasindan elle.
+ipcMain.handle('aria:not', () => aria.notOku());
+ipcMain.handle('aria:not-yaz', () => aria.gunlukNot({ zorla: true }));
+ipcMain.handle('aria:not-ayar', (_e, acik) => {
+  if (typeof acik === 'boolean') ayarlar.yaz({ ariaNotlar: acik });
+  return ayarlar.oku().ariaNotlar === true;
+});
+/** Scryne'in karari (Aria sayfasi, Ada karti ya da sesli "onayla"). Onayda ana pencere uygular, sonucu bildirir. */
+ipcMain.handle('aria:oneri-karar', (_e, id, onay) => {
+  const liste = ariaArac.oneriler().filter((k) => k.durum === 'bekliyor');
+  const k = id === 'son' ? liste[liste.length - 1] : liste.find((x) => x.id === id);
+  if (!k) return { hata: 'Onay bekleyen öneri yok' };
+  if (!onay) {
+    ariaArac.oneriSonuc(k.id, 'reddedildi');
+    return { tamam: true, id: k.id };
+  }
+  if (!pencere) return { hata: 'Kokpit penceresi yok' };
+  pencere.webContents.send('aria:oneri-uygula', k);
+  return { tamam: true, id: k.id };
+});
+ipcMain.on('aria:oneri-sonuc', (e, id, basarili, sonuc) => {
+  if (!pencere || e.sender !== pencere.webContents || typeof id !== 'string') return;
+  ariaArac.oneriSonuc(id, basarili === true ? 'onaylandi' : 'hata', typeof sonuc === 'string' ? sonuc : '');
+});
 const ARIA_KAYNAK = new Set(['yazi', 'ses', 'ada']);
 ipcMain.handle('aria:gonder', (_e, metin, kaynak) => aria.gonder(typeof metin === 'string' ? metin : '', { kaynak: ARIA_KAYNAK.has(kaynak) ? kaynak : 'yazi' }));
 ipcMain.handle('aria:kes', () => aria.kes());
@@ -587,6 +704,15 @@ ipcMain.handle('aria:oturumlar', () => aria.oturumlar());
 ipcMain.handle('aria:durum', () => aria.durum());
 ipcMain.on('aria:yeni', () => aria.yeniSohbet());
 ipcMain.on('aria:isit', () => aria.isit());
+// v3.3 Faz 61: hafiza paneli (vault salt okunur).
+const vaultYolu = () => require('./config.cjs').VAULT;
+ipcMain.handle('hafiza:ozet', () => hafiza.ozet(vaultYolu()));
+ipcMain.handle('hafiza:ara', (_e, sorgu) => (typeof sorgu === 'string' ? hafiza.ara(sorgu.slice(0, 200), hafiza.aranabilir(vaultYolu())) : []));
+ipcMain.handle('hafiza:oku', (_e, yol) => hafiza.dosyaOku(vaultYolu(), yol));
+ipcMain.on('ada:aria-ac', () => {
+  pencereyiOneGetir();
+  if (pencere) pencere.webContents.send('sayfa:ac', 'aria');
+});
 /** Aria sayfasinin sesli cevabi (Ada'ninki ada:konus). Metin sesli okunabilir oldugu kadar: markdown atilir. */
 ipcMain.handle('aria:konus', async (e, metin) => {
   if (!pencere || e.sender !== pencere.webContents || typeof metin !== 'string') return null;
@@ -1293,7 +1419,7 @@ app.whenReady().then(() => {
   // v3.2: gece vardiyasi kaydi nobete bildirildi (.claude/nobet.json); hic kullanilmadiysa "dosya yok" dusmesin.
   if (!TEST && !fs.existsSync(geceVardiyasi.DOSYA)) geceVardiyasi.yaz({});
   setInterval(() => brifingKontrol('saat'), 10 * 60 * 1000).unref?.();
-  ariaKur();
+  void ariaKur();
   pencereKur();
   adaKur();
   tepsiKur();
@@ -1387,6 +1513,7 @@ app.on('before-quit', (olay) => {
   }
   ptyKopru.durdur();
   aria.kapat();
+  ariaArac.durdur();
   ses.durdur();
   kanca.durdur();
   limit.durdur();

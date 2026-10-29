@@ -456,11 +456,13 @@ export type AdaAyari = { hep: boolean; kip?: AdaKipi; sesli?: boolean; uyanma?: 
 
 /** v3.1: konusmadan cikan eylem (electron/ses-komut.cjs komutCoz). */
 export type SesEylemi =
-  | { tur: 'gonder' | 'yapistir' | 'vazgec' | 'durum' | 'brifing' | 'bos' }
+  | { tur: 'gonder' | 'yapistir' | 'vazgec' | 'durum' | 'brifing' | 'onayla' | 'reddet' | 'bos' }
   | { tur: 'not'; metin: string; hedef: { id: string; ad: string } | null; gonder: boolean }
   /** v3.2: main cumleyi kanca halinden kurdu; Ada yazar ve konusur. */
   | { tur: 'ozet'; hedef: { id: string; ad: string } | null; cumle: string }
   | { tur: 'git'; hedef: { id: string; ad: string } }
+  /** v3.3: Aria'ya soru / hatirlatma (Ada onun yuzu). */
+  | { tur: 'aria'; metin: string }
   /** v3.2: sesli cevap. `istek` varsa gider (ana pencere damgayi yeniden denetler); yoksa `hata` soylenir. */
   | {
       tur: 'cevap';
@@ -537,7 +539,49 @@ export type AriaOlayi =
   | { tur: 'parca'; id: string; metin: string }
   | { tur: 'arac'; id: string; arac: AriaAraci; hafiza: string[] }
   | { tur: 'bitti'; id: string; metin: string; kesildi?: boolean; hata?: string | null; sureMs?: number | null; araclar: AriaAraci[]; hafiza: string[] }
-  | { tur: 'hata'; metin: string };
+  | { tur: 'hata'; metin: string }
+  | { tur: 'oneri'; oneri: AriaOnerisi }
+  | { tur: 'not'; durum: 'yaziyor' | 'hazir'; not?: AriaNotu | null; hata?: string | null };
+/** v3.3 Faz 63: gunluk "fark ettiklerim" notu. */
+export interface AriaNotu {
+  gun: string;
+  metin: string;
+  t: number;
+}
+/** v3.3 Faz 62: Aria'nin onerisi (electron/aria-arac.cjs). Scryne onaylamadan hicbir sey yapilmaz. */
+export interface AriaOnerisi {
+  id: string;
+  tur: 'gorev' | 'gece' | 'mesaj';
+  proje?: string;
+  oturum?: string;
+  oturumId?: string;
+  kip?: 'simdi' | 'paralel';
+  metin: string;
+  durum: 'bekliyor' | 'onaylandi' | 'reddedildi' | 'hata';
+  sonuc?: string;
+  t: number;
+  mesajId: string | null;
+}
+/** v3.3 Faz 61: hafiza paneli (electron/hafiza.cjs). */
+export interface HafizaOzeti {
+  core: string;
+  threadler: { baslik: string; isaret: string; durum: string; ozet: string; govde: string }[];
+  kurallar: { kural: string; neden: string }[];
+  sonOturumlar: { baslik: string; govde: string }[];
+  journal: { baslik: string; govde: string }[];
+  makale: number;
+}
+export interface HafizaSonucu {
+  yol: string;
+  baslik: string;
+  puan: number;
+  parca: string;
+}
+export interface HafizaDosyasi {
+  yol: string;
+  baslik: string;
+  metin: string;
+}
 export interface AriaOturumu {
   gun: string;
   id: string;
@@ -729,7 +773,19 @@ declare global {
       ariaYeni: () => void;
       ariaIsit: () => void;
       ariaKonus: (metin: string) => Promise<Uint8Array | null>;
+      ariaOneriler: () => Promise<AriaOnerisi[]>;
+      ariaNot: () => Promise<AriaNotu | null>;
+      ariaNotYaz: () => Promise<AriaNotu | { hata: string }>;
+      ariaNotAyar: (acik?: boolean) => Promise<boolean>;
+      ariaOneriKarar: (id: string | 'son', onay: boolean) => Promise<{ tamam: true; id: string } | { hata: string }>;
+      ariaOneriSonuc: (id: string, basarili: boolean, sonuc: string) => void;
+      ariaOneriUygulaDinle: (cb: (k: AriaOnerisi) => void) => () => void;
+      hafizaOzet: () => Promise<HafizaOzeti>;
+      hafizaAra: (sorgu: string) => Promise<HafizaSonucu[]>;
+      hafizaOku: (yol: string) => Promise<HafizaDosyasi | { hata: string }>;
       ariaDinle: (cb: (o: AriaOlayi) => void) => () => void;
+      adaAriaAc: () => void;
+      sayfaAcDinle: (cb: (sayfa: string) => void) => () => void;
       teslimDetay: (yol: string) => Promise<TeslimDetayi>;
       geceOku: () => Promise<GeceVardiyasi>;
       geceYaz: (v: GeceVardiyasi) => Promise<GeceVardiyasi>;

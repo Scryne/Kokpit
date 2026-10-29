@@ -127,7 +127,7 @@ function aracOzeti(ad, girdi) {
   else if (g.query) hedef = kisa(g.query, 50);
   else if (g.url) hedef = kisa(g.url, 50);
   else if (g.description) hedef = kisa(g.description, 50);
-  const temizAd = String(ad).replace(/^mcp__kokpit__/, 'kokpit.');
+  const temizAd = String(ad).replace(/^mcp__kokpit__(?:kokpit_)?/, 'kokpit.');
   return { ad: temizAd, hedef };
 }
 
@@ -332,7 +332,7 @@ function gonder(metin, { kaynak = 'yazi' } = {}) {
   mesajKaydet(g.id, sen);
   if (!g.baslik) oturumGuncelle(g.id, { baslik: temiz.slice(0, 80) });
   ayar.yayin({ tur: 'mesaj', mesaj: sen, ariaId });
-  const istek = { ariaId, kaynak, icerik: kaynak === 'ses' ? '[ses] ' + temiz : temiz };
+  const istek = { ariaId, kaynak, icerik: kaynak === 'ses' || kaynak === 'ada' ? '[ses] ' + temiz : temiz };
   // Mesgul = bir tur suruyor. 'aciliyor' mesgul degil: claude stdin'i kendisi tamponlar (isinan surece ilk mesaj
   // dogrudan yazilir; kuyruk yalniz tur bitince bosaldigi icin aciliyorken kuyruga almak kilitlenirdi).
   if (surec && aktif) kuyruk.push(istek);
@@ -366,6 +366,87 @@ function kapat() {
     }
   }, 90_000).unref?.();
   durumYayinla('bosta');
+}
+
+// --- v3.3 Faz 63: gunluk "fark ettiklerim" notu ---
+const NOT_DOSYA = path.join(DIZIN, 'notlar.json');
+const NOT_ISTEMI = [
+  'Gunluk not (Kokpit). Kokpit araclarinla (oturumlar, brifing, nobet, teslim, gece) ve vault\'tan (Threads, proje notlari) durumu oku.',
+  "Bugun Scryne'in bilmesi gereken 3-5 sey yaz: yaklasan tarih, risk, unutulmus yarim is, firsat, birbirine bagli projeler.",
+  'Her madde tek satir "- " ile baslar; sonunda parantez icinde kaynak (dosya ya da arac). Uydurma; emin olmadigini yazma.',
+  'Brifingin zaten soyledigini tekrarlama (vade/bot/push listesi): onlarin arasindaki baglantiyi ya da gozden kacani yaz.',
+  'Hafiza dosyalarina YAZMA, oneri araci kullanma; yalniz oku ve maddeleri yaz. Giris cumlesi yok.',
+].join('\n');
+let notSuruyor = null;
+
+function notOku() {
+  try {
+    return JSON.parse(fs.readFileSync(NOT_DOSYA, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Gunun notu: ayri, kalici olmayan `claude -p` (sohbeti kirletmez, transcript yazilmaz). Ayni gun ikinci kez yalniz
+ * `zorla` ile. Doner: { gun, metin, t } ya da { hata }.
+ */
+function gunlukNot({ zorla = false } = {}) {
+  const gun = gunAnahtari();
+  const eski = notOku();
+  if (!zorla && eski && eski.gun === gun && eski.metin) return Promise.resolve(eski);
+  if (notSuruyor) return notSuruyor;
+  const sahte = process.env.KOKPIT_TEST_ARIA_SAHTE;
+  const args = [
+    ...(sahte ? [sahte] : []),
+    '-p',
+    NOT_ISTEMI,
+    '--output-format', 'json',
+    '--no-session-persistence',
+    '--strict-mcp-config',
+    ...(ayar.mcpConfig ? ['--mcp-config', ayar.mcpConfig] : []),
+    '--append-system-prompt', KOKPIT_ISTEMI,
+  ];
+  const { ortam } = ortamModulu.temizOrtam();
+  ayar.yayin({ tur: 'not', durum: 'yaziyor' });
+  notSuruyor = new Promise((coz) => {
+    let cikti = '';
+    let p;
+    try {
+      p = spawn(sahte ? 'node' : claudeYolu(), args, { cwd: ayar.vault, env: { ...ortam, KOKPIT_ARIA: 'not' }, windowsHide: true });
+    } catch (e) {
+      return coz({ hata: e.message });
+    }
+    const zaman = setTimeout(() => p.kill(), 240_000);
+    p.stdout.setEncoding('utf8');
+    p.stdout.on('data', (d) => (cikti += d));
+    p.on('error', (e) => coz({ hata: e.message }));
+    p.on('exit', () => {
+      clearTimeout(zaman);
+      let metin = '';
+      try {
+        const j = JSON.parse(cikti.trim().split('\n').pop());
+        metin = j.is_error ? '' : String(j.result || '').trim();
+      } catch {
+        metin = '';
+      }
+      if (!metin) return coz({ hata: 'Aria not yazamadı' });
+      const n = { gun, metin: metin.slice(0, 4000), t: Date.now() };
+      try {
+        fs.mkdirSync(DIZIN, { recursive: true });
+        fs.writeFileSync(NOT_DOSYA, JSON.stringify(n, null, 2), 'utf8');
+      } catch {
+        /* yazilamadi: yine de gosterilir */
+      }
+      log('aria: gunluk not yazildi (' + metin.length + ' karakter)');
+      coz(n);
+    });
+  }).then((n) => {
+    notSuruyor = null;
+    ayar.yayin({ tur: 'not', durum: 'hazir', not: 'hata' in n ? null : n, hata: 'hata' in n ? n.hata : null });
+    return n;
+  });
+  return notSuruyor;
 }
 
 /** Bir gunun mesajlari (ekran). */
@@ -413,4 +494,8 @@ module.exports = {
     if (!surec && ayar.vault) baslat();
   },
   durum: () => ({ durum, canli: !!surec, id: surecKimligi }),
+  gunlukNot,
+  notOku,
+  /** Suren Aria mesajinin kimligi (oneri karti o mesajin altina cizilir). */
+  aktifMesajId: () => (aktif ? aktif.id : null),
 };

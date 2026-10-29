@@ -120,6 +120,7 @@ async function cek(hedef, ad, secici, olcek = 1.5) {
     }
     const ana = await baglan(hedefler.find((t) => !t.url.endsWith('#ada')));
     await ana.bekle(`!!document.querySelector('button[aria-label="Aria"]')`, 40000);
+    await ana.js(`window.kokpit.durumGetir().then(() => true)`);
     await ana.js(`(() => { document.querySelector('button[aria-label="Aria"]').click(); return true; })()`);
     await uyu(800);
     await cek(ana, 'kokpit-v33-aria-bos.png', 'section[aria-label="Aria"]', 1);
@@ -127,9 +128,18 @@ async function cek(hedef, ad, secici, olcek = 1.5) {
       await ana.js(`window.kokpit.ariaGonder(${JSON.stringify(m)})`);
       await ana.bekle(`![...document.querySelectorAll('[data-aria-mesaj="aria"]')].some(x => x.hasAttribute('data-akiyor'))`, 8000);
     }
+    await ana.js(`window.kokpit.ariaGonder('Bunu arac ile kontrol et ve bir oneri proje=Kokpit ver')`);
+    const kartVar = await ana.bekle(`!!document.querySelector('[data-aria-oneri]')`, 8000);
+    if (!kartVar) console.error('KART YOK. log: ' + fs.readFileSync(path.join(DIZIN, 'kokpit.log'), 'utf8').split(/\r?\n/).filter((x) => /aria|GECICI/.test(x)).slice(-12).join(' || '));
+    await ana.js(`window.kokpit.ariaNotYaz()`);
+    await ana.bekle(`!!document.querySelector('[data-aria-not]') && document.querySelector('[data-aria-not]').textContent.includes('Sahte not')`, 8000);
     await ana.js(`window.kokpit.ariaGonder('yavas bir cevap ver')`);
     await uyu(500);
     await cek(ana, 'kokpit-v33-aria-sohbet.png', 'section[aria-label="Aria"]', 1);
+    await ana.js(`(() => { const b = document.querySelector('[data-hafiza-dugme]'); if (b.getAttribute('aria-pressed') !== 'true') b.click(); return true; })()`);
+    await ana.bekle(`!!document.querySelector('[data-hafiza-paneli] section[aria-label="Açık konular"]')`, 8000);
+    await uyu(400);
+    await cek(ana, 'kokpit-v33-aria-panel.png', 'section[aria-label="Aria"]', 1);
   } catch (e) {
     console.error('ekran hatasi: ' + e.stack);
     process.exitCode = 1;

@@ -92,6 +92,27 @@ contextBridge.exposeInMainWorld('kokpit', {
   ariaYeni: () => ipcRenderer.send('aria:yeni'),
   ariaIsit: () => ipcRenderer.send('aria:isit'),
   ariaKonus: (metin) => ipcRenderer.invoke('aria:konus', metin),
+  ariaOneriler: () => ipcRenderer.invoke('aria:oneriler'),
+  ariaNot: () => ipcRenderer.invoke('aria:not'),
+  ariaNotYaz: () => ipcRenderer.invoke('aria:not-yaz'),
+  ariaNotAyar: (acik) => ipcRenderer.invoke('aria:not-ayar', acik),
+  ariaOneriKarar: (id, onay) => ipcRenderer.invoke('aria:oneri-karar', id, onay === true),
+  ariaOneriSonuc: (id, basarili, sonuc) => ipcRenderer.send('aria:oneri-sonuc', id, basarili === true, sonuc),
+  ariaOneriUygulaDinle: (cb) => {
+    const d = (_e, k) => cb(k);
+    ipcRenderer.on('aria:oneri-uygula', d);
+    return () => ipcRenderer.removeListener('aria:oneri-uygula', d);
+  },
+  hafizaOzet: () => ipcRenderer.invoke('hafiza:ozet'),
+  hafizaAra: (sorgu) => ipcRenderer.invoke('hafiza:ara', sorgu),
+  hafizaOku: (yol) => ipcRenderer.invoke('hafiza:oku', yol),
+  // Ada'dan "Aria'da aç": Kokpit one gelir, Aria sayfasi acilir.
+  adaAriaAc: () => ipcRenderer.send('ada:aria-ac'),
+  sayfaAcDinle: (cb) => {
+    const d = (_e, s) => cb(s);
+    ipcRenderer.on('sayfa:ac', d);
+    return () => ipcRenderer.removeListener('sayfa:ac', d);
+  },
   ariaDinle: (cb) => {
     const d = (_e, o) => cb(o);
     ipcRenderer.on('aria:olay', d);

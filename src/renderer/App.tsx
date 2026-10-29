@@ -1141,6 +1141,45 @@ export default function App() {
       }),
     [gorevHedefleri, sekmeAc, paralelAc]
   );
+  // v3.3 Faz 62: Scryne'in onayladigi Aria onerisi burada uygulanir (oturum acma, gece sirasi, oturuma yazma ana
+  // pencerede yasar); sonuc main'e doner, kart ve Aria'nin kokpit_oneriler araci onu gorur.
+  useEffect(
+    () =>
+      window.kokpit.ariaOneriUygulaDinle(async (k) => {
+        try {
+          let sonuc = '';
+          if (k.tur === 'gorev' || k.tur === 'gece') {
+            const p = gorevHedefleri.find((x) => x.ad === k.proje);
+            if (!p) throw new Error('proje listede yok: ' + k.proje);
+            if (k.tur === 'gece') {
+              await geceRef.current.guncelle((v) => ({
+                ...v,
+                gorevler: [...v.gorevler, { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), proje: p.ad, projeYol: p.yol, metin: k.metin.slice(0, 3000), durum: 'bekliyor' }],
+              }));
+              sonuc = 'gece vardiyasının sırasına eklendi';
+            } else if (k.kip === 'paralel') {
+              const r = await paralelAc({ ad: p.ad, yol: p.yol }, { gorev: k.metin, arkaPlan: true });
+              if (!r) throw new Error('paralel ağaç açılamadı');
+              sonuc = p.ad + '/' + r.ad + ' paralel dalda açıldı';
+            } else {
+              sekmeAc({ ad: p.ad, yol: p.yol }, false, null, { gorev: k.metin, arkaPlan: true });
+              sonuc = p.ad + ' oturumu açıldı, görev ilk mesaj';
+            }
+          } else {
+            const hata = await oturumaGonder({ id: k.oturumId ?? '', tur: 'metin', metin: k.metin });
+            if (hata) throw new Error(hata);
+            sonuc = (k.oturum ?? 'oturum') + ' oturumuna gönderildi';
+          }
+          console.info('[aria oneri] ' + k.id + ': ' + sonuc);
+          window.kokpit.ariaOneriSonuc(k.id, true, sonuc);
+        } catch (e) {
+          window.kokpit.ariaOneriSonuc(k.id, false, (e as Error).message);
+        }
+      }),
+    [gorevHedefleri, paralelAc, sekmeAc, oturumaGonder]
+  );
+  // v3.3: Ada'dan "Aria'da aç".
+  useEffect(() => window.kokpit.sayfaAcDinle((sayfa) => sayfa === 'aria' && setGorunum('aria')), []);
   // Tepsi menusunden "Ada'yi goster" degisti: paletteki etiket ayni kalsin.
   useEffect(() => window.kokpit.adaAyarDegistiDinle(setAdaAcik), []);
 

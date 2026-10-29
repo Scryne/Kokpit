@@ -561,6 +561,10 @@ module.exports = {
   nobetOlay(o) {
     gonder('ada:nobet-olay', o);
   },
+  /** v3.3: gorev hedefleri (Aria'nin onerileri yalniz bu adlardan birine). */
+  projeListesi: () => sonProjeler.slice(),
+  /** v3.3: Kokpit disindaki claude oturumlari (Aria'nin kokpit_oturumlar araci). */
+  disListesi: () => sonDis.slice(),
   /** v3.2: Ada'daki oturumlar (sesli ozet, brifing, gece vardiyasi). */
   oturumListesi: () => sonListe.map((o) => ({ id: String(o.id), ad: String(o.ad ?? '') })).filter((o) => o.ad),
   /**

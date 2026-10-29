@@ -1,8 +1,10 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { BookMarked, History, Mic, Plus, Send, Square, Volume2, VolumeX } from 'lucide-react';
-import type { AriaDurumu, AriaMesaji, AriaOturumu } from './types';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { BookMarked, BrainCircuit, Check, ChevronDown, History, Lightbulb, Mic, Moon, Plus, RefreshCw, Send, Square, TerminalSquare, Volume2, VolumeX, X } from 'lucide-react';
+import type { AriaDurumu, AriaMesaji, AriaNotu, AriaOnerisi, AriaOturumu } from './types';
 import SinyalHalkasi, { HAL_ADI, type HalkaHali } from './SinyalHalkasi';
 import { kayitBaslat, type Kayit } from './sesKayit';
+import { mdCiz } from './md';
+import HafizaPaneli from './HafizaPaneli';
 
 // v3.3, Aria sayfasi (Ctrl+7): Scryne'in ikinci beyniyle sohbet. Sohbetin kendisi main'de (electron/aria.cjs, vault'ta
 // kalici claude oturumu); burada cizim, mikrofon ve sesli cevap. Ustte sinyal halkasi (Aria'nin yuzu), altta sohbet,
@@ -10,80 +12,7 @@ import { kayitBaslat, type Kayit } from './sesKayit';
 // arac izi ve sureler mono soluk (olculmus deger); "hafizaya yazdi" `aksan` (etkilesimli bir iz, Hafiza paneline gider).
 
 const SESLI_ANAHTAR = 'kokpit.aria.sesli';
-
-/** Hafif markdown -> React (HTML enjeksiyonu yok): kod blogu, liste, baslik, **kalin**, `kod`, [baglanti](url). */
-export function mdCiz(metin: string, son?: ReactNode): ReactNode[] {
-  const cikti: ReactNode[] = [];
-  const bloklar = metin.split(/```[\w-]*\n?/);
-  bloklar.forEach((blok, bi) => {
-    if (bi % 2 === 1) {
-      cikti.push(
-        <pre key={'k' + bi} className="enstruman my-2 overflow-x-auto rounded-kontrol bg-terminal px-3 py-2 text-xs text-metin-ikincil">
-          {blok.replace(/\n$/, '')}
-        </pre>
-      );
-      return;
-    }
-    const satirlar = blok.split('\n');
-    let liste: { sirali: boolean; ogeler: string[] } | null = null;
-    const listeyiBosalt = (k: string) => {
-      if (!liste) return;
-      const L = liste.sirali ? 'ol' : 'ul';
-      cikti.push(
-        <L key={k} className={(liste.sirali ? 'list-decimal' : 'list-disc') + ' my-1.5 space-y-0.5 pl-5 marker:text-metin-soluk'}>
-          {liste.ogeler.map((o, i) => (
-            <li key={i}>{satirIci(o)}</li>
-          ))}
-        </L>
-      );
-      liste = null;
-    };
-    satirlar.forEach((s, i) => {
-      const anahtar = bi + '-' + i;
-      const madde = /^\s*[-*•]\s+(.*)$/.exec(s);
-      const sira = /^\s*\d+[.)]\s+(.*)$/.exec(s);
-      if (madde || sira) {
-        const sirali = !!sira;
-        if (liste && liste.sirali !== sirali) listeyiBosalt('l' + anahtar);
-        if (!liste) liste = { sirali, ogeler: [] };
-        liste.ogeler.push((madde ?? sira)![1]);
-        return;
-      }
-      listeyiBosalt('l' + anahtar);
-      const baslik = /^#{1,6}\s+(.*)$/.exec(s);
-      const sonSatir = bi === bloklar.length - 1 && satirlar.slice(i + 1).every((x) => !x.trim());
-      if (baslik) cikti.push(<p key={anahtar} className="mt-2 font-medium text-metin">{satirIci(baslik[1])}{sonSatir && son}</p>);
-      else if (s.trim()) cikti.push(<p key={anahtar} className="my-1">{satirIci(s)}{sonSatir && son}</p>);
-    });
-    listeyiBosalt('son' + bi);
-  });
-  return cikti;
-}
-
-function satirIci(s: string): ReactNode[] {
-  const parcalar: ReactNode[] = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
-  let son = 0;
-  let m: RegExpExecArray | null;
-  let i = 0;
-  while ((m = re.exec(s))) {
-    if (m.index > son) parcalar.push(s.slice(son, m.index));
-    const p = m[0];
-    if (p.startsWith('**')) parcalar.push(<strong key={i++} className="font-semibold text-metin">{p.slice(2, -2)}</strong>);
-    else if (p.startsWith('`')) parcalar.push(<code key={i++} className="enstruman rounded bg-yuzey-guclu px-1 py-px text-[0.85em] text-metin-ikincil">{p.slice(1, -1)}</code>);
-    else {
-      const mm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(p)!;
-      parcalar.push(
-        <button key={i++} type="button" onClick={() => void window.kokpit.linkAc(mm[2])} className="cursor-pointer text-aksan-metin underline decoration-kenar-guclu underline-offset-2 hover:text-metin">
-          {mm[1]}
-        </button>
-      );
-    }
-    son = m.index + p.length;
-  }
-  if (son < s.length) parcalar.push(s.slice(son));
-  return parcalar;
-}
+const PANEL_ANAHTAR = 'kokpit.aria.panel';
 
 /** mp3'u calar ve genligini (0..1) bildirir: halka konusurken sesle titrer. */
 async function konusVeOlc(mp3: Uint8Array, seviye: (s: number) => void): Promise<void> {
@@ -139,6 +68,30 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
       return false;
     }
   });
+  // v3.3 Faz 61: hafiza paneli (sagda). Genis ekranda varsayilan acik; secim kalici.
+  const [panel, setPanel] = useState(() => {
+    try {
+      const k = localStorage.getItem(PANEL_ANAHTAR);
+      return k === null ? window.innerWidth >= 1280 : k === '1';
+    } catch {
+      return true;
+    }
+  });
+  const [acilacak, setAcilacak] = useState<{ yol: string; t: number } | null>(null);
+  // v3.3 Faz 62: Aria'nin onerileri (kart). Ana kaynak main; burada cizim ve karar.
+  const [oneriler, setOneriler] = useState<AriaOnerisi[]>([]);
+  useEffect(() => {
+    void window.kokpit.ariaOneriler().then(setOneriler);
+  }, []);
+  // v3.3 Faz 63: gunluk not ("fark ettiklerim"). Ayar kapaliyken de elle istenebilir.
+  const [not, setNot] = useState<AriaNotu | null>(null);
+  const [notYaziyor, setNotYaziyor] = useState(false);
+  const [notAyar, setNotAyar] = useState(false);
+  const [notAcik, setNotAcik] = useState(true);
+  useEffect(() => {
+    void window.kokpit.ariaNot().then(setNot);
+    void window.kokpit.ariaNotAyar().then(setNotAyar);
+  }, []);
   const kayit = useRef<Kayit | null>(null);
   const liste = useRef<HTMLDivElement>(null);
   const kutu = useRef<HTMLTextAreaElement>(null);
@@ -176,6 +129,16 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
   useEffect(
     () =>
       window.kokpit.ariaDinle((o) => {
+        if (o.tur === 'not') {
+          setNotYaziyor(o.durum === 'yaziyor');
+          if (o.durum === 'hazir' && o.not) setNot(o.not);
+          if (o.durum === 'hazir' && o.hata) setHata(o.hata);
+          return;
+        }
+        if (o.tur === 'oneri') {
+          setOneriler((l) => (l.some((k) => k.id === o.oneri.id) ? l.map((k) => (k.id === o.oneri.id ? o.oneri : k)) : [...l, o.oneri]));
+          return;
+        }
         if (o.tur === 'durum') setDurum(o.durum);
         else if (o.tur === 'hata') setHata(o.metin);
         else if (o.tur === 'mesaj') {
@@ -257,7 +220,8 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
     hal === 'arac' && sonArac ? 'Bakıyor: ' + sonArac.ad + (sonArac.hedef ? ' · ' + sonArac.hedef : '') : hal === 'bosta' && oturum ? HAL_ADI.bosta : HAL_ADI[hal];
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-aria-sayfasi>
+    <div className="flex h-full min-h-0 gap-4" data-aria-sayfasi>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="relative flex shrink-0 items-start gap-3 pb-2">
         <div className="flex min-w-0 flex-1 flex-col items-center">
           <SinyalHalkasi hal={hal} seviye={seviye} boyut={mesajlar.length ? 128 : 208} />
@@ -283,6 +247,25 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
           >
             {sesli ? <Volume2 className="size-4" aria-hidden="true" /> : <VolumeX className="size-4" aria-hidden="true" />}
             <span className="sr-only">Sesli cevap</span>
+          </button>
+          <button
+            type="button"
+            data-hafiza-dugme
+            onClick={() => {
+              const yeni = !panel;
+              setPanel(yeni);
+              try {
+                localStorage.setItem(PANEL_ANAHTAR, yeni ? '1' : '0');
+              } catch {
+                /* depolama kapali */
+              }
+            }}
+            aria-pressed={panel}
+            title="Aria'nın hafızası"
+            className={'cursor-pointer rounded-kontrol p-1.5 hover:bg-yuzey hover:text-metin ' + (panel ? 'text-metin' : 'text-metin-soluk')}
+          >
+            <BrainCircuit className="size-4" aria-hidden="true" />
+            <span className="sr-only">Hafıza paneli</span>
           </button>
           <button
             type="button"
@@ -347,6 +330,15 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
               <span className="enstruman">{eskiGun.gun}</span> sohbeti (salt okuma). Yazınca bugünün sohbetine dönülür.
             </p>
           )}
+          <GunlukNot
+            not={not}
+            yaziyor={notYaziyor}
+            ayar={notAyar}
+            acik={notAcik}
+            onAcik={setNotAcik}
+            onYaz={() => void window.kokpit.ariaNotYaz()}
+            onAyar={async () => setNotAyar(await window.kokpit.ariaNotAyar(!notAyar))}
+          />
           {mesajlar.length === 0 && (
             <div className="pt-2 text-center text-sm text-metin-soluk">
               <p>Hafızamız bende. Sor, anlat, ya da bir iş ver.</p>
@@ -354,7 +346,26 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
             </div>
           )}
           {mesajlar.map((m) => (
-            <Fragment key={m.id}>{m.rol === 'sen' ? <SenMesaji m={m} /> : <AriaMesajiSatiri m={m} />}</Fragment>
+            <Fragment key={m.id}>
+              {m.rol === 'sen' ? (
+                <SenMesaji m={m} />
+              ) : (
+                <>
+                  <AriaMesajiSatiri
+                    m={m}
+                    onHafiza={(yol) => {
+                      setPanel(true);
+                      setAcilacak({ yol, t: Date.now() });
+                    }}
+                  />
+                  {oneriler
+                    .filter((k) => k.mesajId === m.id)
+                    .map((k) => (
+                      <OneriKarti key={k.id} k={k} />
+                    ))}
+                </>
+              )}
+            </Fragment>
           ))}
         </div>
       </div>
@@ -415,6 +426,115 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
         )}
       </form>
     </div>
+    {panel && (
+      <div className="halka relative flex min-h-0 w-[22rem] shrink-0 flex-col rounded-base bg-yuzey p-3">
+        <HafizaPaneli
+          acilacak={acilacak}
+          onSor={(onek) => {
+            setMetin(onek);
+            requestAnimationFrame(() => kutu.current?.focus());
+          }}
+        />
+      </div>
+    )}
+    </div>
+  );
+}
+
+/** Gunun notu: Aria'nin kendiliginden fark ettikleri (ayar acikken her gun brifingle). Bugunun degilse soluk tarih. */
+function GunlukNot({
+  not,
+  yaziyor,
+  ayar,
+  acik,
+  onAcik,
+  onYaz,
+  onAyar,
+}: {
+  not: AriaNotu | null;
+  yaziyor: boolean;
+  ayar: boolean;
+  acik: boolean;
+  onAcik: (a: boolean) => void;
+  onYaz: () => void;
+  onAyar: () => void;
+}) {
+  return (
+    <section aria-label="Aria'nın fark ettikleri" data-aria-not className="halka relative rounded-base bg-yuzey px-3.5 py-2.5 text-sm">
+      <div className="flex items-center gap-2">
+        <Lightbulb className="size-3.5 text-metin-soluk" aria-hidden="true" />
+        <button type="button" onClick={() => onAcik(!acik)} aria-expanded={acik} className="etiket flex cursor-pointer items-center gap-1 hover:text-metin">
+          Fark ettiklerim
+          <ChevronDown className={'size-3 transition-transform duration-[120ms] ' + (acik ? '' : '-rotate-90')} aria-hidden="true" />
+        </button>
+        {not && <span className="enstruman text-xs text-metin-soluk">{not.gun}</span>}
+        <span className="ml-auto flex items-center gap-2 text-xs">
+          <label className="flex cursor-pointer items-center gap-1.5 text-metin-soluk hover:text-metin" title="Her gün ilk brifingle birlikte Aria bir not yazar (limit harcar)">
+            <input type="checkbox" checked={ayar} onChange={onAyar} className="accent-[var(--color-aksan)]" />
+            her gün
+          </label>
+          <button type="button" data-aria-not-yaz disabled={yaziyor} onClick={onYaz} title="Şimdi düşün" className="flex cursor-pointer items-center gap-1 rounded-kontrol border border-kenar px-2 py-0.5 text-metin-ikincil hover:border-kenar-guclu hover:text-metin disabled:cursor-wait disabled:opacity-60">
+            <RefreshCw className={'size-3 ' + (yaziyor ? 'animate-spin motion-reduce:animate-none' : '')} aria-hidden="true" />
+            {yaziyor ? 'Düşünüyor' : 'Şimdi düşün'}
+          </button>
+        </span>
+      </div>
+      {acik && (
+        <div className="mt-1.5 text-metin-ikincil">
+          {not ? mdCiz(not.metin) : <p className="text-xs text-metin-soluk">Henüz not yok. "Şimdi düşün" ile Aria Kokpit'i ve hafızayı okuyup fark ettiklerini yazar.</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+const ONERI_BASLIK: Record<AriaOnerisi['tur'], string> = { gorev: 'Görev ver', gece: 'Gece vardiyasına ekle', mesaj: 'Oturuma yaz' };
+
+/** Aria'nin onerisi: Scryne onaylamadan hicbir sey yapilmaz. Renk yok; onay birincil gumus, vazgec cerceve. */
+function OneriKarti({ k }: { k: AriaOnerisi }) {
+  const [bekliyor, setBekliyor] = useState(false);
+  const karar = async (onay: boolean) => {
+    setBekliyor(true);
+    await window.kokpit.ariaOneriKarar(k.id, onay);
+    setBekliyor(false);
+  };
+  const Ikon = k.tur === 'gece' ? Moon : TerminalSquare;
+  return (
+    <div data-aria-oneri={k.durum} className="halka relative ml-0 max-w-xl rounded-base bg-yuzey-guclu px-3.5 py-2.5 text-sm">
+      <p className="flex items-center gap-2 text-xs">
+        <Ikon className="size-3.5 text-metin-soluk" aria-hidden="true" />
+        <span className="etiket">Öneri · {ONERI_BASLIK[k.tur]}</span>
+        <span className="enstruman text-metin">{k.proje ?? k.oturum}</span>
+        {k.kip === 'paralel' && <span className="text-metin-soluk">paralel dal</span>}
+      </p>
+      <p className="mt-1.5 line-clamp-6 whitespace-pre-wrap break-words text-metin-ikincil">{k.metin}</p>
+      {k.durum === 'bekliyor' ? (
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            data-oneri-onayla
+            disabled={bekliyor}
+            onClick={() => void karar(true)}
+            className="flex cursor-pointer items-center gap-1 rounded-kontrol bg-birincil px-2.5 py-1 text-xs font-medium text-birincil-uzeri hover:opacity-90 disabled:opacity-50"
+          >
+            <Check className="size-3.5" aria-hidden="true" /> Onayla
+          </button>
+          <button
+            type="button"
+            disabled={bekliyor}
+            onClick={() => void karar(false)}
+            className="flex cursor-pointer items-center gap-1 rounded-kontrol border border-kenar px-2.5 py-1 text-xs text-metin-ikincil hover:border-kenar-guclu hover:text-metin disabled:opacity-50"
+          >
+            <X className="size-3.5" aria-hidden="true" /> Vazgeç
+          </button>
+        </div>
+      ) : (
+        <p className={'mt-1.5 text-xs ' + (k.durum === 'hata' ? 'text-hata-metin' : 'text-metin-soluk')}>
+          {k.durum === 'onaylandi' ? 'Onaylandı' : k.durum === 'reddedildi' ? 'Vazgeçildi' : 'Uygulanamadı'}
+          {k.sonuc ? ' · ' + k.sonuc : ''}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -429,7 +549,7 @@ function SenMesaji({ m }: { m: AriaMesaji }) {
   );
 }
 
-function AriaMesajiSatiri({ m }: { m: AriaMesaji }) {
+function AriaMesajiSatiri({ m, onHafiza }: { m: AriaMesaji; onHafiza: (yol: string) => void }) {
   const araclar = m.araclar ?? [];
   return (
     <div className="text-sm leading-relaxed text-metin-ikincil" data-aria-mesaj="aria" data-akiyor={m.akiyor ? '' : undefined}>
@@ -453,7 +573,15 @@ function AriaMesajiSatiri({ m }: { m: AriaMesaji }) {
       {(m.hafiza?.length ?? 0) > 0 && (
         <p className="mt-1.5 flex items-center gap-1.5 text-xs text-aksan-metin" data-aria-hafiza>
           <BookMarked className="size-3.5" aria-hidden="true" />
-          Hafızaya yazdı: <span className="enstruman">{m.hafiza!.map((h) => h.split('/').pop()).join(', ')}</span>
+          Hafızaya yazdı:{' '}
+          {m.hafiza!.map((h, i) => (
+            <Fragment key={h}>
+              {i > 0 && ', '}
+              <button type="button" onClick={() => onHafiza(h)} className="enstruman cursor-pointer underline decoration-kenar-guclu underline-offset-2 hover:text-metin" title={h}>
+                {h.split('/').pop()}
+              </button>
+            </Fragment>
+          ))}
         </p>
       )}
       {(m.kesildi || m.hata || (m.sureMs && !m.akiyor)) && (

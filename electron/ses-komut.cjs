@@ -70,6 +70,9 @@ const KONTROL = [
   [/^(?:yapıştır|yapistir|sadece yapıştır|yalnız yapıştır)$/iu, 'yapistir'],
   [/^(?:vazgeç|vazgec|iptal|boş ver|boşver|sil)$/iu, 'vazgec'],
   [/^(?:durum|durum ne|ne durumdayız|ne durumdayiz|neredeyiz|özet|özetle|ne var)$/iu, 'durum'],
+  // v3.3: Aria'nin onerisine sesli karar (en son bekleyen oneri).
+  [/^(?:onayla|onaylıyorum|onayliyorum|evet onayla|evet yap|uygula|tamam yap|yap bunu)$/iu, 'onayla'],
+  [/^(?:reddet|yapma|onaylama|hayır yapma|hayir yapma)$/iu, 'reddet'],
   // v3.2: gunun brifingi (vadeler, dusen botlar, push bekleyen, limit). Ada'nin adiyla da: "Günaydın Ada".
   [/^(?:günaydın|gunaydin|brifing|brifing ver|bugün ne var|bugun ne var|bugün neler var|güne başlayalım)(?:\s+ada)?$/iu, 'brifing'],
 ];
@@ -91,6 +94,19 @@ const SIRA_TEK = new RegExp(String.raw`^(birinci|ilk|bir|ikinci|iki|üçüncü|u
 // "Önerileni seç", "tavsiye ettiğin": claude'un (Recommended) isaretledigi secenek. Whisper "önerileni"yi
 // "Önerilerini" yazabiliyor (olculdu): o da kabul.
 const ONERILEN = /^(?:önerilen|onerilen|önerileni|onerileni|önerilerini|önerilerin|önerini|tavsiye ettiğin|tavsiye ettigin|senin önerin|senin önerdiğin|önerdiğin|önerdiğini)(?:\s+(?:seçenek|seçeneği|secenegi))?(?:\s+(?:seç|sec|olsun|gönder|tamam))?$/iu;
+
+// v3.3: Aria'ya giden konusma. Acik onek, hatirlatma, soru bicimi (soru sozcugu, soru eki ya da whisper'in "?" isareti).
+const ARIA_ONEK = /^(?:aria(?:['’]?ya)?(?:\s+sor)?|sor|soru)\s*[,:;]?\s+/iu;
+const HATIRLA = /^(?:hatırla|hatirla|aklında tut|aklinda tut|not al|unutma)(?=[\s,:;.]|$)/iu;
+const SORU_SOZU = /(?:^|\s)(?:ne|neden|niye|niçin|nicin|nasıl|nasil|kaç|kac|kaçta|hangi|hangisi|nerede|nereye|nereden|kim|kimin|kime)(?=[\s,.?!]|$)/iu;
+const SORU_EKI = /\s(?:mı|mi|mu|mü)(?:[sy]?ın|[sy]?in|[sy]?un|[sy]?ün|yım|yim|yum|yüm|ydı|ydi|ydu|ydü|dır|dir|dur|dür)?(?=[\s,.?!]|$)/iu;
+// Bir oturuma yazma niyeti: hedefin hemen ardindan "yaz / söyle / ilet" (ilk dort sozcuk icinde).
+const YAZMA_NIYETI = /^(?:\S+\s+){0,3}?(?:oturumuna\s+|projesine\s+)?(?:yaz|söyle|soyle|ilet)(?=[\s,:;.]|$)/iu;
+
+/** Soru bicimli mi (Turkce kucuk harfle). SAF. */
+function soruMu(kucuk) {
+  return /\?\s*$/.test(kucuk) || SORU_SOZU.test(kucuk) || SORU_EKI.test(kucuk);
+}
 
 /** "ikinci seçenek", "birinci, üçüncü" -> [1] / [0, 2]; sira sayisi degilse null. */
 function siraCoz(metin) {
@@ -191,6 +207,12 @@ function komutCoz(ham, oturumlar) {
   if (ONERILEN.test(kalan)) return { tur: 'cevap', hedef, secimler: null, onerilen: true };
   const secimler = siraCoz(kalan);
   if (secimler) return { tur: 'cevap', hedef, secimler, onerilen: false };
+  // v3.3: Ada Aria'nin yuzu. Acik hitap ("Aria, ...", "sor: ...") ve hatirlatma Aria'ya; soru bicimli cumle de, eger bir
+  // oturuma yazma niyeti ("Matbaa'ya yaz/söyle ...") yoksa. "Matbaa ne yaptı?" gibi ozetler yukarida yakalandi.
+  const onek = ARIA_ONEK.exec(sade);
+  if (onek) return { tur: 'aria', metin: sade.slice(onek[0].length).trim() || sade };
+  if (HATIRLA.test(kucuk)) return { tur: 'aria', metin: sade };
+  if (soruMu(kucuk) && !(h && YAZMA_NIYETI.test(sade))) return { tur: 'aria', metin: sade };
   let govde = h ? h.kalan : sade;
   // Sondaki "gönder" cumleyi hemen yollar: "Matbaa'ya yaz testleri koş, gönder".
   let gonder = false;
@@ -224,4 +246,4 @@ function ipucu(adlar) {
   return [...new Set([...(adlar || []).filter(Boolean), ...terimler])].join(', ');
 }
 
-module.exports = { duzelt, anahtar, mesafe, hedefBul, komutCoz, ipucu, siraCoz, uyanmaAyikla };
+module.exports = { duzelt, anahtar, mesafe, hedefBul, komutCoz, ipucu, siraCoz, uyanmaAyikla, soruMu };

@@ -435,6 +435,12 @@ function v32SesTesti() {
   kontrol('v32: whisper "Önerilerini Seç" -> onerilen', r.tur === 'cevap' && r.onerilen === true, j(r));
   r = n('2. el araba al');
   kontrol('v32: "2. el araba al" nottur', r.tur === 'not', j(r));
+  // v3.3: Ada Aria'nin yuzu: soru bicimli ve acik hitapli cumle Aria'ya; yazma niyeti ve ozetler oldugu gibi.
+  const tur = (m) => n(m).tur;
+  kontrol('v33: bilgi sorusu Aria\'ya', tur("Matbaa'nın ölçüm günü ne zaman?") === 'aria' && tur('Yanki üretimi neden durdu') === 'aria' && tur("Kokpit'te testler geçti mi?") === 'aria');
+  kontrol('v33: acik hitap ve "sor:" oneki atilir', n('Aria, bugün ne yapsam?').metin === 'bugün ne yapsam' && n('Sor: Tezgah kuralı neydi').metin === 'Tezgah kuralı neydi');
+  kontrol('v33: "hatırla" Aria\'ya', tur("Hatırla: yarın ekiple toplantı var") === 'aria');
+  kontrol('v33: yazma niyeti nottur, ozet/durum/cevap oncelikli', tur("Matbaa'ya yaz: testler geçti mi kontrol et") === 'not' && tur('Matbaa ne yaptı?') === 'ozet' && tur('Durum ne?') === 'durum' && tur('ikinci seçenek') === 'cevap' && tur('Testleri koş') === 'not');
   const { uyanmaAyikla } = require('../electron/ses-komut.cjs');
   const u = (m) => j(uyanmaAyikla(m));
   kontrol('v32 uyanma: "Ada, ..." komutu ayirir', u('Ada, Matbaa ne yaptı?') === '{"uyandi":true,"kalan":"Matbaa ne yaptı?"}');
@@ -771,11 +777,104 @@ async function v33AriaTesti() {
   await new Promise((r2) => setTimeout(r2, 400));
   kontrol('aria: yeni sohbet ayni gune ikinci kimlik', aria.oturumlar().length === 2 && aria.oturumlar()[0].id !== aria.oturumlar()[1].id);
   aria.kapat();
+  // Faz 63: gunluk not. Ayri, kalici olmayan claude -p; sohbetin kimligine dokunmaz; gunde bir (zorla haric).
+  fs.writeFileSync(ARGLAR, '');
+  const notOlay = [];
+  aria.kur({ vault, yayin: (o) => o.tur === 'not' && notOlay.push(o) });
+  const n1 = await aria.gunlukNot();
+  const notArg = JSON.parse(fs.readFileSync(ARGLAR, 'utf8').trim().split('\n').pop());
+  kontrol('aria not: yazildi, diske kondu', n1.metin && /Sahte not/.test(n1.metin) && aria.notOku()?.gun === aria.gunAnahtari(), j(n1));
+  kontrol('aria not: kalici olmayan tek atis (-p, --no-session-persistence, json), sohbet kimligi yok', notArg.includes('--no-session-persistence') && notArg.includes('-p') && !notArg.includes('--session-id') && !notArg.includes('--resume'), j(notArg));
+  kontrol('aria not: yaziyor -> hazir olaylari', notOlay[0]?.durum === 'yaziyor' && notOlay[notOlay.length - 1]?.durum === 'hazir' && notOlay[notOlay.length - 1].not?.metin === n1.metin);
+  const satirOnce = fs.readFileSync(ARGLAR, 'utf8').trim().split('\n').filter(Boolean).length;
+  await aria.gunlukNot();
+  kontrol('aria not: ayni gun ikinci istek claude cagirmaz (onbellek)', fs.readFileSync(ARGLAR, 'utf8').trim().split('\n').filter(Boolean).length === satirOnce);
   delete process.env.KOKPIT_TEST_ARIA_SAHTE;
+}
+
+// v3.3, Faz 62: Aria'nin Kokpit araclari. Gercek MCP sureci (stdio JSON-RPC) -> gercek HTTP ucu -> isleyici; oneri deposu.
+async function v33AracTesti() {
+  const ariaArac = require('../electron/aria-arac.cjs');
+  const { spawn } = require('child_process');
+  const j = (x) => JSON.stringify(x);
+  const cagrilar = [];
+  const kartlar = [];
+  const a = await ariaArac.baslat({
+    isleyiciler: {
+      kokpit_oturumlar: () => (cagrilar.push('oturumlar'), 'Matbaa seni bekliyor'),
+      oneri_gorev: ({ proje, metin }) => {
+        const k = ariaArac.oneriEkle({ tur: 'gorev', proje, metin });
+        return 'Oneri #' + k.id;
+      },
+      kokpit_limit: () => {
+        throw new Error('limit okunamadi');
+      },
+    },
+    onOneri: (k) => kartlar.push({ ...k }),
+    aktifMesaj: () => 'a-test',
+  });
+  const cfg = JSON.parse(fs.readFileSync(a.mcpConfig, 'utf8')).mcpServers.kokpit;
+  kontrol('arac: mcp yapilandirmasi node + aria-mcp.cjs + adres/token', cfg.command === 'node' && /aria-mcp\.cjs$/.test(cfg.args[0]) && /^http:\/\/127\.0\.0\.1:\d+$/.test(cfg.env.KOKPIT_ARIA_URL) && cfg.env.KOKPIT_ARIA_TOKEN.length === 48);
+  // Tokensiz istek reddedilir.
+  const yetkisiz = await new Promise((coz) => {
+    const u = new URL(cfg.env.KOKPIT_ARIA_URL);
+    const r = http.request({ host: u.hostname, port: u.port, path: '/arac', method: 'POST' }, (y) => coz(y.statusCode));
+    r.on('error', () => coz(0));
+    r.end('{"ad":"kokpit_oturumlar"}');
+  });
+  kontrol('arac: tokensiz istek 403', yetkisiz === 403, yetkisiz);
+  // Gercek MCP sureci: claude'un yapacagi gibi stdio JSON-RPC.
+  const p = spawn(cfg.command, cfg.args, { env: { ...process.env, ...cfg.env } });
+  let tampon = '';
+  const cevaplar = new Map();
+  p.stdout.setEncoding('utf8');
+  p.stdout.on('data', (d) => {
+    tampon += d;
+    let i;
+    while ((i = tampon.indexOf('\n')) >= 0) {
+      const m = JSON.parse(tampon.slice(0, i));
+      tampon = tampon.slice(i + 1);
+      cevaplar.set(m.id, m.result);
+    }
+  });
+  const rpc = async (id, method, params) => {
+    p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+    for (let t = 0; t < 100 && !cevaplar.has(id); t++) await new Promise((r) => setTimeout(r, 50));
+    return cevaplar.get(id);
+  };
+  const ini = await rpc(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } });
+  kontrol('mcp: initialize (protokol surumu yansir, tools yetenegi)', ini?.protocolVersion === '2025-06-18' && !!ini.capabilities.tools, j(ini));
+  const liste = await rpc(2, 'tools/list', {});
+  const adlar = (liste?.tools ?? []).map((t) => t.name);
+  kontrol('mcp: okuma ve oneri araclari listede (yazma araci yalniz oneri_*)', ['kokpit_oturumlar', 'kokpit_brifing', 'kokpit_teslim', 'oneri_gorev', 'oneri_gece', 'oneri_mesaj'].every((x) => adlar.includes(x)) && adlar.every((x) => x.startsWith('kokpit_') || x.startsWith('oneri_')), j(adlar));
+  let r = await rpc(3, 'tools/call', { name: 'kokpit_oturumlar', arguments: {} });
+  kontrol('mcp: arac cagrisi HTTP ile isleyiciye gider, metin doner', r?.content?.[0]?.text === 'Matbaa seni bekliyor' && cagrilar.length === 1, j(r));
+  r = await rpc(4, 'tools/call', { name: 'oneri_gorev', arguments: { proje: 'Kokpit', metin: 'README\'yi gozden gecir' } });
+  kontrol('mcp: oneri karti dogar (bekliyor, aktif mesaja bagli), isleyicinin cevabi doner', /^Oneri #o1-/.test(r?.content?.[0]?.text) && kartlar[0]?.durum === 'bekliyor' && kartlar[0].mesajId === 'a-test', j(r) + j(kartlar));
+  r = await rpc(5, 'tools/call', { name: 'kokpit_limit', arguments: {} });
+  kontrol('mcp: isleyici hatasi isError ile doner (surec yasar)', r?.isError === true && /limit okunamadi/.test(r.content[0].text), j(r));
+  r = await rpc(6, 'tools/call', { name: 'rm_rf', arguments: {} });
+  kontrol('mcp: listede olmayan arac reddedilir', r?.isError === true, j(r));
+  p.kill();
+  // Oneri deposu: karar bir kez; metin model icin.
+  const id = kartlar[0].id;
+  kontrol('oneri: karar verilince durum ve sonuc yayinlanir', ariaArac.oneriSonuc(id, 'onaylandi', 'Kokpit oturumu acildi')?.durum === 'onaylandi' && kartlar[kartlar.length - 1].sonuc === 'Kokpit oturumu acildi');
+  kontrol('oneri: ikinci karar yok sayilir', ariaArac.oneriSonuc(id, 'reddedildi') === null);
+  kontrol('oneri: model icin metin (ONAYLANDI + sonuc)', /ONAYLANDI \(Kokpit oturumu acildi\)/.test(ariaArac.onerilerMetni(ariaArac.oneriler())));
+  let bos = null;
+  try {
+    ariaArac.oneriEkle({ tur: 'sil', metin: 'x' });
+  } catch (e) {
+    bos = e.message;
+  }
+  kontrol('oneri: bilinmeyen tur dogmaz', bos === 'bilinmeyen oneri');
+  ariaArac.durdur();
+  kontrol('arac: kapaninca mcp yapilandirmasi silinir (token diskte kalmaz)', !fs.existsSync(a.mcpConfig));
 }
 
 (async () => {
   try {
+    await v33AracTesti();
     await v33AriaTesti();
     v32GeceTesti();
     await v32ParalelTesti();

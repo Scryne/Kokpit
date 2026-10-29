@@ -21,6 +21,7 @@ const VARSAYILAN = Object.freeze({
   adaKonum: null, // v2.7: hapin merkezi, calisma alani genisliginin orani (null = orta)
   adaSesli: true, // v3.1: oturum bekleyince/bitince Ada sesli soyler (Kokpit ondeyken susar)
   adaBrifing: true, // v3.2: gunun ilk etkinliginde Ada brifing verir
+  ariaNotlar: false, // v3.3: Aria her gun brifingle birlikte "fark ettiklerim" notu yazar (limit harcar)
   telefon: false, // v3.2: yeni claude oturumlari --remote-control ile acilir (telefondan erisim)
   adaUyanma: false, // v3.2: eller serbest ("Ada, ..."); mikrofon surekli acik oldugu icin varsayilan kapali
   sonBrifing: null, // v3.2: son brifingin gunu (05:00 sinirli YYYY-MM-DD); gunde bir kez
