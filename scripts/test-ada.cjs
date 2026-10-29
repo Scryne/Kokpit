@@ -355,6 +355,8 @@ function sesTesti() {
   kontrol('ses: "komit" -> commit', duzelt('sonucu komit at') === 'sonucu commit at');
   kontrol('ses: "paş" -> push (Unicode sinir)', duzelt('sonra paş etme') === 'sonra push etme');
   kontrol('ses: "puşla" -> push\'la', duzelt('komitle ve puşla') === "commitle ve push'la");
+  // v3.5: yanlis eslesmeler: "pas gec" (Turkce), "pusula", "komitesi" (kurul) donusmez.
+  kontrol('ses: "pas geç", "pusula", "komitesi" push/commit olmaz', duzelt('pas geç') === 'pas geç' && duzelt('pusula') === 'pusula' && duzelt('komitesi toplandı') === 'komitesi toplandı' && duzelt('komiti at') === 'commiti at');
   kontrol('ses: "paşa" dokunulmaz (sozcugun parcasi)', duzelt('paşa geldi') === 'paşa geldi');
   kontrol('ses: ayrisik ş (s + cengel) da duzelir', duzelt('paş et') === 'push et');
   const n = (m) => komutCoz(m, o);
@@ -934,6 +936,11 @@ function v33HafizaTesti() {
   const o = h.dosyaOku(vault, 'n/x.md');
   kontrol('hafiza: dosya okuma (frontmatter atilir, baslik frontmatter\'dan)', o.baslik === 'Deneme' && !/title:/.test(o.metin), JSON.stringify(o));
   kontrol('hafiza: vault disi ve .md olmayan yol reddedilir', 'hata' in h.dosyaOku(vault, '../disari.md') && 'hata' in h.dosyaOku(vault, 'n/x.txt'));
+  // v3.5: vault icindeki junction vault disini okutmaz (gercek yol denetimi).
+  fs.mkdirSync(path.join(GECICI, 'dis-klasor'), { recursive: true });
+  fs.writeFileSync(path.join(GECICI, 'dis-klasor', 'gizli.md'), '# Gizli');
+  fs.symlinkSync(path.join(GECICI, 'dis-klasor'), path.join(vault, 'kopru'), 'junction');
+  kontrol('hafiza: vault icindeki junction uzerinden disari okunmaz', 'hata' in h.dosyaOku(vault, 'kopru/gizli.md'), JSON.stringify(h.dosyaOku(vault, 'kopru/gizli.md')));
 }
 
 // v3.4: Aria'nin agi (vault not grafigi). Saf kurulum fiksturle; disk okuma gecici vault'ta.

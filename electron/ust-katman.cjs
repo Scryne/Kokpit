@@ -30,6 +30,7 @@ function dustuMu(ustundekiler) {
 
 let win32 = null;
 let yuklenemedi = false;
+let ardisikHata = 0;
 
 function yukle() {
   if (win32 || yuklenemedi) return win32;
@@ -113,6 +114,7 @@ function kontrolEt(adaTutamaci) {
       if (gorunur && !ustte) break;
       p = w.onceki(p, GW_HWNDPREV);
     }
+    ardisikHata = 0;
     const i = dustuMu(ustundekiler);
     if (i < 0) return { dustu: false };
     const surec = surecAdi(w, tutamaclar[i]);
@@ -121,7 +123,12 @@ function kontrolEt(adaTutamaci) {
     return { dustu: true, duzeldi, ustteki };
   } catch (e) {
     log('ust katman okunamadi: ' + e.message);
-    yuklenemedi = true;
+    // Tek seferlik hata araci kapatmaz; 5 ardisik hatada user32 devre disi (her 600 ms'de log yazmasin).
+    if (++ardisikHata >= 5) {
+      win32 = null;
+      yuklenemedi = true;
+      log('win32 devre disi (5 ardisik hata)');
+    }
     return null;
   }
 }

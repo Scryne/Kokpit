@@ -179,6 +179,11 @@ async function coz(wav, ipucu) {
     return { metin, ms };
   } catch (e) {
     log('ses: cozme basarisiz: ' + e.message);
+    // Sunucu yasiyor ama cevap vermiyorsa (asili) kapatilir: sonraki istek yeniden acar. Yoksa her istek zaman asimina dusuyordu.
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      log('ses: whisper sunucusu cevap vermiyor, yeniden baslatilacak');
+      durdur();
+    }
     return { hata: 'konuşma tanıma cevap vermedi' };
   }
 }
@@ -206,7 +211,8 @@ async function konus(metin) {
   const m = String(metin || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 700);
   if (!m || SESSIZ || !varMi(TTS)) return null;
   if (onbellek.has(m)) return onbellek.get(m);
-  const hedef = path.join(os.tmpdir(), 'kokpit-ses-' + process.pid + '-' + Date.now() + '.mp3');
+  // Ayni milisaniyede iki sentez (Aria cevabi + Ada bildirimi) ayni dosyayi yazip silmesin.
+  const hedef = path.join(os.tmpdir(), 'kokpit-ses-' + process.pid + '-' + Date.now() + '-' + require('crypto').randomBytes(4).toString('hex') + '.mp3');
   const t0 = Date.now();
   let sonuc = null;
   for (const ses of SESLER) {

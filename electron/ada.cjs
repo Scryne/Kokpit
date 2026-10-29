@@ -91,6 +91,7 @@ let surukleme = null; // { x0, imlec0 }
 // renderer dragenter ile kartini acar. Tus birakilinca (renderer imleci icinde saymiyorsa) kapanir.
 let fareIcinde = false;
 let birakmaAcik = false;
+let cokmeler = []; // Ada renderer cokme zamanlari (yeniden yukleme siniri)
 let tusOku = null;
 let ekranDinleniyor = false;
 
@@ -327,10 +328,28 @@ function kur(s) {
     if (sonNobet) gonder('ada:nobet', sonNobet);
     gonder('ada:vadeler', sonVadeler);
   });
-  ada.webContents.on('render-process-gone', (_e, d) => log('FAIL ada renderer coktu: ' + JSON.stringify(d)));
+  ada.webContents.on('render-process-gone', (_e, d) => {
+    log('FAIL ada renderer coktu: ' + JSON.stringify(d));
+    // Bos kalan pencere yeniden yuklenir; cokme dongusunde 10 dk'da en fazla 3 kez.
+    const simdi = Date.now();
+    cokmeler = cokmeler.filter((t) => simdi - t < 10 * 60_000);
+    if (cokmeler.length >= 3 || !ada || ada.isDestroyed()) return;
+    cokmeler.push(simdi);
+    setTimeout(() => {
+      if (ada && !ada.isDestroyed()) ada.webContents.reload();
+    }, 1000);
+  });
+  // Odak modundan cikis renderer'a bagliydi: renderer takilir/coker ya da Esc'i kacirirsa Ada odagi ve fareyi
+  // tutan gorunmez bir bolge kaliyordu. Kullanici baska yere tiklayinca (blur) birakilir.
+  ada.on('blur', () => {
+    if (!ada || ada.isDestroyed() || !ada.isFocusable()) return;
+    ada.setFocusable(false);
+    if (!fareIcinde) ada.setIgnoreMouseEvents(true, { forward: true });
+  });
   ada.on('closed', () => {
     ada = null;
     yoklamaAyarla();
+    disYoklamaAyarla(false);
   });
   ada.loadURL(s.url).catch((e) => log('FAIL ada yuklenemedi: ' + e.message));
   // Cozunurluk / olcek degisince, ekran takilip cikinca Ada eski koordinatlarda kaliyordu (konum

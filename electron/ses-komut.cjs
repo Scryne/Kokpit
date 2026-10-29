@@ -12,9 +12,10 @@ const S = String.raw`(?<![\p{L}\p{N}])`;
 const B = String.raw`(?![\p{L}\p{N}])`;
 const k = (govde) => new RegExp(S + govde + B, 'giu');
 const DUZELTME = [
-  [new RegExp(S + String.raw`ko+m+it(?=$|[^\p{L}]|le|i|e|ler)`, 'giu'), 'commit'],
-  [k('p[au][sş]la'), "push'la"],
-  [k('p[au][sş]'), 'push'],
+  // Ekten sonra da sinir: "komitesi" (kurulu) commit olmaz. "pas" (pas gec) push degil; whisper push'u paş/puş/pus yazar.
+  [new RegExp(S + String.raw`ko+m+it(?=(?:le|ler|i|e|in|ten)?(?![\p{L}\p{N}]))`, 'giu'), 'commit'],
+  [k('(?:p[au]ş|pus)la'), "push'la"],
+  [k('(?:p[au]ş|pus)'), 'push'],
   [k(String.raw`pul\s*rik[uü]est`), 'pull request'],
   [k('bild'), 'build'],
   [k(String.raw`tayp\s*[cç]ek`), 'type check'],

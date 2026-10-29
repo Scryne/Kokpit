@@ -62,8 +62,21 @@ function asilCalistir(govde) {
       coz();
       return;
     }
-    cocuk.on('error', () => coz());
+    // Kullanicinin komutu takilirsa claude'un durum satiri da beklemesin.
+    const zaman = setTimeout(() => {
+      try {
+        cocuk.kill();
+      } catch {
+        /* bitti */
+      }
+      coz();
+    }, 3000);
+    cocuk.on('error', () => {
+      clearTimeout(zaman);
+      coz();
+    });
     cocuk.on('exit', (kod) => {
+      clearTimeout(zaman);
       process.exitCode = kod ?? 0;
       coz();
     });

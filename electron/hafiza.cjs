@@ -10,13 +10,19 @@ const COMPANION = '🔮 850-Companion';
 const AZAMI_OKU = 200 * 1024;
 
 function okuGuvenli(dosya) {
+  // Yalniz ilk 200 KB okunur: buyuk dosya once butunuyle bellege alinip sonra kesilmesin.
+  let fd = null;
   try {
     const st = fs.statSync(dosya);
     if (!st.isFile()) return '';
-    const b = fs.readFileSync(dosya);
-    return String(b.length > AZAMI_OKU ? b.subarray(0, AZAMI_OKU) : b);
+    fd = fs.openSync(dosya, 'r');
+    const b = Buffer.alloc(Math.min(st.size, AZAMI_OKU));
+    const n = fs.readSync(fd, b, 0, b.length, 0);
+    return String(b.subarray(0, n));
   } catch {
     return '';
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
   }
 }
 
@@ -184,6 +190,12 @@ function dosyaOku(vault, goreli) {
   if (typeof goreli !== 'string' || !goreli.endsWith('.md')) return { hata: 'geçersiz yol' };
   const tam = path.resolve(vault, goreli);
   if (!tam.toLowerCase().startsWith(path.resolve(vault).toLowerCase() + path.sep)) return { hata: 'geçersiz yol' };
+  // Vault icindeki bir junction/symlink vault disini okutmasin: gercek yol da vault altinda olmali.
+  try {
+    if (!fs.realpathSync.native(tam).toLowerCase().startsWith(fs.realpathSync.native(vault).toLowerCase() + path.sep)) return { hata: 'geçersiz yol' };
+  } catch {
+    return { hata: 'okunamadı' };
+  }
   const metin = okuGuvenli(tam);
   if (!metin) return { hata: 'okunamadı' };
   return { yol: goreli, baslik: baslikBul(metin, path.basename(goreli, '.md')), metin: frontmatterSiz(metin) };
