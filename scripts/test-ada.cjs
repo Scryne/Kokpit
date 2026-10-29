@@ -754,6 +754,13 @@ async function v33AriaTesti() {
   aria.gonder('sesli soru', { kaynak: 'ses' });
   son = await b;
   kontrol('aria surec: sesli kaynak "[ses]" onekiyle gider', son && son.metin === 'Sesli: sesli soru', j(son));
+  // Sira (kesmesiz): art arda iki mesajin her cevabi kendi mesaj kimligine baglanir, sirayla.
+  const sirali = [];
+  bekleyen = (o) => sirali.push(o);
+  const s1 = aria.gonder('birinci');
+  const s2 = aria.gonder('ikinci');
+  for (let i = 0; i < 40 && sirali.length < 2; i++) await new Promise((r2) => setTimeout(r2, 150));
+  kontrol('aria surec: art arda iki mesaj, cevaplar kendi kimliklerinde ve sirayla', sirali.length === 2 && sirali[0].id === s1.ariaId && sirali[0].metin === 'Yanki: birinci' && sirali[1].id === s2.ariaId && sirali[1].metin === 'Yanki: ikinci', j(sirali.map((x) => [x.id === s1.ariaId ? 's1' : x.id === s2.ariaId ? 's2' : '?', x.metin])));
   // Sira: mesgulken gelen mesaj tur bitince gider.
   const ikiBitti = [];
   bekleyen = (o) => ikiBitti.push(o);
@@ -872,8 +879,33 @@ async function v33AracTesti() {
   kontrol('arac: kapaninca mcp yapilandirmasi silinir (token diskte kalmaz)', !fs.existsSync(a.mcpConfig));
 }
 
+// v3.3, Faz 61: hafiza paneli ayristiricilari (fikstur) + vault disina okuma reddi.
+function v33HafizaTesti() {
+  const h = require('../electron/hafiza.cjs');
+  const t = h.threadler('# Threads\n\n### Thread: Matbaa — POD\n**Status:** 🟢 Active: created 2026-10-12\n**İzle:** (1) günde 10 dk\n\n### Thread: Eski\n**Status:** ⚪ Devredildi\ngovde\n### Baska baslik\nx');
+  kontrol('hafiza: threadler (isaret, durum, izle ozeti; Thread: olmayan baslik atlanir)', t.length === 2 && t[0].baslik === 'Matbaa — POD' && t[0].isaret === '🟢' && t[0].durum === 'Active' && t[0].ozet === '(1) günde 10 dk' && t[1].isaret === '⚪', JSON.stringify(t.map(({ govde, ...x }) => x)));
+  const k = h.kurallar('# Kurallar\n- **kural:** Kisa olsun.\n  **neden:** Scryne istedi.\n\n- **kural:** Ikinci\n  satir devam.\n');
+  kontrol('hafiza: kurallar (cok satirli madde, neden ayrilir)', k.length === 2 && k[0].kural === 'Kisa olsun.' && k[0].neden === 'Scryne istedi.' && k[1].kural === 'Ikinci satir devam.', JSON.stringify(k));
+  const d = [
+    { yol: 'a.md', baslik: 'Matbaa Kıyas Ölçümü', metin: 'matbaa kiyas 11-02 olcum' },
+    { yol: 'b.md', baslik: 'Otomat', metin: 'matbaa bir kez gecer' },
+    { yol: 'c.md', baslik: 'Tezgah', metin: 'hic ilgisiz' },
+  ];
+  const r = h.ara('matbaa kıyas', d);
+  kontrol('hafiza: arama Turkce duyarsiz, butun sozcukler gerekli, baslik agirlikli', r.length === 1 && r[0].yol === 'a.md', JSON.stringify(r));
+  kontrol('hafiza: kisa/bos sorgu sonuc vermez', h.ara('a', d).length === 0 && h.ara('  ', d).length === 0);
+  const vault = path.join(GECICI, 'hafiza-vault');
+  fs.mkdirSync(path.join(vault, 'n'), { recursive: true });
+  fs.writeFileSync(path.join(vault, 'n', 'x.md'), '---\ntitle: Deneme\n---\n# Deneme\ngovde');
+  fs.writeFileSync(path.join(GECICI, 'disari.md'), 'gizli');
+  const o = h.dosyaOku(vault, 'n/x.md');
+  kontrol('hafiza: dosya okuma (frontmatter atilir, baslik frontmatter\'dan)', o.baslik === 'Deneme' && !/title:/.test(o.metin), JSON.stringify(o));
+  kontrol('hafiza: vault disi ve .md olmayan yol reddedilir', 'hata' in h.dosyaOku(vault, '../disari.md') && 'hata' in h.dosyaOku(vault, 'n/x.txt'));
+}
+
 (async () => {
   try {
+    v33HafizaTesti();
     await v33AracTesti();
     await v33AriaTesti();
     v32GeceTesti();
