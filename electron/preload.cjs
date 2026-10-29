@@ -106,6 +106,7 @@ contextBridge.exposeInMainWorld('kokpit', {
   hafizaOzet: () => ipcRenderer.invoke('hafiza:ozet'),
   hafizaAra: (sorgu) => ipcRenderer.invoke('hafiza:ara', sorgu),
   hafizaOku: (yol) => ipcRenderer.invoke('hafiza:oku', yol),
+  hafizaAg: (taze) => ipcRenderer.invoke('hafiza:ag', taze === true),
   // Ada'dan "Aria'da aç": Kokpit one gelir, Aria sayfasi acilir.
   adaAriaAc: () => ipcRenderer.send('ada:aria-ac'),
   sayfaAcDinle: (cb) => {

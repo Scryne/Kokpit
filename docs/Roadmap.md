@@ -79,6 +79,10 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 61 | Aria: hafıza paneli | ✅ Tamamlandı | Kimlik, açık konular, kurallar, son oturumlar, Journal (vault salt okunur); 274 makalede arama (57 ms); dosya okuyucu + "Aria'ya sor" |
 | 62 | Aria: Kokpit araçları + öneri kartı | ✅ Tamamlandı | Yerel MCP (stdio → 127.0.0.1 + token): okuma araçları; yazma yalnız öneri kartı, Scryne onaylar (tık / sesli "onayla"), ana pencere uygular; gerçek claude ile uçtan uca |
 | 63 | Aria: günlük not | ✅ Tamamlandı | "Fark ettiklerim": ayrı, kalıcı olmayan claude -p; günde bir brifingle (ayar) ya da elle; gerçek koşuda kaynaklı 5 madde (47 sn) |
+| 64 | Aria'nın ağı: veri | ✅ Tamamlandı | `hafiza-ag.cjs`: vault'tan not grafiği (358 düğüm, 1.450 bağ, 49 ms); bağ çözümü önce kaynak notun klasörü; salt okunur, 60 sn önbellek |
+| 65 | Aria'nın ağı: tuval | ✅ Tamamlandı | `AriaAgi.tsx`: d3-force yerleşimi (kaydedilir, coğrafya sabit), pan/zoom, üzerine gel, arama, tıkla → hafıza çekmecesi, çakışmasız etiket |
+| 66 | Aria'nın ağı: ateşleme | ✅ Tamamlandı | Araç olayı → düğüm (okuma/yazma/arama/Kokpit), Aria'dan BFS yolunda sinyal, yayılan aktivasyon, çağrışım, düşünürken kıvılcım, bekleyen öneri amber |
+| 67 | Aria'nın ağı: sayfa | ✅ Tamamlandı | Sohbet solda, ağ sağda, hafıza paneli çekmece; dar ekranda kapalı; hareket bütçesi (boştayken döngü durur) testte |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -980,3 +984,28 @@ hafıza), Aria'nın eli **öneri kartı + onay** (Kokpit'in v2.3 kuralı korunur
   önde Gezgin; `~/.kokpit` dokunulmadı). Mutasyon 9/9. **Bulgu:** öneri testinin açıp kapattığı oturum, sonraki "Sürdür"
   senaryosunu iki yerden bozdu: defterin son `acildi` kaydı ve PTY log'unun son kabuğu artık kapanmış oturumundu. İkisi de
   "kapanmamış son" diye seçiliyor; kimlik zinciri kontrolü onay oturumunu ayrı sayıyor (gevşetilmedi).
+
+### v3.4 — Aria'nın ağı (Faz 64–67, 2026-10-29)
+
+Scryne: "Aria arayüzünü daha iyi yapabilirsin; Obsidian gibi, 2. beynimsin ya, sinir ağları tarzında; yapılan işlemlerde sinir
+ağları çalışıyormuş gibi. Sana bırakıyorum." Karar: süs için üretilmiş bir nöron animasyonu değil, vault'un **kendi** not
+grafiği; her düğüm gerçek bir not, her ışık Aria'nın gerçek bir aracı. Aria sayfasının sağ yarısı.
+
+- **Faz 64, veri** (✅): `hafiza-ag.cjs` (salt okunur). Düğümler Companion, projeler, 500-Knowledge, kavramlar, günlükler,
+  arşiv; bağlar `[[wikilink]]`, derleyicinin ilişki makaleleri (`connects:`), makalenin kaynağı olan gün (`sources:`), aynı
+  adlı kavram ↔ proje notu. Gerçek vault: 358 düğüm, 1.450 bağ, 49 ms. **Bulgu:** çıplak `[[otomat]]` önce proje notuna
+  çözülüyordu (klasör sırası); kaynak notun kendi klasörü önce aranıyor (kavram bağları 1.029 → 933, doğru hedefe).
+- **Faz 65, tuval** (✅): `AriaAgi.tsx`, d3-force (bağımlılık: `d3-force` 3, ISC). Yerleşim bir kez hesaplanıp saklanır,
+  yeni not komşusunun yanında doğar. Sığdırma %2–%98 dilimle (birkaç yalnız not ağı küçültüyordu). Etiketler öncelik sırasıyla,
+  çakışan atlanır. Arama, Enter ile not çekmecede açılır.
+- **Faz 66, ateşleme** (✅): araç olayı ham hedefi taşıyor (`dosya`, `desen`, `proje`); vault notu → okuma/yazma, proje
+  dosyası → o projenin notu, Grep → eşleşen notlar, Kokpit aracı → Kokpit düğümü + proje. Sinyal Aria'dan BFS yolunda gider,
+  varınca yayılan aktivasyon. Soru → `hafiza:ara` eşleşmeleri soluk (çağrışım; Aria'nın okuduğundan ayrı).
+- **Faz 67, sayfa** (✅): sohbet solda, ağ sağda, hafıza paneli çekmece; 1100 px altında ağ kapalı.
+  **Bulgu (ekran betiğinde yakalandı):** tuval hiç çizilmiyordu: ağ verisi gelmeden zamanlanan ilk kare boş varsayılan çizimi
+  çağırıyor, "döngü çalışıyor" bayrağı inmiyor, sonraki bütün istekler yutuluyordu. Varsayılan bayrağı indiriyor; test:ui'da
+  "tuval gerçekten çizildi" (piksel) kontrolü, mutasyonla (hata geri konunca) yalnız o düştü.
+- **Testler:** `test:ada` 277 (ağ kurulumu 11; ad çakışması mutasyonu iki testte yakalandı), `test:ui` 253 (v3.4 bölümü 9:
+  gerçek vault salt okunur, okuma/arama/yazma/Kokpit ateşi, çağrışım, çekmece, boştayken döngü durur; iki odak ön koşulu yine
+  ortam). Ekran: `npm run ekran:ag`.
+- **Yayın kapısı:** v3.3 testindeki örnek cümlede gerçek bir kişi adı vardı; push edilmemiş commit'lerde nötrleştirildi.

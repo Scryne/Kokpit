@@ -1,10 +1,11 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { BookMarked, BrainCircuit, Check, ChevronDown, History, Lightbulb, Mic, Moon, Plus, RefreshCw, Send, Square, TerminalSquare, Volume2, VolumeX, X } from 'lucide-react';
-import type { AriaDurumu, AriaMesaji, AriaNotu, AriaOnerisi, AriaOturumu } from './types';
+import { BookMarked, BrainCircuit, Check, ChevronDown, History, Lightbulb, Mic, Moon, Plus, RefreshCw, Send, Square, TerminalSquare, Volume2, VolumeX, Waypoints, X } from 'lucide-react';
+import type { AriaDurumu, AriaMesaji, AriaNotu, AriaOnerisi, AriaOturumu, HafizaAgi } from './types';
 import SinyalHalkasi, { HAL_ADI, type HalkaHali } from './SinyalHalkasi';
 import { kayitBaslat, type Kayit } from './sesKayit';
 import { mdCiz } from './md';
 import HafizaPaneli from './HafizaPaneli';
+import AriaAgi, { aracDugumleri, type AgKumanda } from './AriaAgi';
 
 // v3.3, Aria sayfasi (Ctrl+7): Scryne'in ikinci beyniyle sohbet. Sohbetin kendisi main'de (electron/aria.cjs, vault'ta
 // kalici claude oturumu); burada cizim, mikrofon ve sesli cevap. Ustte sinyal halkasi (Aria'nin yuzu), altta sohbet,
@@ -13,6 +14,8 @@ import HafizaPaneli from './HafizaPaneli';
 
 const SESLI_ANAHTAR = 'kokpit.aria.sesli';
 const PANEL_ANAHTAR = 'kokpit.aria.panel';
+const AG_ANAHTAR = 'kokpit.aria.ag';
+const AG_TAZELIK = 5 * 60_000;
 
 /** mp3'u calar ve genligini (0..1) bildirir: halka konusurken sesle titrer. */
 async function konusVeOlc(mp3: Uint8Array, seviye: (s: number) => void): Promise<void> {
@@ -78,6 +81,29 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
     }
   });
   const [acilacak, setAcilacak] = useState<{ yol: string; t: number } | null>(null);
+  // v3.4: Aria'nin agi (vault not grafigi). Genis ekranda varsayilan acik; secim kalici. Acikken hafiza paneli agin
+  // ustunde cekmece olur (ag sayfanin sag yarisi).
+  const [agGoster, setAgGoster] = useState(() => {
+    try {
+      const k = localStorage.getItem(AG_ANAHTAR);
+      return k === null ? window.innerWidth >= 1100 : k === '1';
+    } catch {
+      return true;
+    }
+  });
+  const [cekmece, setCekmece] = useState(false); // ag acikken hafiza paneli (cekmece); notu tiklayinca acilir
+  const [ag, setAg] = useState<HafizaAgi | null>(null);
+  const agRef = useRef<HafizaAgi | null>(null);
+  agRef.current = ag;
+  const agZamani = useRef(0);
+  const agKumanda = useRef<AgKumanda | null>(null);
+  const agYukle = useCallback(async (taze = false) => {
+    agZamani.current = Date.now();
+    setAg(await window.kokpit.hafizaAg(taze));
+  }, []);
+  useEffect(() => {
+    if (gorunur && agGoster && (!agRef.current || Date.now() - agZamani.current > AG_TAZELIK)) void agYukle();
+  }, [gorunur, agGoster, agYukle]);
   // v3.3 Faz 62: Aria'nin onerileri (kart). Ana kaynak main; burada cizim ve karar.
   const [oneriler, setOneriler] = useState<AriaOnerisi[]>([]);
   useEffect(() => {
@@ -145,11 +171,23 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
           setEskiGun(null);
           setMesajlar((l) => [...l, o.mesaj, { id: o.ariaId, rol: 'aria', metin: '', t: Date.now(), akiyor: true, araclar: [] }]);
           if (o.mesaj.kaynak === 'ses' && sesliRef.current) sesliCevapBekleyen.current.add(o.ariaId);
+          // Cagrisim: sorunun hafizada eslestigi notlar soluk yanar (arama eslesmesi; Aria'nin okudugu degil).
+          void window.kokpit.hafizaAra(o.mesaj.metin).then((r) => {
+            const idler = r.slice(0, 6).map((x) => x.yol.replace(/\.md$/, ''));
+            if (idler.length) agKumanda.current?.ates(idler, 'cagrisim', idler.length + ' not');
+          });
         } else if (o.tur === 'parca') {
           setMesajlar((l) => l.map((m) => (m.id === o.id ? { ...m, metin: o.metin } : m)));
         } else if (o.tur === 'arac') {
           setMesajlar((l) => l.map((m) => (m.id === o.id ? { ...m, araclar: [...(m.araclar ?? []), o.arac], hafiza: o.hafiza } : m)));
+          const a = agRef.current;
+          if (a) {
+            const h = aracDugumleri(o.arac, a.dugumler, a.vault);
+            agKumanda.current?.ates(h.idler, h.tur, h.etiket);
+          }
         } else if (o.tur === 'bitti') {
+          // Aria hafizaya yazdiysa ag tazelenir (yeni not / yeni bag yerinde belirir).
+          if (o.hafiza?.length && agRef.current) void agYukle(true);
           setMesajlar((l) =>
             l.map((m) =>
               m.id === o.id ? { ...m, metin: o.metin, akiyor: false, kesildi: o.kesildi, hata: o.hata ?? undefined, sureMs: o.sureMs, araclar: o.araclar, hafiza: o.hafiza } : m
@@ -158,7 +196,7 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
           if (sesliCevapBekleyen.current.delete(o.id) && o.metin && !o.kesildi) void konus(o.metin);
         }
       }),
-    [konus]
+    [konus, agYukle]
   );
 
   // Yeni mesajda en alta kay (kullanici yukari kaydirdiysa zorlamaz: 120 px esik).
@@ -212,6 +250,11 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
     }
   }, [gonder]);
 
+  const hafizadanSor = (onek: string) => {
+    setMetin(onek);
+    requestAnimationFrame(() => kutu.current?.focus());
+  };
+
   const mesgul = durum !== 'bosta';
   const hal: HalkaHali =
     dinleme === 'dinliyor' ? 'dinliyor' : konusuyor ? 'konusuyor' : hata ? 'hata' : dinleme === 'cozuluyor' ? 'dusunuyor' : durum;
@@ -221,7 +264,7 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
 
   return (
     <div className="flex h-full min-h-0 gap-4" data-aria-sayfasi>
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className={'flex min-h-0 min-w-0 flex-col ' + (agGoster ? 'w-[min(40rem,44%)] shrink-0' : 'flex-1')}>
       <header className="relative flex shrink-0 items-start gap-3 pb-2">
         <div className="flex min-w-0 flex-1 flex-col items-center">
           <SinyalHalkasi hal={hal} seviye={seviye} boyut={mesajlar.length ? 128 : 208} />
@@ -252,6 +295,7 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
             type="button"
             data-hafiza-dugme
             onClick={() => {
+              if (agGoster) return setCekmece((x) => !x);
               const yeni = !panel;
               setPanel(yeni);
               try {
@@ -260,12 +304,31 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
                 /* depolama kapali */
               }
             }}
-            aria-pressed={panel}
+            aria-pressed={agGoster ? cekmece : panel}
             title="Aria'nın hafızası"
-            className={'cursor-pointer rounded-kontrol p-1.5 hover:bg-yuzey hover:text-metin ' + (panel ? 'text-metin' : 'text-metin-soluk')}
+            className={'cursor-pointer rounded-kontrol p-1.5 hover:bg-yuzey hover:text-metin ' + ((agGoster ? cekmece : panel) ? 'text-metin' : 'text-metin-soluk')}
           >
             <BrainCircuit className="size-4" aria-hidden="true" />
             <span className="sr-only">Hafıza paneli</span>
+          </button>
+          <button
+            type="button"
+            data-ag-dugme
+            onClick={() => {
+              const yeni = !agGoster;
+              setAgGoster(yeni);
+              try {
+                localStorage.setItem(AG_ANAHTAR, yeni ? '1' : '0');
+              } catch {
+                /* depolama kapali */
+              }
+            }}
+            aria-pressed={agGoster}
+            title="Hafıza ağı: Aria çalışırken notlar yanar"
+            className={'cursor-pointer rounded-kontrol p-1.5 hover:bg-yuzey hover:text-metin ' + (agGoster ? 'text-metin' : 'text-metin-soluk')}
+          >
+            <Waypoints className="size-4" aria-hidden="true" />
+            <span className="sr-only">Hafıza ağı</span>
           </button>
           <button
             type="button"
@@ -354,7 +417,8 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
                   <AriaMesajiSatiri
                     m={m}
                     onHafiza={(yol) => {
-                      setPanel(true);
+                      if (agGoster) setCekmece(true);
+                      else setPanel(true);
                       setAcilacak({ yol, t: Date.now() });
                     }}
                   />
@@ -426,16 +490,31 @@ export default function AriaSayfasi({ gorunur }: { gorunur: boolean }) {
         )}
       </form>
     </div>
-    {panel && (
-      <div className="halka relative flex min-h-0 w-[22rem] shrink-0 flex-col rounded-base bg-yuzey p-3">
-        <HafizaPaneli
-          acilacak={acilacak}
-          onSor={(onek) => {
-            setMetin(onek);
-            requestAnimationFrame(() => kutu.current?.focus());
+    {agGoster ? (
+      <div className="halka relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-base bg-terminal/60">
+        <AriaAgi
+          cekmece={cekmece}
+          ag={ag}
+          hal={hal}
+          bekleyen={oneriler.filter((k) => k.durum === 'bekliyor' && k.proje).map((k) => k.proje!)}
+          kumanda={agKumanda}
+          onSec={(yol) => {
+            setCekmece(true);
+            setAcilacak({ yol, t: Date.now() });
           }}
         />
+        {cekmece && (
+          <div className="absolute bottom-0 right-0 top-11 z-20 flex w-[22rem] max-w-[85%] flex-col rounded-tl-base border-l border-t border-kenar bg-yuzey-guclu p-3" data-ag-cekmece>
+            <HafizaPaneli acilacak={acilacak} onSor={hafizadanSor} />
+          </div>
+        )}
       </div>
+    ) : (
+      panel && (
+        <div className="halka relative flex min-h-0 w-[22rem] shrink-0 flex-col rounded-base bg-yuzey p-3">
+          <HafizaPaneli acilacak={acilacak} onSor={hafizadanSor} />
+        </div>
+      )
     )}
     </div>
   );

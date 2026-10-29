@@ -517,6 +517,10 @@ export type AriaDurumu = 'bosta' | 'aciliyor' | 'dusunuyor' | 'yaziyor' | 'arac'
 export interface AriaAraci {
   ad: string;
   hedef: string;
+  /** v3.4: ham hedefler (agda yanacak dugum): tam dosya yolu (/ ile), Grep/Glob deseni, Kokpit aracinin proje/oturum adi. */
+  dosya?: string;
+  desen?: string;
+  proje?: string;
 }
 export interface AriaMesaji {
   id: string;
@@ -561,6 +565,25 @@ export interface AriaOnerisi {
   sonuc?: string;
   t: number;
   mesajId: string | null;
+}
+/** v3.4: Aria'nin agi (electron/hafiza-ag.cjs). Dugum kimligi uzantisiz goreli yol; `aria` ve `kokpit` sanal. */
+export type AgGrubu = 'aria' | 'kokpit' | 'kimlik' | 'proje' | 'bilgi' | 'kavram' | 'gunluk' | 'arsiv';
+export interface AgDugumu {
+  id: string;
+  baslik: string;
+  grup: AgGrubu;
+  yol: string | null;
+  t: number;
+}
+export interface AgKenari {
+  a: string;
+  b: string;
+  tur: 'link' | 'baglanti' | 'kaynak' | 'konu' | 'aria';
+}
+export interface HafizaAgi {
+  vault: string;
+  dugumler: AgDugumu[];
+  kenarlar: AgKenari[];
 }
 /** v3.3 Faz 61: hafiza paneli (electron/hafiza.cjs). */
 export interface HafizaOzeti {
@@ -783,6 +806,7 @@ declare global {
       hafizaOzet: () => Promise<HafizaOzeti>;
       hafizaAra: (sorgu: string) => Promise<HafizaSonucu[]>;
       hafizaOku: (yol: string) => Promise<HafizaDosyasi | { hata: string }>;
+      hafizaAg: (taze?: boolean) => Promise<HafizaAgi>;
       ariaDinle: (cb: (o: AriaOlayi) => void) => () => void;
       adaAriaAc: () => void;
       sayfaAcDinle: (cb: (sayfa: string) => void) => () => void;

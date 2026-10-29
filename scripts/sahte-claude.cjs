@@ -51,6 +51,14 @@ async function cevapla(icerik) {
     yaz({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'C:/v/🔮 850-Companion/Threads.md' } }] } });
     yaz({ type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result' }] } });
   }
+  // v3.4 (Aria'nin agi): "dosya=<yol>" Read, "yaz=<yol>" Edit, "ara=<desen>" Grep izi. Yalniz olay; dosyaya dokunmaz.
+  for (const [anahtar, ad, alan] of [['dosya', 'Read', 'file_path'], ['yaz', 'Edit', 'file_path'], ['ara', 'Grep', 'pattern']]) {
+    for (const m of icerik.matchAll(new RegExp(anahtar + '=(\\S+)', 'g'))) {
+      yaz({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', name: ad, input: { [alan]: m[1].replace(/\+/g, ' ') } }] } });
+      await uyu(250);
+      yaz({ type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result' }] } });
+    }
+  }
   const metin = (icerik.startsWith('[ses]') ? 'Sesli: ' + icerik.slice(6) : 'Yanki: ' + icerik) + (/yavas/.test(icerik) ? ' ' + 'uzun '.repeat(40) : '');
   const parcalar = metin.match(/.{1,6}/gs) || [];
   for (const p of parcalar) {

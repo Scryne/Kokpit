@@ -31,6 +31,7 @@ const onizleme = require('./onizleme.cjs');
 const paralel = require('./paralel.cjs');
 const aria = require('./aria.cjs');
 const hafiza = require('./hafiza.cjs');
+const hafizaAg = require('./hafiza-ag.cjs');
 const ariaArac = require('./aria-arac.cjs');
 const geceVardiyasi = require('./gece.cjs');
 const surum = require('./surum.cjs');
@@ -709,6 +710,8 @@ const vaultYolu = () => require('./config.cjs').VAULT;
 ipcMain.handle('hafiza:ozet', () => hafiza.ozet(vaultYolu()));
 ipcMain.handle('hafiza:ara', (_e, sorgu) => (typeof sorgu === 'string' ? hafiza.ara(sorgu.slice(0, 200), hafiza.aranabilir(vaultYolu())) : []));
 ipcMain.handle('hafiza:oku', (_e, yol) => hafiza.dosyaOku(vaultYolu(), yol));
+// v3.4: Aria'nin agi (vault not grafigi; salt okunur). `taze`: Aria yeni not yazdiysa onbellegi atla.
+ipcMain.handle('hafiza:ag', (_e, taze) => ({ vault: vaultYolu().split(path.sep).join('/'), ...hafizaAg.agOku(vaultYolu(), { taze: taze === true }) }));
 ipcMain.on('ada:aria-ac', () => {
   pencereyiOneGetir();
   if (pencere) pencere.webContents.send('sayfa:ac', 'aria');

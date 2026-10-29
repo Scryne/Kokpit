@@ -354,6 +354,30 @@ Scryne üç yön arasından **sinyal halkasını** seçti (Ada'nın büyük göz
   işaretleri vault'un kendi emojileri (veri, süs değil).
 - **Fark ettiklerim** — sohbetin başında `yuzey` + halka, katlanır; tarih mono.
 
+## Aria'nın ağı (2026-10-29, v3.4)
+
+Scryne: "Obsidian gibi, 2. beynimsin ya, sinir ağları tarzında; yapılan işlemlerde sinir ağları çalışıyormuş gibi." Ağ
+vault'un kendi not grafiği: süs için üretilmiş bir "nöron animasyonu" değil, her düğüm gerçek bir not, her ışık gerçek bir
+olay. Yeni renk ve yeni cam yok.
+
+- **Yer:** Aria sayfasının sağ yarısı, `terminal/60` kuyu (koyu zemin parlamayı okutur; cam değil, `halka` ile ayrılır).
+  Sohbet solda `min(40rem, 44%)`. Hafıza paneli ağın üstünde çekmece (`yuzey-guclu`, kontrol şeridinin altından başlar);
+  çekmece açıkken lejant gizlenir. 1100 px altında ağ varsayılan kapalı, düğmeyle açılır (seçim kalıcı).
+- **Düğüm biçimi anlam taşır, renk değil:** hafıza (Companion) büyük dolu + dış halka; proje dolu + dış halka; bilgi dolu;
+  kavram küçük, bağ sayısıyla büyür, soluk; gün içi boş halka; arşiv en soluk; Kokpit araçları içi noktalı halka; Aria merkezde
+  sinyal halkasının küçüğü (çalışırken orta halkada dönen ışık). Son 48 saatte değişen not biraz daha parlak (dosya zamanı:
+  ölçülmüş değer).
+- **Işık = olay:** okuma → Aria'dan nota ağın kendi bağları üzerinden (en kısa yol) bir sinyal, varınca not ve komşuları yanar
+  (yayılan aktivasyon, ~1 sn yarı ömür). Yazma → notun çevresinde açılan halka. Arama → eşleşen notlar. Çağrışım (Scryne'ın
+  sorusu hafızada eşleşti) → soluk parıltı, sinyal yok: Aria'nın okuduğu ile arama eşleşmesi görsel olarak ayrı. Işık `birincil`
+  gümüş-beyaz; **amber yalnız onay bekleyen önerinin projesinde** (seni bekliyor).
+- **Hareket bütçesi:** kare döngüsü yalnız sinyal varken, enerji sönerken ya da Aria çalışırken ve pencere odaktayken; boştayken
+  tek çizim (test: `data-ag-dongu`). Hareket azaltmada sinyal yolculuğu ve kıvılcım yok, yanan notlar 4 sn durağan işaretli.
+- **Etiketler:** hafıza, proje, Aria hep; diğerleri yanınca, üzerine gelince, aramada ya da yakınlaşınca. Öncelik sırasıyla
+  yerleşir, çakışan atlanır. Yazı `metin-soluk`, yanan/üzerindeki `metin`, arkasında zemin konturu.
+- **Yerleşim kalıcı:** d3-force bir kez hesaplanır, konumlar saklanır; yeni not komşusunun yanında doğar. Ağın coğrafyası günden
+  güne aynı kalır (Scryne bir notun "nerede" olduğunu öğrenebilsin).
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;

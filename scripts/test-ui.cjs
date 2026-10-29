@@ -823,6 +823,38 @@ async function v3Testi(cdp, adaCdp) {
   for (const x of fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).slice(defterOnceOneri).map((x) => JSON.parse(x))) if (x.olay === 'acildi' && x.claude) ARIA_ONERI_KIMLIKLERI.add(x.claude);
   kontrol('aria oneri: onay deftere tek acilis yazdi (yeni claude kimligi)', ARIA_ONERI_KIMLIKLERI.size === 1, [...ARIA_ONERI_KIMLIKLERI]);
   kontrol('aria oneri: test sekmesi kapatildi (ortam eski haline)', await cdp.bekle(`document.querySelectorAll('[role="tab"]').length === ${sekmeOnce}`, 8000, 'oneri sekmesi kapandi').catch(() => false));
+
+  console.log('v3.4 Aria\'nin agi: vault not grafigi, araclarla ates, cagrisim, cekmece, hareket butcesi');
+  // Gercek vault SALT OKUNUR (durum.py gibi); sahte claude yalniz arac izi uretir ("yaz=" dahil, dosyaya dokunmaz).
+  await cdp.js(`(() => { document.querySelector('button[aria-label="Aria"]').click(); return true; })()`);
+  await cdp.js(`(() => { const b = document.querySelector('[data-ag-dugme]'); if (b.getAttribute('aria-pressed') !== 'true') b.click(); return true; })()`);
+  const agSecici = `document.querySelector('[data-aria-ag]')`;
+  kontrol('ag: gercek vault agi yuklendi (> 50 not, > 50 bag)', await cdp.bekle(`Number(${agSecici}?.getAttribute('data-dugum')) > 50 && Number(${agSecici}?.getAttribute('data-kenar')) > 50`, 15000, 'ag').catch(() => false), await cdp.js(`${agSecici}?.outerHTML.slice(0, 200)`));
+  // v3.4 bulgusu: ag gelmeden zamanlanan ilk kare bos cizimi cagirip "calisiyor" bayragini indirmiyordu, tuval hic cizilmiyordu.
+  kontrol('ag: tuval gercekten cizildi (bos degil)', await cdp.bekle(`(() => { const c = document.querySelector('[data-aria-ag] canvas'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 16) if (d[i]) n++; return n > 500; })()`, 8000, 'tuval').catch(() => false));
+  const agGecmis = () => cdp.js(`${agSecici}.getAttribute('data-ag-gecmis')`);
+  const V = VAULT.split(path.sep).join('/').replace(/ /g, '+');
+  await cdp.js(`window.kokpit.ariaGonder(${JSON.stringify('ag testi dosya=' + V + '/🔮+850-Companion/Threads.md ara=kokpit yaz=' + V + '/🔮+850-Companion/Last-Session.md')})`);
+  kontrol('ag: Aria vault notunu okuyunca o not ates aldi (okuma)', await cdp.bekle(`${agSecici}.getAttribute('data-ag-gecmis').split(' || ').includes('okuma:🔮 850-Companion/Threads')`, 8000, 'okuma').catch(() => false), await agGecmis());
+  kontrol('ag: Grep deseni eslesen notlari yakti (arama; Kokpit proje notu dahil)', await cdp.bekle(`${agSecici}.getAttribute('data-ag-gecmis').split(' || ').some(x => x.startsWith('arama:') && x.split(/[:|]/).includes('🏰 300-Projects/Kokpit'))`, 8000, 'arama').catch(() => false), await agGecmis());
+  kontrol('ag: vault\'a yazma ayri tur (yazma)', await cdp.bekle(`${agSecici}.getAttribute('data-ag-gecmis').split(' || ').includes('yazma:🔮 850-Companion/Last-Session')`, 8000, 'yazma').catch(() => false), await agGecmis());
+  await cdp.bekle(`![...document.querySelectorAll('[data-aria-mesaj="aria"]')].some(x => x.hasAttribute('data-akiyor'))`, 10000, 'tur bitti').catch(() => false);
+  await cdp.js(`window.kokpit.ariaGonder('Kokpit')`);
+  kontrol('ag: soru hafizada eslesen notlari soluk yakti (cagrisim: arama, Aria\'nin okudugu degil)', await cdp.bekle(`${agSecici}.getAttribute('data-ag-gecmis').split(' || ').some(x => x.startsWith('cagrisim:') && x.includes('🏰 300-Projects/Kokpit'))`, 8000, 'cagrisim').catch(() => false), await agGecmis());
+  await cdp.bekle(`![...document.querySelectorAll('[data-aria-mesaj="aria"]')].some(x => x.hasAttribute('data-akiyor'))`, 10000, 'tur bitti').catch(() => false);
+  await cdp.js(`window.kokpit.ariaGonder('oneri proje=Kokpit')`);
+  kontrol('ag: Kokpit araci Kokpit dugumunu ve onerinin projesini yakti', await cdp.bekle(`${agSecici}.getAttribute('data-ag-gecmis').split(' || ').includes('kokpit:kokpit|🏰 300-Projects/Kokpit')`, 8000, 'kokpit').catch(() => false), await agGecmis());
+  await cdp.bekle(`!!document.querySelector('[data-aria-oneri="bekliyor"]')`, 8000, 'kart').catch(() => false);
+  await cdp.js(`(() => { for (const k of document.querySelectorAll('[data-aria-oneri="bekliyor"]')) [...k.querySelectorAll('button')].find(b => b.textContent.includes('Vazgeç'))?.click(); return true; })()`);
+  // Cekmece: aramada Enter ilk eslesmeyi hafiza cekmecesinde acar.
+  await cdp.js(`(() => { const i = document.querySelector('[data-ag-ara]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, 'Kurallar'); i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  await uyu(200);
+  await cdp.js(`(() => { document.querySelector('[data-ag-ara]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true; })()`);
+  kontrol('ag: aramada Enter notu hafiza cekmecesinde acti', await cdp.bekle(`!!document.querySelector('[data-ag-cekmece]') && document.querySelector('[data-ag-cekmece]').textContent.includes('Kurallar')`, 8000, 'cekmece').catch(() => false));
+  await cdp.js(`(() => { const i = document.querySelector('[data-ag-ara]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ''); i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  // Hareket butcesi (DESIGN.md): Aria bostayken ve ates sonunce kare dongusu durur.
+  await cdp.bekle(`![...document.querySelectorAll('[data-aria-mesaj="aria"]')].some(x => x.hasAttribute('data-akiyor'))`, 10000, 'tur bitti').catch(() => false);
+  kontrol('ag: bostayken kare dongusu durdu (sonsuz animasyon yok)', await cdp.bekle(`${agSecici}.getAttribute('data-ag-dongu') === '0'`, 12000, 'dongu durdu').catch(() => false), await cdp.js(`${agSecici}.getAttribute('data-ag-dongu')`));
   await cdp.tus('1', 2, 'Digit1');
   await uyu(400);
 

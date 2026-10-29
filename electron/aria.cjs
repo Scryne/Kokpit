@@ -128,7 +128,13 @@ function aracOzeti(ad, girdi) {
   else if (g.url) hedef = kisa(g.url, 50);
   else if (g.description) hedef = kisa(g.description, 50);
   const temizAd = String(ad).replace(/^mcp__kokpit__(?:kokpit_)?/, 'kokpit.');
-  return { ad: temizAd, hedef };
+  // v3.4: Aria'nin aginda hangi dugumun yanacagi icin ham hedefler (yol tam, desen ham, proje adi).
+  const o = { ad: temizAd, hedef };
+  if (dosya) o.dosya = String(dosya).split('\\').join('/');
+  if (g.pattern && (ad === 'Grep' || ad === 'Glob')) o.desen = String(g.pattern).slice(0, 120);
+  if (typeof g.proje === 'string') o.proje = g.proje.slice(0, 80);
+  else if (typeof g.oturum === 'string') o.proje = g.oturum.slice(0, 80);
+  return o;
 }
 
 /** Vault icine yazan arac mi (Write/Edit/MultiEdit): "gorunur hafiza" icin goreli yol. SAF. */

@@ -722,7 +722,7 @@ async function v33AriaTesti() {
   const j = (x) => JSON.stringify(x);
   // Saf parcalar
   kontrol('aria: gun 05:00 sinirli', aria.gunAnahtari(new Date(2026, 9, 30, 4, 0).getTime()) === '2026-10-29' && aria.gunAnahtari(new Date(2026, 9, 30, 9, 0).getTime()) === '2026-10-30');
-  kontrol('aria: arac ozeti (dosya adi, komut, mcp adi)', j(aria.aracOzeti('Read', { file_path: 'C:\\v\\🔮 850-Companion\\Threads.md' })) === j({ ad: 'Read', hedef: '🔮 850-Companion/Threads.md' }) && aria.aracOzeti('mcp__kokpit__oturumlar', {}).ad === 'kokpit.oturumlar' && aria.aracOzeti('Bash', { command: 'git status' }).hedef === 'git status');
+  kontrol('aria: arac ozeti (dosya adi, komut, mcp adi)', j(aria.aracOzeti('Read', { file_path: 'C:\\v\\🔮 850-Companion\\Threads.md' })) === j({ ad: 'Read', hedef: '🔮 850-Companion/Threads.md', dosya: 'C:/v/🔮 850-Companion/Threads.md' }) && aria.aracOzeti('mcp__kokpit__oturumlar', {}).ad === 'kokpit.oturumlar' && aria.aracOzeti('Bash', { command: 'git status' }).hedef === 'git status');
   const vault = path.join(GECICI, 'vault');
   kontrol('aria: hafiza yolu yalniz vault icindeki yazma', aria.hafizaYolu('Edit', { file_path: path.join(vault, '🔮 850-Companion', 'Threads.md') }, vault) === '🔮 850-Companion/Threads.md' && aria.hafizaYolu('Read', { file_path: path.join(vault, 'x.md') }, vault) === null && aria.hafizaYolu('Write', { file_path: path.join(GECICI, 'disari.md') }, vault) === null);
   let a = { id: 'a1', metinBirikmis: '', taslak: '', araclar: [], hafiza: [] };
@@ -903,8 +903,50 @@ function v33HafizaTesti() {
   kontrol('hafiza: vault disi ve .md olmayan yol reddedilir', 'hata' in h.dosyaOku(vault, '../disari.md') && 'hata' in h.dosyaOku(vault, 'n/x.txt'));
 }
 
+// v3.4: Aria'nin agi (vault not grafigi). Saf kurulum fiksturle; disk okuma gecici vault'ta.
+function v34AgTesti() {
+  const { agKur, agOku, fmListe } = require('../electron/hafiza-ag.cjs');
+  const aria = require('../electron/aria.cjs');
+  const dosyalar = [
+    { yol: '🔮 850-Companion/Core.md', metin: '# Core\n[[🏰 300-Projects/Otomat]] ve [[Threads]]', t: 5 },
+    { yol: '🔮 850-Companion/Threads.md', metin: '---\ntitle: Konular\n---\n[[otomat|takma ad]] [[yok-boyle-not]] [[Core#Bolum]]' },
+    { yol: '🏰 300-Projects/Otomat.md', metin: 'proje notu' },
+    { yol: 'knowledge/concepts/otomat.md', metin: '---\ntitle: Otomat\nsources: [2026-10-27.md, "2026-10-28.md"]\n---\n[[otomat-k1]] [[otomat-k1]]' },
+    { yol: 'knowledge/concepts/otomat-k1.md', metin: '# K1\n[[otomat]]' },
+    { yol: 'knowledge/concepts/yalniz.md', metin: '# Yalniz' },
+    { yol: 'knowledge/connections/otomat--yalniz.md', metin: '---\nconnects: [otomat, yalniz]\n---\n' },
+    { yol: 'daily/2026-10-27.md', metin: '# gun' },
+    { yol: '📥 000-Inbox/Dump/x.md', metin: '[[Core]]' },
+    { yol: 'knowledge/concepts/resim.png', metin: '' },
+  ];
+  const ag = agKur(dosyalar);
+  const kim = new Set(ag.dugumler.map((d) => d.id));
+  const bag = (a, b) => ag.kenarlar.find((k) => (k.a === a && k.b === b) || (k.a === b && k.b === a));
+  kontrol('ag: dugumler (6 klasor icinden .md; iliski makalesi ve Inbox dugum degil; aria + kokpit sanal)', kim.size === 9 && kim.has('aria') && kim.has('kokpit') && !kim.has('knowledge/connections/otomat--yalniz') && ![...kim].some((k) => k.includes('Inbox') || k.includes('resim')), [...kim].join(', '));
+  kontrol('ag: baslik frontmatter title > # baslik > dosya adi', ag.dugumler.find((d) => d.id === '🔮 850-Companion/Threads').baslik === 'Konular' && ag.dugumler.find((d) => d.id === 'knowledge/concepts/otomat-k1').baslik === 'K1');
+  kontrol('ag: [[tam yol]] ve [[ad]] cozulur; "|" ve "#" sonrasi atilir; olmayan hedef bag uretmez', !!bag('🔮 850-Companion/Core', '🏰 300-Projects/Otomat') && !!bag('🔮 850-Companion/Core', '🔮 850-Companion/Threads') && !ag.kenarlar.some((k) => k.a.includes('yok-boyle') || k.b.includes('yok-boyle')));
+  kontrol('ag: ad cakismasinda once kaynak notun klasoru (kavramdaki [[otomat]] kavram; Companion\'dakini dosya adi cozer: ilk klasor, proje)', !!bag('knowledge/concepts/otomat-k1', 'knowledge/concepts/otomat') && !bag('knowledge/concepts/otomat-k1', '🏰 300-Projects/Otomat') && !!bag('🔮 850-Companion/Threads', '🏰 300-Projects/Otomat') && !bag('🔮 850-Companion/Threads', 'knowledge/concepts/otomat'), ag.kenarlar);
+  kontrol('ag: kavramdaki [[ad]] once kavram klasorunde aranir; tekrar eden bag tek kenar', ag.kenarlar.filter((k) => bag('knowledge/concepts/otomat', 'knowledge/concepts/otomat-k1') === k).length === 1);
+  kontrol('ag: sources -> daily (kaynak), connects -> baglanti, ayni adli proje <-> kavram (konu)', bag('knowledge/concepts/otomat', 'daily/2026-10-27')?.tur === 'kaynak' && !ag.kenarlar.some((k) => k.a.includes('2026-10-28') || k.b.includes('2026-10-28')) && bag('knowledge/concepts/otomat', 'knowledge/concepts/yalniz')?.tur === 'baglanti' && bag('🏰 300-Projects/Otomat', 'knowledge/concepts/otomat')?.tur === 'konu');
+  kontrol('ag: Aria hafiza dosyalarinin merkezi; Kokpit araclari Aria\'ya bagli', bag('aria', '🔮 850-Companion/Core')?.tur === 'aria' && bag('aria', '🔮 850-Companion/Threads')?.tur === 'aria' && !!bag('aria', 'kokpit') && !bag('aria', 'knowledge/concepts/otomat'));
+  kontrol('ag: fmListe tirnak ve bosluk temizler; frontmatter yoksa bos', JSON.stringify(fmListe('---\nsources: [ a.md , "b.md" ]\n---\n', 'sources')) === '["a.md","b.md"]' && fmListe('sources: [a]', 'sources').length === 0);
+  const vault = path.join(GECICI, 'ag-vault');
+  for (const d of dosyalar.filter((x) => x.metin)) {
+    fs.mkdirSync(path.join(vault, path.dirname(d.yol)), { recursive: true });
+    fs.writeFileSync(path.join(vault, d.yol), d.metin);
+  }
+  const disk = agOku(vault, { taze: true });
+  kontrol('ag: diskten okuma fikstürle ayni ag + dosya zamani', disk.dugumler.length === ag.dugumler.length && disk.kenarlar.length === ag.kenarlar.length && disk.dugumler.find((d) => d.id === 'daily/2026-10-27').t > 0, { disk: disk.kenarlar.length, saf: ag.kenarlar.length });
+  fs.writeFileSync(path.join(vault, 'knowledge', 'concepts', 'yeni.md'), '[[otomat]]');
+  kontrol('ag: onbellek 60 sn; taze istenince yeni not gorunur', agOku(vault).dugumler.length === disk.dugumler.length && agOku(vault, { taze: true }).dugumler.some((d) => d.id === 'knowledge/concepts/yeni'));
+  const g = aria.aracOzeti('Grep', { pattern: 'matbaa kiyas', path: 'C:\\v' });
+  const k = aria.aracOzeti('mcp__kokpit__oneri_gorev', { proje: 'Matbaa', metin: 'x' });
+  kontrol('ag: arac ozeti ham hedefleri tasir (Grep deseni, Kokpit araci proje adi; yolu olmayan aracta dosya yok)', g.desen === 'matbaa kiyas' && g.dosya === 'C:/v' && k.proje === 'Matbaa' && !('dosya' in aria.aracOzeti('Bash', { command: 'ls' })), { g, k });
+}
+
 (async () => {
   try {
+    v34AgTesti();
     v33HafizaTesti();
     await v33AracTesti();
     await v33AriaTesti();

@@ -67,6 +67,15 @@ Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
 - **Fark ettiklerim.** Aria'nın günlük notu: Kokpit'i ve hafızayı okuyup gözden kaçanları kaynaklı maddelerle yazar. "Şimdi
   düşün" ile elle, "her gün" açıksa günün ilk brifingiyle birlikte (limit harcar, varsayılan kapalı).
 
+**v3.4, Aria'nın ağı:**
+- **Hafıza ağı.** Aria sayfasının sağ yarısı vault'un not grafiği (Obsidian'ın grafik görünümü gibi): hafıza dosyaları,
+  projeler, bilgi tabanı makaleleri, günlükler ve aralarındaki bağlar (`[[bağ]]`, derleyicinin ilişki makaleleri, makalenin
+  hangi günden çıktığı). Merkezde Aria. Sürükle kaydır, tekerlekle yakınlaş, üzerine gel komşuları gör, tıkla notu aç.
+- **Ağ çalışırken.** Aria bir notu okuduğunda merkezden o nota sinyal gider ve not komşularıyla birlikte yanar; yazdığında
+  notun etrafında halka açılır; aradığında eşleşen notlar yanar; bir şey sorduğunda hafızada eşleşen notlar soluk yanar
+  (çağrışım); düşünürken son yanan notlar arasında kıvılcım dolaşır. Onay bekleyen bir önerinin projesi amber halkalı.
+  Aria boştayken ağ durur (animasyon yok).
+
 **v3.2, atölye (vibe coding):**
 - **Sesli cevap ve özet.** "Matbaa ne yaptı?" → Ada son turu söyler (dosya/satır, commit, push bekleyen, son söz; soru varsa
   seçenekleri sırayla okur). "İkinci seçenek", "birinci ve üçüncü", "önerileni seç" → soru cevaplanır. "Kokpit'i aç" → o
