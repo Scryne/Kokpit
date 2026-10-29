@@ -83,6 +83,11 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 65 | Aria'nın ağı: tuval | ✅ Tamamlandı | `AriaAgi.tsx`: d3-force yerleşimi (kaydedilir, coğrafya sabit), pan/zoom, üzerine gel, arama, tıkla → hafıza çekmecesi, çakışmasız etiket |
 | 66 | Aria'nın ağı: ateşleme | ✅ Tamamlandı | Araç olayı → düğüm (okuma/yazma/arama/Kokpit), Aria'dan BFS yolunda sinyal, yayılan aktivasyon, çağrışım, düşünürken kıvılcım, bekleyen öneri amber |
 | 67 | Aria'nın ağı: sayfa | ✅ Tamamlandı | Sohbet solda, ağ sağda, hafıza paneli çekmece; dar ekranda kapalı; hareket bütçesi (boştayken döngü durur) testte |
+| 68 | Denetim: gözetimsiz iş ve veri kaybı | ✅ Tamamlandı | Gece oturumları `permissions.deny` ile (push/silme/gh teknik olarak kapalı, spike'ta doğrulandı); limit bilinmiyorsa görev başlamaz; 10 sa vardiya sınırı; paralel ağaç atılırken .gitignore'daki dosyalar uyarılır; öneri kartı çift onaylanamaz |
+| 69 | Denetim: yayın ve süreç güvenliği | ✅ Tamamlandı | Teslim: görünürlük push anında taze, kapı çalışmazsa varsayılan Vazgeç, onaydan sonra gelen commit itilmez, çapalı GitHub adresi; PTY jetonu alt süreçte yok, çıkışta bütün oturum ağaçları ölür; önizleme yönlendirmesi; bütün pencerelerde gezinme koruması |
+| 70 | Denetim: Aria ve ses dayanıklılığı | ✅ Tamamlandı | Aria süreci: eski çıktı yeni tura karışmaz, başlatma hatası/çıkış kurtarılır, kuyruk cevapsız kalmaz; whisper asılınca yeniden başlar; ses sırası; mikrofon hataları ayrışır |
+| 71 | Denetim: arayüz | ✅ Tamamlandı | ~60 arayüz bulgusu: terminal boyutu, Teslim yarışı, durum hatası her sayfada, markdown tablo/alıntı, ağın klavye erişimi, öneri metninin tamamı, sessiz hataların görünür olması |
+| 72 | Bildirim geçmişi | ✅ Tamamlandı | Başlıkta zil: son 50 bildirim (hatalar dahil, gece notları), okunmamış sayısı, Esc; kısa satır 4 sn |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -1009,3 +1014,29 @@ grafiği; her düğüm gerçek bir not, her ışık Aria'nın gerçek bir aracı
   gerçek vault salt okunur, okuma/arama/yazma/Kokpit ateşi, çağrışım, çekmece, boştayken döngü durur; iki odak ön koşulu yine
   ortam). Ekran: `npm run ekran:ag`.
 - **Yayın kapısı:** v3.3 testindeki örnek cümlede gerçek bir kişi adı vardı; push edilmemiş commit'lerde nötrleştirildi.
+
+### v3.5 — Denetim ve bildirim geçmişi (Faz 68–72, 2026-10-29)
+
+Scryne: "Kokpit'i baştan sona incele, denetle; eksiklik ve hataların tamamını çöz; iyileştirmeleri profesyonelce yap; en üst
+hale çıkaracak yeni şeyler ekle; frontend dahil." Yöntem: beş salt okuma denetimi paralel (main çekirdek, süreç modülleri,
+Ada/ses/Aria, arayüz ×2), ~130 bulgu; her biri kodda doğrulanıp düzeltildi ya da gerekçeyle bırakıldı. Görsel tur
+(`npm run ekran:tur`: yedi sayfa × 1440/1024) konsol hatası ve yatay taşma vermedi.
+
+- **En önemli bulgular:** (1) gece vardiyasının "push yok, silme yok" kuralı yalnız istem metniydi; gözetimsiz claude
+  kullanıcının varsayılan izin moduyla açılıyordu. Artık ayrı ayarla `permissions.deny` (spike: izinleri atlayan modda bile
+  `git push` reddedildi). (2) Limit ölçülemezse gece görevi yine başlıyordu (fail-open). (3) Paralel ağaç "At"ı `.gitignore`'daki
+  üretilmiş dosyaları uyarısız siliyordu. (4) Öneri kartı aynı anda iki yoldan onaylanınca iş iki kez yapılıyordu. (5) Teslim:
+  "private" görünürlüğü 6 saat önbellekte kalıyordu (depo public yapılırsa kapı atlanırdı); kapı çalışmazsa varsayılan düğme
+  "Push et"ti. (6) Aria: kapatılan sürecin geç gelen satırları yeni turun cevabını eziyordu (mutasyonla gösterildi).
+- **Yanlış çıkan bulgu:** PTY sunucusunun logu döndürülmüyor denmişti; 500 yazımda bir döndürülüyordu.
+- **Bırakılanlar (gerekçeli):** Electron 44.10 / koffi 3.3.5 yaması (çalışan Kokpit dosyaları kilitliyor; bir sonraki
+  yeniden başlatmada), App genelinde `memo` (ölçülmüş bir yavaşlık yok), sekme şeridinde roving tabindex, renk sabitlerinin
+  tek yerden okunması, `node_modules` junction'ı (gece istemine kural olarak eklendi; ağaçta bağımlılık değişirse bağ kaldırılır).
+  `test:secim` koşulmadı: gerçek panoya dokunuyor, Scryne aktifti; değişiklik yalnız erken bir çıkış (dosya listesi panodayken).
+- **Yeni:** bildirim geçmişi (zil), markdown tablo/alıntı/iç içe liste, ağda klavye ile eşleşme listesi, öneri metninin tamamı,
+  Esc'li hafıza çekmecesi, dar kenar çubuğunda uyarı noktası, `ekran:tur` görsel tur betiği; kırık `ekran-ada` betiği onarıldı
+  ("tabloda satır var" koşulunu önce Botlar tablosu sağlıyordu).
+- **Testler:** `test:ada` 291 (277'den; gece limit/süre/yasak, öneri başla-sonuç, paralel ad çakışması ve yok sayılan dosya,
+  Teslim HEAD ve çapalı adres, ses yanlış eşleşmeleri, hafıza junction kaçışı, Aria yeni sohbet çakışması), `test:kanca` 125
+  (gece ayar dosyası), `test:pty` (jeton sızmaz), `test:ui` 260 (+2 bilinen odak ön koşulu; bildirim, tablo, çekmece Esc,
+  klavye listesi). Mutasyon: jeton, Aria eski çıktı, ad çakışması, tuval çizimi testleri hata geri konunca düştü.

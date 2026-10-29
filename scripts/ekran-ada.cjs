@@ -75,7 +75,10 @@ const KANCA = "$h=@{Authorization=\"Bearer $env:KOKPIT_KANCA_TOKEN\";'X-Kokpit-O
   const ana = await baglan(anaHedef);
   const ada = await baglan(adaHedef);
   try {
-    await ana.bekle(`document.querySelectorAll('table tbody tr').length > 0`, 20000);
+    // Pano'nun proje satirlari ("Ac" dugmeleri) beklenir: "tabloda satir var" kosulunu once Botlar tablosu sagliyor ve
+    // betik Pano dolmadan ilerliyordu (v3.5'te bulundu; v3.0 ekran tuzagi).
+    await ana.js(`window.kokpit.durumGetir().then(() => true)`);
+    await ana.bekle(`[...document.querySelectorAll('table tbody tr button')].some(b => b.textContent.trim() === 'Aç')`, 60000);
     const projeler = await ana.js(`[...document.querySelectorAll('table tbody tr button')].filter(b => b.textContent.trim() === 'Aç').slice(0, 2).map(b => b.closest('tr').querySelector('th .enstruman').textContent)`);
     // Iki oturum: biri soru soruyor, digeri bitti.
     for (const ad of projeler) {

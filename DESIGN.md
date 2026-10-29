@@ -378,6 +378,19 @@ olay. Yeni renk ve yeni cam yok.
 - **Yerleşim kalıcı:** d3-force bir kez hesaplanır, konumlar saklanır; yeni not komşusunun yanında doğar. Ağın coğrafyası günden
   güne aynı kalır (Scryne bir notun "nerede" olduğunu öğrenebilsin).
 
+## v3.5 denetimi: yüzey kuralları (2026-10-29)
+
+- **Bildirim zili** — başlıkta, Inbox notunun yanında; çerçeveli ikon düğme. Okunmamış sayısı `birincil` zeminde mono rakam
+  (ölçülmüş değer; amber değil: bildirim seni beklemiyor, yalnız haber). Liste `yuzey-guclu` + `halka`; saat mono soluk, metin
+  `metin-ikincil`, hata `hata-metin`. Kısa satır 4 sn başlıkta kalır, geçmiş 50 kayıt.
+- **Bağlanıyor noktası** amber değil: `aksan/60`, arka planda duran nabız. Amber yalnız "seni bekliyor".
+- **Ağda bekleyen öneri** amber + kesik halka: anlam yalnız renkle taşınmaz; ipucunda "onay bekleyen öneri" yazar.
+- **Aria markdown** — tablo: başlık `metin`, hücre `metin-ikincil`, satır arası `kenar`; alıntı: sol 2 px `kenar-guclu` çizgi,
+  `metin-ikincil`. Bağlantının adresi ipucunda ve ekran okuyucuda (etiket ile adres ayrı olabilir).
+- **Durum hatası** proje verisine dayanan her sayfanın üstünde (Pano, Sağlık, Envanter, Teslim); veri gelmeden "Projeler
+  okunuyor…" yazar, boş ekran yok.
+- **Arka planda duran animasyonlar**: `animate-pulse`, `animate-spin`, Aria'nın yazı imleci, çalışma işareti (`html.arka-plan`).
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;

@@ -31,6 +31,8 @@ export function useGeceVardiyasi(o: {
   yaz: (oturumId: string, veri: string) => boolean;
   /** v3.5: suresi dolan gorevin oturumunu guvenli kapatir (Esc'e cevap vermeyen claude kalmasin). */
   kapat: (oturumId: string) => void;
+  /** v3.5: vardiya notlari Kokpit'in bildirim gecmisine de duser (Ada'nin hapi gecici). */
+  not?: (metin: string) => void;
 }) {
   const [gece, setGece] = useState<GeceVardiyasi | null>(null);
   const [durum, setDurum] = useState<string | null>(null);
@@ -38,6 +40,11 @@ export function useGeceVardiyasi(o: {
   geceRef.current = gece;
   const ortam = useRef(o);
   ortam.current = o;
+  // Gece notu hem Ada'ya (main) hem Kokpit'in bildirim gecmisine.
+  const geceNotu = (m: string) => {
+    window.kokpit.geceNot(m);
+    ortam.current.not?.(m);
+  };
 
   useEffect(() => {
     void window.kokpit.geceOku().then(setGece);
@@ -81,7 +88,7 @@ export function useGeceVardiyasi(o: {
       if (e.tur === 'isaretle') {
         await yamala(e.id, { durum: e.durum, bitti: Date.now(), ...(e.neden ? { neden: e.neden } : {}), ...(e.ozet ? { ozet: e.ozet } : {}) });
         const g = (await guncel()).gorevler.find((x) => x.id === e.id);
-        if (g) window.kokpit.geceNot('Gece: ' + g.proje + ' ' + (e.durum === 'bitti' ? 'bitti' : e.durum === 'takildi' ? 'takıldı' : e.durum === 'sure' ? 'süresi doldu' : 'açılamadı') + (e.neden ? ' (' + e.neden + ')' : ''));
+        if (g) geceNotu('Gece: ' + g.proje + ' ' + (e.durum === 'bitti' ? 'bitti' : e.durum === 'takildi' ? 'takıldı' : e.durum === 'sure' ? 'süresi doldu' : 'açılamadı') + (e.neden ? ' (' + e.neden + ')' : ''));
       } else if (e.tur === 'cevapla') {
         const hata = await ortam.current.gonder(e.istek as GonderIstegi);
         const g = (await guncel()).gorevler.find((x) => x.id === e.id);
@@ -98,7 +105,7 @@ export function useGeceVardiyasi(o: {
         const biten = v.gorevler.filter((g) => g.basladi && g.durum !== 'bekliyor');
         await kaydet({ ...v, aktif: false, son: Date.now(), baslaZamani: null });
         setDurum(null);
-        window.kokpit.geceNot('Gece vardiyası bitti: ' + biten.filter((g) => g.durum === 'bitti').length + '/' + biten.length + ' görev tamam (' + e.neden + ')');
+        geceNotu('Gece vardiyası bitti: ' + biten.filter((g) => g.durum === 'bitti').length + '/' + biten.length + ' görev tamam (' + e.neden + ')');
       } else if (e.tur === 'baslat') {
         // Karar alindiktan sonra vardiya durdurulduysa yeni gozetimsiz oturum acilmaz.
         if (!(await guncel()).aktif) return;
@@ -121,7 +128,7 @@ export function useGeceVardiyasi(o: {
           }
           const id = ortam.current.sekmeAc({ ad: g.proje + '/' + r.kayit.ad, yol: r.kayit.yol }, istem);
           await yamala(g.id, { oturumId: id });
-          window.kokpit.geceNot('Gece: ' + g.proje + ' başladı (' + r.kayit.dal + ')');
+          geceNotu('Gece: ' + g.proje + ' başladı (' + r.kayit.dal + ')');
         } catch (h) {
           await yamala(g.id, { durum: 'hata', bitti: Date.now(), neden: 'oturum açılamadı: ' + (h as Error).message });
         }

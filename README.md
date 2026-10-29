@@ -67,6 +67,16 @@ Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
 - **Fark ettiklerim.** Aria'nın günlük notu: Kokpit'i ve hafızayı okuyup gözden kaçanları kaynaklı maddelerle yazar. "Şimdi
   düşün" ile elle, "her gün" açıksa günün ilk brifingiyle birlikte (limit harcar, varsayılan kapalı).
 
+**v3.5, denetim + bildirim geçmişi:**
+- **Gece vardiyası teknik olarak sınırlı.** Gözetimsiz claude oturumları ayrı bir ayarla açılır: `git push`, `rm -rf`,
+  `gh`, geçmişi yeniden yazma izin listesinde reddedilir (izinleri atlayan modda bile). Limit ölçülemiyorsa görev başlamaz;
+  bir vardiya en fazla 10 saat; süresi dolan oturum kapanır.
+- **Teslim daha sıkı.** Depo görünürlüğü push anında yeniden sorulur; yayın kapısı çalışmazsa varsayılan "Vazgeç"; onay
+  diyaloğu açıkken gelen commit itilmez.
+- **Paralel ağaç atılırken** `.gitignore`'daki üretilmiş dosyalar (gece görevinin çıktısı, yerel veritabanı) da sayılır.
+- **Bildirimler kaybolmaz.** Başlıktaki zil son 50 bildirimi tutar (gönderim hataları, gece vardiyası notları, paralel ağaç).
+- **Aria cevapları** tablo, alıntı ve iç içe liste çizer; ağdaki notlar klavyeyle de bulunur.
+
 **v3.4, Aria'nın ağı:**
 - **Hafıza ağı.** Aria sayfasının sağ yarısı vault'un not grafiği (Obsidian'ın grafik görünümü gibi): hafıza dosyaları,
   projeler, bilgi tabanı makaleleri, günlükler ve aralarındaki bağlar (`[[bağ]]`, derleyicinin ilişki makaleleri, makalenin

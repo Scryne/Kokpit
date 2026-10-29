@@ -811,8 +811,19 @@ async function v33AriaTesti() {
   kontrol('aria surec: kapatilinca ayni gunun kimligiyle --resume', son && ikinci.includes('--resume') && ikinci[ikinci.indexOf('--resume') + 1] === ilkArg[ilkArg.indexOf('--session-id') + 1], j(ikinci));
   const g = aria.gecmis();
   kontrol('aria: gecmis diske yazildi (sen + aria mesajlari)', g.mesajlar.filter((m) => m.rol === 'sen').length >= 4 && g.mesajlar.some((m) => m.rol === 'aria' && m.metin === 'Yanki: devam') && g.oturum.baslik === 'merhaba', j(g.mesajlar.map((m) => m.rol + ':' + m.metin.slice(0, 12))));
-  aria.yeniSohbet();
+  // v3.5: tur surerken "yeni sohbet": eski tur cevapsiz "kesildi" kapanir; kapatilan surecin son satirlari yeni turun
+  // durumuna karismaz (onceden eski result yeni turun aktif'ini kapatiyor, yeni cevap yutuluyordu).
+  const yeniOlaylar = [];
+  bekleyen = (o) => yeniOlaylar.push(o);
+  const eskiTur = aria.gonder('yavas eski tur');
   await new Promise((r2) => setTimeout(r2, 400));
+  aria.yeniSohbet();
+  // Iki uzun tur ust uste biner: eski surecin result'i (once biter) yeni turun aktif'ini kapatmamali.
+  const yeniTur = aria.gonder('yavas yeni tur');
+  for (let i = 0; i < 80 && !yeniOlaylar.some((x) => x.id === yeniTur.ariaId); i++) await new Promise((r2) => setTimeout(r2, 150));
+  const eskiBitti = yeniOlaylar.find((x) => x.id === eskiTur.ariaId);
+  const yeniBitti = yeniOlaylar.find((x) => x.id === yeniTur.ariaId);
+  kontrol('aria surec: tur surerken yeni sohbet -> eski tur kesildi, yeni tur kendi cevabini alir', eskiBitti?.kesildi === true && yeniBitti?.metin.startsWith('Yanki: yavas yeni tur') && !yeniBitti.metin.includes('eski') && !yeniBitti.kesildi && !olaylar.some((x) => x.tur === 'parca' && x.id === yeniTur.ariaId && x.metin.includes('eski')) && yeniOlaylar.filter((x) => x.id === eskiTur.ariaId).length === 1, j(yeniOlaylar.map((x) => [x.id === eskiTur.ariaId ? 'eski' : x.id === yeniTur.ariaId ? 'yeni' : '?', x.kesildi, x.metin.slice(0, 24)])));
   kontrol('aria: yeni sohbet ayni gune ikinci kimlik', aria.oturumlar().length === 2 && aria.oturumlar()[0].id !== aria.oturumlar()[1].id);
   aria.kapat();
   // Faz 63: gunluk not. Ayri, kalici olmayan claude -p; sohbetin kimligine dokunmaz; gunde bir (zorla haric).

@@ -44,6 +44,7 @@ import Envanter from './Envanter';
 import Botlar from './Nobet';
 import Teslim from './Teslim';
 import Onizleme from './Onizleme';
+import { BildirimZili, useBildirimler } from './Bildirimler';
 import AriaSayfasi from './AriaSayfasi';
 import { GeceKutusu, useGeceVardiyasi } from './Gece';
 import NotKutusu from './NotKutusu';
@@ -178,12 +179,10 @@ export default function App() {
   const [sonOturumlar, setSonOturumlar] = useState<Record<string, SonOturum>>({});
   // Inbox notu (Ctrl+Shift+N) ve kaydedildi bildirimi (4 sn).
   const [notAcik, setNotAcik] = useState(false);
-  const [notBildirimi, setNotBildirimi] = useState<string | null>(null);
-  useEffect(() => {
-    if (!notBildirimi) return;
-    const t = setTimeout(() => setNotBildirimi(null), 4000);
-    return () => clearTimeout(t);
-  }, [notBildirimi]);
+  // v3.5: kisa bildirim (4 sn) + gecmis (zil). Hatalar gecmiste kalir, kaybolmaz.
+  const bildirimler = useBildirimler();
+  const notBildirimi = bildirimler.anlik;
+  const setNotBildirimi = bildirimler.bildir;
 
   const ucusta = useRef(false);
   const sonOkuma = useRef(0);
@@ -491,7 +490,7 @@ export default function App() {
     async (p: Pick<Proje, 'ad' | 'yol'>, secenek?: { gorev?: string; arkaPlan?: boolean; ad?: string }) => {
       const r = await window.kokpit.paralelAc(p.yol, secenek?.ad ?? '');
       if ('hata' in r) {
-        setNotBildirimi('Paralel oturum açılamadı: ' + r.hata);
+        setNotBildirimi('Paralel oturum açılamadı: ' + r.hata, 'hata');
         return null;
       }
       console.info('[paralel] ' + p.ad + '/' + r.kayit.ad + (r.notlar.length ? ' (' + r.notlar.join(', ') + ')' : ''));
@@ -860,7 +859,7 @@ export default function App() {
   const gonderVeBildir = useCallback(
     (istek: GonderIstegi) => {
       void oturumaGonder(istek).then((h) => {
-        if (h) setNotBildirimi(h);
+        if (h) setNotBildirimi(h, 'hata');
       });
     },
     [oturumaGonder]
@@ -874,6 +873,7 @@ export default function App() {
     yaz: (id, veri) => oturumApileri.current.get(id)?.yaz(veri) ?? false,
     // Calistiktan sonra cagrilir (render bitmis olur): guvenliKapat asagida tanimli.
     kapat: (id) => void guvenliKapat([id], true),
+    not: (m) => setNotBildirimi(m),
   });
   const geceRef = useRef(gece);
   geceRef.current = gece;
@@ -1821,10 +1821,11 @@ export default function App() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {notBildirimi && (
-              <span role="status" className="text-xs text-metin-soluk">
+              <span role="status" className="max-w-md truncate text-xs text-metin-soluk" title={notBildirimi}>
                 {notBildirimi}
               </span>
             )}
+            <BildirimZili liste={bildirimler.liste} okunmamis={bildirimler.okunmamis} okundu={bildirimler.okundu} temizle={bildirimler.temizle} />
             <button
               type="button"
               onClick={() => setNotAcik(true)}
@@ -1891,7 +1892,7 @@ export default function App() {
           </div>
         )}
         {!durum && !hata && (gorunum === 'pano' || gorunum === 'saglik' || gorunum === 'envanter' || gorunum === 'teslim') && (
-          <p role="status" className="mb-4 shrink-0 text-sm text-metin-soluk">
+          <p aria-live="polite" className="mb-4 shrink-0 text-sm text-metin-soluk">
             Projeler okunuyor…
           </p>
         )}

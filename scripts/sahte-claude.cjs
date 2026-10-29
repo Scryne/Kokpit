@@ -96,4 +96,9 @@ process.stdin.on('data', (d) => {
     }
   }
 });
-process.stdin.on('end', () => setTimeout(() => process.exit(0), 50));
+// stdin kapaninca suren tur bitirilir, sonra cikilir (gercek claude SessionEnd oncesi turu tamamlayabilir): kapatilan
+// surecin gec gelen satirlari boylece testte de olusur (v3.5: eski surecin ciktisi yeni tura karismamali).
+process.stdin.on('end', () => {
+  const bekle = () => (calisiyor ? setTimeout(bekle, 30) : setTimeout(() => process.exit(0), 50));
+  bekle();
+});

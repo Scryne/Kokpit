@@ -851,7 +851,16 @@ async function v3Testi(cdp, adaCdp) {
   await uyu(200);
   await cdp.js(`(() => { document.querySelector('[data-ag-ara]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true; })()`);
   kontrol('ag: aramada Enter notu hafiza cekmecesinde acti', await cdp.bekle(`!!document.querySelector('[data-ag-cekmece]') && document.querySelector('[data-ag-cekmece]').textContent.includes('Kurallar')`, 8000, 'cekmece').catch(() => false));
+  // v3.5: cekmece Esc ile kapanir (onceden yalniz baslik dugmesi).
+  await cdp.js(`(() => { document.querySelector('[data-ag-cekmece] button').focus(); document.querySelector('[data-ag-cekmece]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()`);
+  kontrol('ag: cekmece Esc ile kapanir', await cdp.bekle(`!document.querySelector('[data-ag-cekmece]')`, 3000, 'cekmece kapandi').catch(() => false));
+  // v3.5: aramanin eslesmeleri klavyeyle gezilebilir dugme listesi.
+  await cdp.js(`(() => { const i = document.querySelector('[data-ag-ara]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, 'Kurallar'); i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  kontrol('ag: eslesmeler dugme listesi (klavye erisimi)', await cdp.bekle(`[...document.querySelectorAll('[data-ag-eslesmeler] button')].some(b => b.textContent.includes('Kurallar'))`, 4000, 'eslesmeler').catch(() => false));
   await cdp.js(`(() => { const i = document.querySelector('[data-ag-ara]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ''); i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  // v3.5 markdown: Aria'nin tablosu gercek tabloya, alintisi alintiya cizilir (onceden ham '|' satirlari).
+  await cdp.js(`window.kokpit.ariaGonder(${JSON.stringify('tablo\n| Proje | Faz |\n|---|---|\n| Matbaa | 18 |\n> alinti satiri')})`);
+  kontrol('md: tablo ve alinti cizildi', await cdp.bekle(`(() => { const m = [...document.querySelectorAll('[data-aria-mesaj="aria"]')].pop(); return !!m && !m.hasAttribute('data-akiyor') && !!m.querySelector('table th') && m.querySelector('table th').textContent === 'Proje' && m.querySelector('tbody td')?.textContent === 'Matbaa' && !!m.querySelector('blockquote'); })()`, 8000, 'tablo').catch(() => false), await cdp.js(`[...document.querySelectorAll('[data-aria-mesaj="aria"]')].pop()?.innerHTML.slice(0, 300)`));
   // Hareket butcesi (DESIGN.md): Aria bostayken ve ates sonunce kare dongusu durur.
   await cdp.bekle(`![...document.querySelectorAll('[data-aria-mesaj="aria"]')].some(x => x.hasAttribute('data-akiyor'))`, 10000, 'tur bitti').catch(() => false);
   kontrol('ag: bostayken kare dongusu durdu (sonsuz animasyon yok)', await cdp.bekle(`${agSecici}.getAttribute('data-ag-dongu') === '0'`, 12000, 'dongu durdu').catch(() => false), await cdp.js(`${agSecici}.getAttribute('data-ag-dongu')`));
@@ -1666,6 +1675,15 @@ async function main() {
     await cdp.bekle(`!!document.querySelector('[role="status"] button')`, 20000, 'geri yukleme seridi');
     const metin = await cdp.js(`document.querySelector('[role="status"]')?.textContent ?? ''`);
     kontrol('serit 1 oturumu teklif ediyor', metin.includes('1 oturum açıktı'), metin.slice(0, 80));
+    // v3.5 bildirim gecmisi: yeni acilista kapali oturum yigini bos; Ctrl+Shift+T yan etkisiz bir bildirim uretir.
+    // Kisa satir 4 sn'de kaybolur, gecmiste (zil) kalir.
+    await cdp.tus('T', 2 | 8, 'KeyT');
+    kontrol('bildirim: kisa satir gorundu', await cdp.bekle(`[...document.querySelectorAll('header [role="status"]')].some(s => s.textContent.includes('Geri açılacak kapalı oturum yok'))`, 4000, 'kisa bildirim').catch(() => false));
+    kontrol('bildirim: zilde okunmamis sayisi', await cdp.js(`/yeni/.test(document.querySelector('[data-bildirim-zili]')?.getAttribute('aria-label') ?? '')`));
+    await cdp.js(`(() => { document.querySelector('[data-bildirim-zili]').click(); return true; })()`);
+    kontrol('bildirim: gecmiste kaldi, acinca okundu sayilir', await cdp.bekle(`!!document.querySelector('[data-bildirimler]') && document.querySelector('[data-bildirimler]').textContent.includes('Geri açılacak kapalı oturum yok') && !/yeni/.test(document.querySelector('[data-bildirim-zili]').getAttribute('aria-label'))`, 4000, 'gecmis').catch(() => false));
+    await cdp.js(`(() => { document.querySelector('[data-bildirimler]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()`);
+    kontrol('bildirim: Esc kapatir', await cdp.bekle(`!document.querySelector('[data-bildirimler]')`, 3000, 'kapandi').catch(() => false));
     await cdp.js(`(() => { [...document.querySelectorAll('[role="status"] button')].find(b => b.textContent.trim() === 'Geri yükle').click(); return true; })()`);
     await cdp.bekle(`!!document.querySelector('[role="tab"] .bg-aksan')`, 20000, 'geri yuklenen oturum acik');
     kontrol('Geri yukle sekmeyi acti (test kabugu; gercekte claude --resume <kimlik>)', true);
