@@ -53,6 +53,20 @@ araç. Kenarın altında **limit** (5 saat, hafta). Statusline Kokpit oturumlar�
 gelince oturum listesi açılır; bir oturum bitince ya da soru sorunca 5 sn kendiliğinden açılır.
 Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
 
+**v3.3, Aria (ikinci beyin):**
+- **Aria sayfası (Ctrl+7).** Vault'taki ikinci beyinle sohbet: sor, anlat, iş ver. Arkada vault'ta kalıcı bir claude oturumu
+  (hafıza hook'larıyla); ekranda sohbet, ortada Aria'nın yüzü (sinyal halkası: dinliyor / düşünüyor / yazıyor / konuşuyor).
+  Gün içinde aynı konuşma, yeni gün yeni sohbet (dünkü "Geçmiş"te); 20 dk boşta kalınca kapanır ve hafızaya düşer.
+- **Ada, Aria'nın yüzü.** Ada'ya sesle sorulan bilgi soruları ("Ada, Matbaa'nın ölçüm günü ne zaman?", "Aria, …", "sor: …",
+  "hatırla: …") Aria'ya gider; Ada düşünürken gözü çalışır, cevabı sesli okur, kartta "Aria'da aç".
+- **Hafıza paneli.** Kimlik, açık konular, kurallar, son oturumlar, Journal ve bilgi tabanında arama; bir dosyayı okuyup "Aria'ya
+  sor". Aria hafızaya bir şey yazdıysa mesajın altında "Hafızaya yazdı: …" (tıklanınca dosya açılır).
+- **Öneri kartları.** Aria Kokpit'i okuyabilir (oturumlar, brifing, nöbet, Teslim, gece, limit) ama kendi başına hiçbir şey
+  yapmaz: "şu projede oturum aç", "gece vardiyasına ekle", "şu oturuma yaz" birer karttır; **Onayla** (ya da Ada'ya sesle
+  "onayla") dersen uygulanır.
+- **Fark ettiklerim.** Aria'nın günlük notu: Kokpit'i ve hafızayı okuyup gözden kaçanları kaynaklı maddelerle yazar. "Şimdi
+  düşün" ile elle, "her gün" açıksa günün ilk brifingiyle birlikte (limit harcar, varsayılan kapalı).
+
 **v3.2, atölye (vibe coding):**
 - **Sesli cevap ve özet.** "Matbaa ne yaptı?" → Ada son turu söyler (dosya/satır, commit, push bekleyen, son söz; soru varsa
   seçenekleri sırayla okur). "İkinci seçenek", "birinci ve üçüncü", "önerileni seç" → soru cevaplanır. "Kokpit'i aç" → o

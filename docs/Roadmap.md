@@ -73,6 +73,12 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 55 | Gece vardiyası | ✅ Tamamlandı | Görev sırası + başlangıç saati; her görev kendi dalında sırayla; soru → önerilen seçenek, takılma / süre / limit kuralları (saf karar, 20 senaryo); makine uyumaz; sabah brifingi özetler; nöbete bildirildi |
 | 56 | Eller serbest ("Ada, …") | ✅ Tamamlandı | İsteğe bağlı sürekli dinleme: yalnız kısa konuşma parçası whisper'a, "Ada" ile başlamayan metin hiçbir yere yazılmaz; video/müzik uzunluk süzgecinde düşer; sinemada kapalı |
 | 57 | Telefondan erişim | ✅ Tamamlandı | Oturumda telefon düğmesi `/rc` (Remote Control) açar, bağlantı yakalanır; isteğe bağlı yeni oturumlar `--remote-control` ile (gerçek claude 2.1.312'de bypass ile çalıştı) |
+| 58 | Aria: sohbet çekirdeği | ✅ Tamamlandı | Vault'ta kalıcı claude oturumu (stream-json): günlük kimlik, `--resume`, kesme, `--strict-mcp-config` (açılış 15 → 1,8 sn); gerçek claude ile hook'lar hafızayı yükledi, süreç kapanıp açılınca konuşma sürdü |
+| 59 | Aria: sayfa ve yüz | ✅ Tamamlandı | Ctrl+7: sinyal halkası (dinliyor / düşünüyor / yazıyor / konuşuyor), akan sohbet, markdown, araç izi, "hafızaya yazdı", kesme, geçmiş günler, sesli cevap |
+| 60 | Aria: ses (Ada onun yüzü) | ✅ Tamamlandı | Soru biçimli cümle ve "Aria, …" / "sor:" / "hatırla" Aria'ya; Ada düşünürken göz çalışıyor, cevabı sesli okuyor, "Aria'da aç"; yazma niyeti ve özet/cevap komutları önceliğini koruyor |
+| 61 | Aria: hafıza paneli | ✅ Tamamlandı | Kimlik, açık konular, kurallar, son oturumlar, Journal (vault salt okunur); 274 makalede arama (57 ms); dosya okuyucu + "Aria'ya sor" |
+| 62 | Aria: Kokpit araçları + öneri kartı | ✅ Tamamlandı | Yerel MCP (stdio → 127.0.0.1 + token): okuma araçları; yazma yalnız öneri kartı, Scryne onaylar (tık / sesli "onayla"), ana pencere uygular; gerçek claude ile uçtan uca |
+| 63 | Aria: günlük not | ✅ Tamamlandı | "Fark ettiklerim": ayrı, kalıcı olmayan claude -p; günde bir brifingle (ayar) ya da elle; gerçek koşuda kaynaklı 5 madde (47 sn) |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -937,3 +943,40 @@ reddedilip v3.1'de istenmişti). Cevap: "her şeyi sana bırakıyorum, sınır t
 - **Kontrol edilemeyen:** gerçek insan sesiyle eller serbest (VAD gerçek mikrofonla), gerçek bir gece vardiyası (gerçek claude,
   saatlerce), gerçek `/rc` düğmesi (oturumu dışarı açar; spike'ta bayrak ölçüldü), public depoya gerçek push (onaysız yapılmadı).
   Çalışan Kokpit eski kodla açık: yeni sürüm yeniden başlatınca gelir.
+
+### v3.3 — Aria: Kokpit'teki ikinci beyin (Faz 58–63, 2026-10-29)
+
+Scryne: "sen kendine bir arayüz oluştur; sen benim 2. beynimsin; Jarvis gibi düşünebilirsin; kodlamadan önce ne yapacağını
+yaz." Plan yazıldı, üç karar soruldu: yüz **sinyal halkası**, **Ada Aria'nın yüzü** (tek varlık: Ada beden ve ses, Aria akıl ve
+hafıza), Aria'nın eli **öneri kartı + onay** (Kokpit'in v2.3 kuralı korunur: oturuma yalnız Scryne'ın açık eylemiyle yazılır).
+
+- **Spike (gerçek claude 2.1.312):** (S1) `claude -p --input-format/--output-format stream-json` vault'ta aynı süreçte çok tur,
+  tur başına ~2 sn; SessionStart hook'u hafızayı yükledi (Aria son oturum başlığını bildi); süreç kapanıp `--resume` ile açılınca
+  ilk soruyu hatırladı. (S2) bağımlılıksız stdio MCP aracı oturumda göründü ve çağrıldı (gizli kelime okundu); kullanıcı MCP'leri
+  yüklenince açılış 15 sn, `--strict-mcp-config` ile 1,8 sn. (S4) `control_request interrupt` turu keser, süreç yaşar;
+  `--include-partial-messages` metni parça parça verir.
+- **Faz 58, çekirdek** (✅): `aria.cjs`. Gün 05:00 sınırlı; günün ilk mesajı yeni kimlik (taze hafıza), gün içinde aynı konuşma;
+  20 dk boşta stdin kapanır (SessionEnd günlüğe düşürür), sonraki mesaj `--resume`. `basladi` yalnız ilk tur bitince yazılır
+  (mesajsız ısınan kimliğe `--resume` "konuşma yok" derdi). Ortam temizliği `ortam.cjs`'e alındı (pty-server ile ortak).
+  **Bulgu:** ısınma kilitlenmesi: "açılıyor" sürerken gelen mesaj kuyruğa giriyor, kuyruk yalnız tur bitince boşaldığı için
+  hiç gitmiyordu; meşgul = aktif tur, açılış meşgul sayılmaz.
+- **Faz 59, sayfa** (✅): Ctrl+7, `AriaSayfasi.tsx` + `SinyalHalkasi.tsx` (canvas; boştayken durağan, kare döngüsü yalnız hal
+  hareketliyken ve pencere odaktayken: DESIGN.md hareket bütçesi), `md.tsx` (HTML enjeksiyonsuz markdown).
+- **Faz 60, ses** (✅): `komutCoz` yeni eylem `aria`; öncelik: kontrol sözü > özet/oku/aç/cevap > açık önek / hatırla > soru
+  biçimi (yazma niyeti yoksa) > not. Ada'dan giden soru `[ses]` önekli (1-3 cümle, sembolsüz).
+- **Faz 61, hafıza paneli** (✅): `hafiza.cjs` (salt okuma): Threads/Kurallar/Last-Session/Journal ayrıştırıcıları, arama
+  (başlık 5 + gövde geçişi, bütün sözcükler zorunlu, Türkçe duyarsız). **Bulgu:** CRLF'li dosyada `/^# .*\n/` tutmuyordu
+  (JS'te `.` `\r`'yi de satır sonu sayar).
+- **Faz 62, araçlar + öneri** (✅): `aria-mcp.cjs` (stdio JSON-RPC) → `aria-arac.cjs` (127.0.0.1, 48 hex token, kapanınca
+  yapılandırma silinir). Yazan araç yok; `oneri_*` kart doğurur, karar bir kez. Gerçek claude: araç bulundu, okundu, kart doğru
+  mesaja bağlandı, Aria "sen onaylamadan açılmaz" dedi (8,3 sn). **Bulgu:** ekran betiği durumu beklemeden öneri yolladı (gizli
+  Botlar tablosu "tablo doldu" diyordu, v3.0 tuzağı); `projeBul` artık main'in durum ölçümünü yedek kullanıyor.
+- **Faz 63, günlük not** (✅): ayrı `claude -p --no-session-persistence` (sohbete ve transcript'e girmez), günde bir. Gerçek
+  koşuda Aria kaynaklı beş madde buldu; biri gerçek bir kör nokta: GP2 öneri dosyasının son günü `vadeler:` alanında yoktu.
+- **Gerileme (v3.2'den):** toplu tarih düzeltmesi (`sed 2026-10-30 → 29`) brifing testinin beklenen gününü de değiştirmişti
+  (`ade08eb`); test-ada'yı yeniden koşmadan commit'lemiştim. Geri alındı.
+- **Testler:** `test:ada` 266 (v3.3 hafıza, araç ucu, Aria oturumu: ısınma, art arda sıra, kesme, günlük not), `test:ui` 244
+  (v3.3 bölümü: Ada'dan sesli soru, Aria sayfası, kesme, öneri kartı → onay → oturum; v2.4'ün iki odak ön koşulu yine ortam:
+  önde Gezgin; `~/.kokpit` dokunulmadı). Mutasyon 9/9. **Bulgu:** öneri testinin açıp kapattığı oturum, sonraki "Sürdür"
+  senaryosunu iki yerden bozdu: defterin son `acildi` kaydı ve PTY log'unun son kabuğu artık kapanmış oturumundu. İkisi de
+  "kapanmamış son" diye seçiliyor; kimlik zinciri kontrolü onay oturumunu ayrı sayıyor (gevşetilmedi).

@@ -23,6 +23,8 @@ const electronBin = require('electron');
 const TEST_DIZIN = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-ui-'));
 const AYARLAR = path.join(TEST_DIZIN, 'ayarlar.json');
 const DEFTER = path.join(TEST_DIZIN, 'oturumlar.jsonl');
+// v3.3 Aria oneri kartinin onayla actigi oturumlar: kimlik zinciri kontrolu bunlari ayri sayar.
+const ARIA_ONERI_KIMLIKLERI = new Set();
 const KOMUTLAR = path.join(TEST_DIZIN, 'komutlar.json');
 const CALISTIR = path.join(TEST_DIZIN, 'calistir.json');
 const LOG = (ad) => path.join(TEST_DIZIN, ad);
@@ -807,12 +809,20 @@ async function v3Testi(cdp, adaCdp) {
   kontrol('aria: sohbet diske yazildi (~/.kokpit/aria test dizininde)', fs.readdirSync(path.join(TEST_DIZIN, 'aria')).some((f) => f.endsWith('.jsonl')));
   // 10) Oneri karti: sahte claude Kokpit'in arac ucuna (gercek HTTP + token) oneri_gorev yollar -> kart -> Onayla -> App oturum acar.
   const sekmeOnce = await cdp.js(`document.querySelectorAll('[role="tab"]').length`);
+  const defterOnceOneri = fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).length;
+  const sekmeKimlikleriOnce = await cdp.js(`[...document.querySelectorAll('[role="tab"]')].map(t => t.id)`);
   await cdp.js(`window.kokpit.ariaGonder(${JSON.stringify('oneri proje=' + adim)})`);
   kontrol('aria oneri: kart cizildi (bekliyor, proje adi)', await cdp.bekle(`[...document.querySelectorAll('[data-aria-oneri="bekliyor"]')].some(k => k.textContent.includes(${JSON.stringify(adim)}) && k.textContent.includes('README'))`, 10000, 'oneri karti').catch(() => false));
   kontrol('aria oneri: onaysiz hicbir oturum acilmadi', (await cdp.js(`document.querySelectorAll('[role="tab"]').length`)) === sekmeOnce);
   await cdp.js(`(() => { document.querySelector('[data-aria-oneri="bekliyor"] [data-oneri-onayla]').click(); return true; })()`);
   kontrol('aria oneri: Onayla -> kart "Onaylandı · ... oturumu açıldı"', await cdp.bekle(`[...document.querySelectorAll('[data-aria-oneri="onaylandi"]')].some(k => k.textContent.includes('oturumu açıldı'))`, 10000, 'onaylandi').catch(() => false), await cdp.js(`[...document.querySelectorAll('[data-aria-oneri]')].map(k => k.getAttribute('data-aria-oneri') + ':' + k.textContent.slice(-60)).join(' | ')`));
   kontrol('aria oneri: onaydan sonra yeni oturum sekmesi acildi', await cdp.bekle(`document.querySelectorAll('[role="tab"]').length > ${sekmeOnce}`, 8000, 'yeni sekme').catch(() => false));
+  // Onayla acilan sekme kapatilir: sonraki senaryolar sekme sayisina ve oturum defterine bakiyor (ortam eski haline).
+  // Yeni sekme kimligiyle bulunur (DOM sirasi acilis sirasi degil: ilk denemede orijinal sekme kapanmisti).
+  await cdp.js(`(() => { const once = ${JSON.stringify(sekmeKimlikleriOnce)}; const yeni = [...document.querySelectorAll('[role="tab"]')].find(t => !once.includes(t.id)); yeni?.parentElement.querySelector('[aria-label$="sekmesini kapat"]').click(); return !!yeni; })()`);
+  for (const x of fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).slice(defterOnceOneri).map((x) => JSON.parse(x))) if (x.olay === 'acildi' && x.claude) ARIA_ONERI_KIMLIKLERI.add(x.claude);
+  kontrol('aria oneri: onay deftere tek acilis yazdi (yeni claude kimligi)', ARIA_ONERI_KIMLIKLERI.size === 1, [...ARIA_ONERI_KIMLIKLERI]);
+  kontrol('aria oneri: test sekmesi kapatildi (ortam eski haline)', await cdp.bekle(`document.querySelectorAll('[role="tab"]').length === ${sekmeOnce}`, 8000, 'oneri sekmesi kapandi').catch(() => false));
   await cdp.tus('1', 2, 'Digit1');
   await uyu(400);
 
@@ -1422,18 +1432,26 @@ async function main() {
     // Bolmenin bitmesi: kabuk sureci PID'iyle sonlandirilir (claude cokmesi / baglanti kopmasi taklidi).
     // Yazilan `exit` her kosuda kabuga ulasmadi (2026-10-21, 3 kosudan 2'si); PID yolu deterministik.
     const kabuguBitir = async () => {
-      const satir = fs.readFileSync(LOG('pty-server.log'), 'utf8').split('\n').filter((x) => /pty acildi pid=\d+ .*komut=kabuk/.test(x)).pop() ?? '';
-      const pid = (/pty acildi pid=(\d+)/.exec(satir) ?? [])[1];
+      // Kapanmamis son kabuk: v3.3 Aria oneri testinin actigi oturum arada kapandi, onun PTY'si son satir olabilir.
+      const satirlar = fs.readFileSync(LOG('pty-server.log'), 'utf8').split('\n');
+      const kapanan = new Set(satirlar.map((x) => (/pty kapandi pid=(\d+)/.exec(x) ?? [])[1]).filter(Boolean));
+      const pid = satirlar.filter((x) => /pty acildi pid=\d+ .*komut=kabuk/.test(x)).map((x) => /pty acildi pid=(\d+)/.exec(x)[1]).filter((p) => !kapanan.has(p)).pop();
       if (pid) spawnSync('taskkill', ['/PID', pid, '/T', '/F'], { windowsHide: true });
       return pid;
     };
     const sonAcilis = () => fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).map((x) => JSON.parse(x)).filter((x) => x.olay === 'acildi').pop();
-    const once1 = sonAcilis();
+    // Acik bolmenin oturumu: v3.3 Aria oneri testi arada bir oturum acip kapatiyor, son "acildi" o olabilir.
+    const acikSonAcilis = () => {
+      const olaylar = fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).map((x) => JSON.parse(x));
+      const kapanan = new Set(olaylar.filter((x) => x.olay === 'kapandi').map((x) => x.id));
+      return olaylar.filter((x) => x.olay === 'acildi' && !kapanan.has(x.id)).pop();
+    };
+    const once1 = acikSonAcilis();
     transcriptYaz(once1.yol, once1.claude);
     kontrol('on kosul: yazilan transcript main surecinden gorunuyor (IPC)', await cdp.js(`window.kokpit.surdurulebilir(${JSON.stringify(once1.yol)}, ${JSON.stringify(once1.claude)})`), { once1, dosya: path.join(TRANSCRIPTLER, slug(once1.yol), once1.claude + '.jsonl'), var: fs.existsSync(path.join(TRANSCRIPTLER, slug(once1.yol), once1.claude + '.jsonl')), acik: await cdp.js(`[...document.querySelectorAll('[role="tab"]')].map(t => t.textContent).join(' | ')`) });
     await kabuguBitir();
     const yerindeDugme = (metin) => `[...document.querySelectorAll('[role="status"] button')].find(b => b.textContent.trim() === ${JSON.stringify(metin)})`;
-    kontrol('kabuk bitince bolmede "Sürdür" (konusma diskte)', await cdp.bekle(`!!${yerindeDugme('Sürdür')}`, 10000, 'Sürdür dugmesi').catch(() => false), await cdp.js(`[...document.querySelectorAll('[role="status"]')].map(p => p.textContent).join(' | ')`));
+    kontrol('kabuk bitince bolmede "Sürdür" (konusma diskte)', await cdp.bekle(`!!${yerindeDugme('Sürdür')}`, 10000, 'Sürdür dugmesi').catch(() => false), JSON.stringify({ durum: await cdp.js(`[...document.querySelectorAll('[role="status"]')].map(p => p.textContent).join(' | ')`), sekmeler: await cdp.js(`[...document.querySelectorAll('[role="tab"]')].map(t => t.id + ':' + t.textContent).join(' | ')`), once1, defter: fs.readFileSync(DEFTER, 'utf8').trim().split(/\r?\n/).slice(-8) }));
     const sekmeSayisi = await cdp.js(`document.querySelectorAll('[role="tab"]').length`);
     await cdp.js(`(() => { ${yerindeDugme('Sürdür')}.click(); return true; })()`);
     await cdp.bekle(`!!document.querySelector('[role="tab"] .bg-aksan') && !${yerindeDugme('Sürdür')}`, 20000, 'bolme yeniden acik');
@@ -1630,7 +1648,7 @@ async function main() {
     );
     // Kimlik yalniz surdurmede tekrar eder ve o zaman hemen bir onceki acilisinkidir (Sürdür, Ctrl+Shift+T,
     // geri yukleme: kapanan konusma geri gelir). Baska her acilis (Aç, bolme, gorev, Yeniden aç) yeni kimlik.
-    const kimlikler = acilislar.map((x) => x.claude);
+    const kimlikler = acilislar.map((x) => x.claude).filter((k) => !ARIA_ONERI_KIMLIKLERI.has(k));
     kontrol(
       'yeni oturumlar kendi kimligini aldi; tekrar yalniz ardisik surdurmede',
       kimlikler.every((k, i) => kimlikler.indexOf(k) === i || kimlikler[i - 1] === k) && new Set(kimlikler).size >= 5,

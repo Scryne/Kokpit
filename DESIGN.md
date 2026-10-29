@@ -336,6 +336,24 @@ Yeni renk yok, yeni cam yok. Amber yine yalnız "seni bekliyor": takılan gece g
   durum soluk metin (takıldı/süre/açılamadı amber), özet üç satır soluk. Tek birincil düğme "Başlat (01:00)".
 - **Telefon** — etkinlik şeridinin sağında ⚡'nin solunda ikon düğme; bağlantı varsa `metin-ikincil` (etkin), yoksa soluk.
 
+## Aria (2026-10-29, v3.3)
+
+Scryne üç yön arasından **sinyal halkasını** seçti (Ada'nın büyük gözü ve yüzsüz sohbet de sunuldu). Yeni renk yok, yeni cam yok.
+
+- **Sinyal halkası** — canvas; 72 noktalı dış halka, iki ince gümüş halka (`aksan`), gümüş radyal çekirdek (birincil gradyanın
+  aynısı, ışık sol-üstten). Haller: *boşta* durağan; *düşünüyor/bakıyor/uyanıyor* orta halkada dönen ışık yayı; *yazıyor*
+  noktalarda dalga; *dinliyor* halkalar mikrofonla açılır; *konuşuyor* çekirdek ve noktalar sesin genliğiyle; *hata* noktalar
+  ve çekirdek `hata`. Kare döngüsü yalnız hareketli halde ve pencere odaktayken (akrilik pencerede sonsuz animasyon yok, v2.5
+  ölçümü); hareket azaltmada tek durağan çizim. Boş sohbette 208 px, sohbet varken 128 px (düzen anlık, boyut animasyonu yok).
+- **Sohbet** — Scryne'ın mesajı sağda `yuzey-guclu` zeminde; Aria'nınki solda zeminsiz `metin`, markdown çizilir (HTML yok).
+  Araç izi ve süre mono soluk (ölçülmüş değer); "Hafızaya yazdı" `aksan-metin` (etkileşimli: dosyayı açar). Akan cevapta
+  kademeli imleç (yalnız akış sürerken).
+- **Öneri kartı** — `yuzey-guclu` + halka; başlık `etiket` + proje mono; tek birincil düğme "Onayla", yanında çerçeveli
+  "Vazgeç". Karar sonrası düğmeler kalkar, durum soluk metin (uygulanamadıysa `hata-metin`). Renk yok: karar Scryne'ın.
+- **Hafıza paneli** — sağda 22rem, `yuzey` (cam değil), sekmeler Hafıza / Bilgi; başlıklar `etiket`, yollar mono. Konu
+  işaretleri vault'un kendi emojileri (veri, süs değil).
+- **Fark ettiklerim** — sohbetin başında `yuzey` + halka, katlanır; tarih mono.
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;
