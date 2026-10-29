@@ -633,7 +633,7 @@ async function v32ParalelTesti() {
     kontrol('paralel: yollar() Teslim icin agaci tanir', par.yollar().includes(agac));
     // v3.5: agacin icinden istenen yeni agac da ana deponun kokunde acilir (ic ice worktrees, kokpit/* taban olmaz).
     const r2 = await par.olustur(agac, 'Proje', '');
-    kontrol('paralel: ikinci agac p2 (agacin icinden istense de ana kokte, taban main)', r2.kayit?.ad === 'p2' && path.resolve(r2.kayit.projeYol).toLowerCase() === path.resolve(depo).toLowerCase() && r2.kayit.taban === 'kokpit/p1' === false, JSON.stringify(r2));
+    kontrol('paralel: ikinci agac p2 (agacin icinden istense de ana kokte, taban main)', r2.kayit?.ad === 'p2' && fs.realpathSync.native(r2.kayit.projeYol).toLowerCase() === fs.realpathSync.native(depo).toLowerCase() && r2.kayit.taban === 'kokpit/p1' === false, JSON.stringify(r2));
     // v3.5: .gitignore'daki uretilmis dosya "At"ta uyarilir (worktree remove onu kirli saymadan siler).
     fs.writeFileSync(path.join(agac, '.gitignore'), 'node_modules/\n.env\nout/\n');
     fs.mkdirSync(path.join(agac, 'out'));
