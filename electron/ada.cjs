@@ -604,6 +604,13 @@ module.exports = {
   ariaOlay(o) {
     gonder('aria:olay', o);
   },
+  /** v4.0: Ada penceresinin icerigi (sayfa yayinlari ve istek dogrulamasi icin); yoksa null. */
+  icerik: () => (ada && !ada.isDestroyed() ? ada.webContents : null),
+  /** v4.0: kisa duyuru (odak bitti ...): hapta yazar, kart bir an bakar, `konus` ve sesli ayar aciksa soyler. */
+  duyuru(metin, konus) {
+    if (!ada || ada.isDestroyed() || !acik) return;
+    gonder('ada:duyuru', { metin: String(metin || '').slice(0, 200), konus: konus === true && sesli });
+  },
   /** v3.2: kisa bilgi notu hapta (secim bulunamadi, vardiya basladi ...). */
   not(metin) {
     if (!ada || ada.isDestroyed() || !acik) return;

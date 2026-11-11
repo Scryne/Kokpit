@@ -1,5 +1,12 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+/** main'in yayinladigi bir kanali dinle; donen islev aboneligi kaldirir. */
+function dinle(kanal, cb) {
+  const d = (_e, v) => cb(v);
+  ipcRenderer.on(kanal, d);
+  return () => ipcRenderer.removeListener(kanal, d);
+}
+
 // Dar yuzey: renderer'a Node verilmez, sadece bu uc sey gecer.
 contextBridge.exposeInMainWorld('kokpit', {
   durumGetir: () => ipcRenderer.invoke('durum:getir'),
@@ -244,4 +251,34 @@ contextBridge.exposeInMainWorld('kokpit', {
   },
   uygulamaCik: () => ipcRenderer.send('uygulama:cik'),
   uygulamaYenidenBaslat: () => ipcRenderer.send('uygulama:yeniden'),
+  // v4.0: Ada'nin sayfalari (ada-sayfalar.cjs). Durum main'de; iki pencere ayni yayini dinler.
+  medyaGetir: () => ipcRenderer.invoke('medya:getir'),
+  medyaDinle: (cb) => dinle('medya:durum', cb),
+  medyaKomut: (k) => ipcRenderer.send('medya:komut', k),
+  medyaSozler: () => ipcRenderer.invoke('medya:sozler'),
+  odakGetir: () => ipcRenderer.invoke('odak:getir'),
+  odakDinle: (cb) => dinle('odak:durum', cb),
+  odakKomut: (k) => ipcRenderer.send('odak:komut', k),
+  listeGetir: () => ipcRenderer.invoke('liste:getir'),
+  listeDinle: (cb) => dinle('liste:durum', cb),
+  listeKomut: (k) => ipcRenderer.send('liste:komut', k),
+  sistemIzle: (acik) => ipcRenderer.send('sistem:izle', acik === true),
+  sistemDinle: (cb) => dinle('sistem:durum', cb),
+  havaGetir: (taze) => ipcRenderer.invoke('hava:getir', taze === true),
+  havaAra: (sorgu) => ipcRenderer.invoke('hava:ara', sorgu),
+  havaKonumSec: (k) => ipcRenderer.invoke('hava:konum', k),
+  rafGetir: () => ipcRenderer.invoke('raf:getir'),
+  rafDinle: (cb) => dinle('raf:durum', cb),
+  rafEkle: (yollar) => ipcRenderer.send('raf:ekle', yollar),
+  rafBaglanti: (adres) => ipcRenderer.send('raf:baglanti', adres),
+  rafSil: (kimlikler) => ipcRenderer.send('raf:sil', kimlikler),
+  rafAc: (id) => ipcRenderer.send('raf:ac', id),
+  rafGoster: (id) => ipcRenderer.send('raf:goster', id),
+  rafSurukle: (id) => ipcRenderer.send('raf:surukle', id),
+  rafOturuma: (id) => ipcRenderer.send('raf:oturuma', id),
+  adaAyarlar: () => ipcRenderer.invoke('ada:ayarlar'),
+  adaAyarYaz: (yama) => ipcRenderer.invoke('ada:ayar-yaz', yama),
+  adaAyarlarDinle: (cb) => dinle('ada:ayarlar', cb),
+  // Ada'nin kisa duyurusu (odak bitti ...): hapta yazar, sesli ayar aciksa soyler.
+  adaDuyuruDinle: (cb) => dinle('ada:duyuru', cb),
 });

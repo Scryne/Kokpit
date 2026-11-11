@@ -20,6 +20,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Settings,
   SplitSquareHorizontal,
   TerminalSquare,
   X,
@@ -46,6 +47,7 @@ import Teslim from './Teslim';
 import Onizleme from './Onizleme';
 import { BildirimZili, useBildirimler } from './Bildirimler';
 import AriaSayfasi from './AriaSayfasi';
+import Ayarlar from './Ayarlar';
 import { GeceKutusu, useGeceVardiyasi } from './Gece';
 import NotKutusu from './NotKutusu';
 import ProjeSecici from './ProjeSecici';
@@ -81,7 +83,7 @@ function noktaSinifi(o: Pick<Oturum, 'durumu' | 'dikkat' | 'kapaniyor'>) {
   return 'bg-metin-soluk';
 }
 
-type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter' | 'botlar' | 'teslim' | 'aria';
+type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter' | 'botlar' | 'teslim' | 'aria' | 'ayarlar';
 const GORUNUM_BASLIK: Record<Gorunum, string> = {
   pano: 'Pano',
   terminal: 'Terminaller',
@@ -90,6 +92,7 @@ const GORUNUM_BASLIK: Record<Gorunum, string> = {
   botlar: 'Botlar',
   teslim: 'Teslim',
   aria: 'Aria',
+  ayarlar: 'Ayarlar',
 };
 
 /** Onceki calismadan kalan oturumlar icin tek satirlik teklif. Bir kez gorunur. */
@@ -1234,6 +1237,13 @@ export default function App() {
       { id: 's-bot', grup: 'Sayfa', baslik: 'Botlar', ipucu: 'Ctrl+5', calistir: () => setGorunum('botlar') },
       { id: 's-aria', grup: 'Sayfa', baslik: 'Aria (ikinci beyin)', ipucu: 'Ctrl+7', calistir: () => setGorunum('aria') },
       { id: 's-teslim', grup: 'Sayfa', baslik: 'Teslim (push, diff, paralel dallar)', ipucu: 'Ctrl+6', calistir: () => setGorunum('teslim') },
+      { id: 's-ayar', grup: 'Sayfa', baslik: 'Ayarlar (Ada, kısayollar, sesli komutlar)', ipucu: 'Ctrl+8', calistir: () => setGorunum('ayarlar') },
+      // v4.0: Ada'nin sayfalarindaki eylemler paletten de (durum main'de; Ada ayni anda gunceller).
+      { id: 'o-odak', grup: 'Ada', baslik: 'Odak başlat (25 dk)', ipucu: 'sayaç Ada\'da', calistir: () => window.kokpit.odakKomut({ tur: 'baslat', asama: 'odak' }) },
+      { id: 'o-mola', grup: 'Ada', baslik: 'Mola ver (5 dk)', calistir: () => window.kokpit.odakKomut({ tur: 'baslat', asama: 'kisa' }) },
+      { id: 'o-dur', grup: 'Ada', baslik: 'Odak sayacını duraklat', calistir: () => window.kokpit.odakKomut({ tur: 'duraklat' }) },
+      { id: 'm-oynat', grup: 'Ada', baslik: 'Müzik: çal / duraklat', calistir: () => window.kokpit.medyaKomut('oynat-duraklat') },
+      { id: 'm-sonraki', grup: 'Ada', baslik: 'Müzik: sonraki parça', calistir: () => window.kokpit.medyaKomut('sonraki') },
     ];
     for (const p of siraliProjeler) {
       const acik = oturumlar.find((o) => o.yol === p.yol && o.durumu === 'acik' && !o.servis);
@@ -1380,6 +1390,9 @@ export default function App() {
       } else if (e.key === '7') {
         e.preventDefault();
         setGorunum('aria');
+      } else if (e.key === '8') {
+        e.preventDefault();
+        setGorunum('ayarlar');
       } else if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         // Ctrl+Shift+P: komut paleti. Ctrl+K degil: claude'da satir sonuna kadar siler.
         e.preventDefault();
@@ -1654,6 +1667,21 @@ export default function App() {
           >
             <Orbit className="size-4 shrink-0" aria-hidden="true" />
             {kenarAcik && 'Aria'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setGorunum('ayarlar')}
+            title="Ayarlar (Ctrl+8)"
+            aria-label="Ayarlar"
+            aria-current={gorunum === 'ayarlar' ? 'page' : undefined}
+            className={
+              'relative mt-1 flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              (kenarAcik ? '' : 'justify-center ') +
+              (gorunum === 'ayarlar' ? 'bg-yuzey text-metin' : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
+            }
+          >
+            <Settings className="size-4 shrink-0" aria-hidden="true" />
+            {kenarAcik && 'Ayarlar'}
           </button>
         </nav>
 
@@ -1968,6 +1996,14 @@ export default function App() {
           className={(gorunum === 'aria' ? 'flex' : 'hidden') + ' min-h-0 flex-1 flex-col'}
         >
           <AriaSayfasi gorunur={gorunum === 'aria'} />
+        </section>
+
+        {/* v4.0: Ayarlar (Ctrl+8). Yalniz gorunurken baglanir. */}
+        <section
+          aria-label="Ayarlar"
+          className={(gorunum === 'ayarlar' ? 'block' : 'hidden') + ' min-h-0 flex-1 overflow-y-auto pr-1'}
+        >
+          {gorunum === 'ayarlar' && <Ayarlar />}
         </section>
 
         <GeceKutusu

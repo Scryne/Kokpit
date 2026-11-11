@@ -995,12 +995,52 @@ function v34AgTesti() {
   kontrol('ag: arac ozeti ham hedefleri tasir (Grep deseni, Kokpit araci proje adi; yolu olmayan aracta dosya yok)', g.desen === 'matbaa kiyas' && g.dosya === 'C:/v' && k.proje === 'Matbaa' && !('dosya' in aria.aracOzeti('Bash', { command: 'ls' })), { g, k });
 }
 
+// v4.0: Ada ayarlarinin dar semasi (ada-sayfalar.cjs) ve brifingde liste isleri.
+function v40Testi() {
+  console.log('\n--- v4.0: ada ayarlari, brifingde liste ---');
+  const adaSayfalar = require(path.join(KOK, 'electron', 'ada-sayfalar.cjs'));
+  const ayarlar = require(path.join(KOK, 'electron', 'ayarlar.cjs'));
+  const ilk = adaSayfalar.adaAyarlari();
+  kontrol('ayar: varsayilanda yedi sayfa acik, minimal kapali, konum yok', Object.values(ilk.sayfalar).length === 7 && Object.values(ilk.sayfalar).every((v) => v === true) && ilk.minimal === false && ilk.havaKonum === null, ilk);
+  kontrol('ayar: bos / bozuk yama hicbir sey yazmaz', Object.keys(adaSayfalar.ayarYamasi(null)).length === 0 && Object.keys(adaSayfalar.ayarYamasi({ minimal: 'evet', bilinmeyen: true, sayfalar: 'x' })).length === 0);
+  const y = adaSayfalar.ayarYamasi({ minimal: true, sozler: false, acik: false, sayfalar: { medya: false, uydurma: false, odak: 'hayir' } });
+  kontrol('ayar: bilinen anahtarlar ayarlar.json adlarina cevrilir', y.adaMinimal === true && y.adaSozler === false && y.ada === false, y);
+  kontrol('ayar: sayfa yamasi yalniz bilinen sayfayi ve mantiksal degeri alir, digerlerini korur', !!y.adaSayfalar && y.adaSayfalar.medya === false && y.adaSayfalar.odak === true && !('uydurma' in y.adaSayfalar) && Object.keys(y.adaSayfalar).length === 7, y.adaSayfalar);
+  kontrol('ayar: degismeyen sayfa yamasi yazilmaz', !('adaSayfalar' in adaSayfalar.ayarYamasi({ sayfalar: { medya: true } })));
+  kontrol('ayar: gecersiz konum reddedilir', !('havaKonum' in adaSayfalar.ayarYamasi({ havaKonum: { ad: 'X', enlem: 200, boylam: 10 } })) && !('havaKonum' in adaSayfalar.ayarYamasi({ havaKonum: { ad: '', enlem: 1, boylam: 1 } })));
+  const k = adaSayfalar.ayarYamasi({ havaKonum: { ad: 'Ankara', ulke: 'Türkiye', enlem: 39.92, boylam: 32.85, fazlalik: '<script>' } });
+  kontrol('ayar: gecerli konum sadelesir (fazla alan diske inmez)', !!k.havaKonum && k.havaKonum.ad === 'Ankara' && !('fazlalik' in k.havaKonum), k);
+  kontrol('ayar: konum null ile kaldirilir', adaSayfalar.ayarYamasi({ havaKonum: null }).havaKonum === null);
+  // kur() cagrilmadan ayarYaz: diske yazar, yan etki cagirmaz (pencere yok), yeni hali doner.
+  const sonra = adaSayfalar.ayarYaz({ minimal: true, sayfalar: { raf: false } });
+  kontrol('ayar: yazilan deger geri okunur ve diskte', sonra.minimal === true && sonra.sayfalar.raf === false && sonra.sayfalar.medya === true && ayarlar.oku().adaMinimal === true && ayarlar.oku().adaSayfalar.raf === false, sonra);
+  adaSayfalar.ayarYaz({ minimal: false, sayfalar: { raf: true } });
+
+  const { brifingKur } = require(path.join(KOK, 'electron', 'brifing.cjs'));
+  const simdi = new Date(2026, 10, 11, 9, 0).getTime();
+  const liste = [
+    { id: '1', metin: 'bugünkü iş', bitti: false, tarih: '2026-11-11' },
+    { id: '2', metin: 'geciken iş', bitti: false, tarih: '2026-11-09' },
+    { id: '3', metin: 'yarınki iş', bitti: false, tarih: '2026-11-12' },
+    { id: '4', metin: 'tarihsiz iş', bitti: false, tarih: null },
+    { id: '5', metin: 'bitmiş iş', bitti: true, tarih: '2026-11-11' },
+  ];
+  const b = brifingKur({ durum: { vadeler: [], projeler: [] }, nobet: null, limitler: null, oturumlar: {}, liste: [], simdi, yapilacaklar: liste });
+  const lm = b.maddeler.filter((m) => m.tur === 'liste');
+  kontrol('brifing: listeden yalniz bugunku ve gecikmis acik isler', lm.length === 2 && lm.some((m) => m.metin.startsWith('bugünkü')) && lm.some((m) => m.metin.startsWith('geciken')), lm);
+  kontrol('brifing: gecikmis liste isi dikkat, bugunku normal', lm.find((m) => m.metin.startsWith('geciken')).onem === 'dikkat' && lm.find((m) => m.metin.startsWith('bugünkü')).onem === 'normal');
+  kontrol('brifing: liste isi cumlede ve oneride', b.cumle.includes('Listende bugüne 2 iş') && !!b.oneri && b.oneri.includes('listendeki işi kapat'), b.cumle);
+  const bos = brifingKur({ durum: { vadeler: [], projeler: [] }, nobet: null, limitler: null, oturumlar: {}, liste: [], simdi });
+  kontrol('brifing: liste verilmezse eskisi gibi (madde yok)', bos.maddeler.length === 0);
+}
+
 (async () => {
   try {
     v34AgTesti();
     v33HafizaTesti();
     await v33AracTesti();
     await v33AriaTesti();
+    v40Testi();
     v32GeceTesti();
     await v32ParalelTesti();
     await v32TeslimTesti();

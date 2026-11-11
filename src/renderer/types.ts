@@ -463,6 +463,8 @@ export type SesEylemi =
   | { tur: 'git'; hedef: { id: string; ad: string } }
   /** v3.3: Aria'ya soru / hatirlatma (Ada onun yuzu). */
   | { tur: 'aria'; metin: string }
+  /** v4.0: sayfa komutu main'de yapildi ("müziği durdur", "25 dakika odak"); Ada cumleyi yazar, `konus` ise soyler. */
+  | { tur: 'bilgi'; cumle: string; konus: boolean }
   /** v3.2: sesli cevap. `istek` varsa gider (ana pencere damgayi yeniden denetler); yoksa `hata` soylenir. */
   | {
       tur: 'cevap';
@@ -711,6 +713,140 @@ export interface Brifing {
   oneri: string | null;
 }
 
+// --- v4.0: Ada'nin sayfalari (electron/medya.cjs, odak.cjs, yapilacak.cjs, sistem.cjs, hava.cjs, raf.cjs) ---
+
+export type AdaSayfaKimligi = 'medya' | 'odak' | 'liste' | 'takvim' | 'sistem' | 'hava' | 'raf';
+
+/** Windows'un medya oturumu (Spotify, tarayici...). Konum `olculdu` anina aittir; calarken renderer ilerletir. */
+export interface MedyaDurumu {
+  uygulama: string;
+  baslik: string;
+  sanatci: string;
+  album: string;
+  caliyor: boolean;
+  konumMs: number;
+  /** 0 = bilinmiyor (canli yayin). */
+  sureMs: number;
+  olculdu: number;
+  /** data URL; parca degisince bir kez gelir. */
+  kapak: string | null;
+  kontrol: { oynat: boolean; sonraki: boolean; onceki: boolean };
+}
+export type MedyaKomutu = 'oynat-duraklat' | 'sonraki' | 'onceki';
+export interface SozSatiri {
+  /** ms */
+  t: number;
+  metin: string;
+}
+export type Sozler =
+  /** esli=false: zamansiz duz soz (t hep 0). */
+  | { anahtar: string; satirlar: SozSatiri[]; esli: boolean }
+  | { anahtar: string; yok: true };
+
+export type OdakAsamasi = 'odak' | 'kisa' | 'uzun';
+export interface OdakDurumu {
+  asama: OdakAsamasi;
+  calisiyor: boolean;
+  /** Calisiyorsa bitis ani (epoch ms). */
+  bitis: number | null;
+  /** Duruyorsa kalan; calisiyorsa yayin anindaki kalan. */
+  kalanMs: number;
+  sureMs: number;
+  /** Bugun tamamlanan odak sayisi. */
+  tur: number;
+  gun: string;
+}
+export type OdakKomutu =
+  | { tur: 'baslat'; asama?: OdakAsamasi; dakika?: number }
+  | { tur: 'duraklat' }
+  | { tur: 'sifirla' }
+  | { tur: 'atla' };
+
+export interface Yapilacak {
+  id: string;
+  metin: string;
+  bitti: boolean;
+  t: number;
+  bittiT: number | null;
+  /** YYYY-MM-DD (yerel) ya da tarihsiz. */
+  tarih: string | null;
+}
+export type YapilacakKomutu =
+  | { tur: 'ekle'; metin: string; tarih?: string | null }
+  | { tur: 'degistir'; id: string; bitti: boolean }
+  | { tur: 'duzenle'; id: string; metin: string; tarih?: string | null }
+  | { tur: 'sil'; id: string }
+  /** Bitenleri siler. */
+  | { tur: 'temizle' };
+
+export interface SistemDurumu {
+  /** 0-100 */
+  cpu: number;
+  /** bayt */
+  bellek: { kullanilan: number; toplam: number };
+  gpu: { ad: string; yuzde: number; bellekKullanilan: number; bellekToplam: number; sicaklik: number | null } | null;
+  /** cpu, eskiden yeniye, en fazla 60 olcum (2 sn arayla). */
+  gecmis: number[];
+  olculdu: number;
+}
+
+export interface HavaKonumu {
+  ad: string;
+  bolge?: string;
+  ulke?: string;
+  enlem: number;
+  boylam: number;
+}
+export interface HavaDurumu {
+  konum: HavaKonumu;
+  sicaklik: number;
+  hissedilen: number;
+  /** WMO hava kodu. */
+  kod: number;
+  gunduz: boolean;
+  ruzgar: number;
+  nem: number;
+  /** Onumuzdeki 12 saat; `yagis` olasilik (%). */
+  saatlik: { t: number; sicaklik: number; kod: number; yagis: number }[];
+  gunluk: { gun: string; enYuksek: number; enDusuk: number; kod: number; yagis: number }[];
+  olculdu: number;
+  /** Ag yok: diskteki son olcum. */
+  bayat?: boolean;
+}
+export type HavaSonucu = HavaDurumu | { hata: string } | { konumYok: true };
+
+/** Raftaki oge. Yol renderer'a gelmez; eylemler kimlikle. */
+export interface RafOgesi {
+  id: string;
+  ad: string;
+  tur: 'dosya' | 'klasor' | 'baglanti';
+  boyut: number | null;
+  onizleme: string | null;
+  t: number;
+  /** Dosya hala yerinde mi. */
+  var: boolean;
+  adres?: string;
+}
+
+/** Ada'nin ayarlar sayfasi ve ana penceredeki Ayarlar ayni nesneyi okur/yamalar. */
+export interface AdaAyarlari {
+  /** Ada acik mi (tepsi "Ada'yı göster"). */
+  acik: boolean;
+  sayfalar: Record<AdaSayfaKimligi, boolean>;
+  /** Sakin hap yalniz goz + canli gostergeler. */
+  minimal: boolean;
+  /** Sarki sozleri (lrclib.net'e parca adi gider). */
+  sozler: boolean;
+  hep: boolean;
+  tamEkran: boolean;
+  sesli: boolean;
+  uyanma: boolean;
+  brifing: boolean;
+  havaKonum: HavaKonumu | null;
+  /** Salt okunur: ses kurulu mu. */
+  ses: { stt: boolean; tts: boolean };
+}
+
 declare global {
   interface Window {
     kokpit: {
@@ -840,6 +976,39 @@ declare global {
       adaAyarDegistiDinle: (cb: (acik: boolean) => void) => () => void;
       uygulamaCik: () => void;
       uygulamaYenidenBaslat: () => void;
+      // v4.0: Ada'nin sayfalari. Durum main'de; Ada ve ana pencere ayni yayini dinler.
+      medyaGetir: () => Promise<MedyaDurumu | null>;
+      medyaDinle: (cb: (d: MedyaDurumu | null) => void) => () => void;
+      medyaKomut: (k: MedyaKomutu) => void;
+      /** O an calan parcanin sozleri (main onbellekler); sozler kapaliysa ya da parca yoksa null. */
+      medyaSozler: () => Promise<Sozler | null>;
+      odakGetir: () => Promise<OdakDurumu>;
+      odakDinle: (cb: (d: OdakDurumu) => void) => () => void;
+      odakKomut: (k: OdakKomutu) => void;
+      listeGetir: () => Promise<Yapilacak[]>;
+      listeDinle: (cb: (l: Yapilacak[]) => void) => () => void;
+      listeKomut: (k: YapilacakKomutu) => void;
+      /** Sistem olcumu yalniz izlenirken yayinlanir: sayfa acilirken true, kapanirken false. */
+      sistemIzle: (acik: boolean) => void;
+      sistemDinle: (cb: (d: SistemDurumu) => void) => () => void;
+      havaGetir: (taze?: boolean) => Promise<HavaSonucu>;
+      havaAra: (sorgu: string) => Promise<HavaKonumu[]>;
+      havaKonumSec: (k: HavaKonumu) => Promise<HavaSonucu>;
+      rafGetir: () => Promise<RafOgesi[]>;
+      rafDinle: (cb: (l: RafOgesi[]) => void) => () => void;
+      rafEkle: (yollar: string[]) => void;
+      rafBaglanti: (adres: string) => void;
+      rafSil: (kimlikler: string[] | 'hepsi') => void;
+      rafAc: (id: string) => void;
+      rafGoster: (id: string) => void;
+      /** dragstart icinde, ev.preventDefault() ile birlikte: dosyayi isletim sistemi suruklemesine verir. */
+      rafSurukle: (id: string) => void;
+      /** Ogeyi Ada'nin ek tepsisine koyar (oturuma gondermek icin). */
+      rafOturuma: (id: string) => void;
+      adaAyarlar: () => Promise<AdaAyarlari>;
+      adaAyarYaz: (yama: Partial<Omit<AdaAyarlari, 'ses' | 'sayfalar'>> & { sayfalar?: Partial<Record<AdaSayfaKimligi, boolean>> }) => Promise<AdaAyarlari>;
+      adaAyarlarDinle: (cb: (a: AdaAyarlari) => void) => () => void;
+      adaDuyuruDinle: (cb: (d: { metin: string; konus: boolean }) => void) => () => void;
     };
   }
 }

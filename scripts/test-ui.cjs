@@ -199,6 +199,138 @@ class Cdp {
 const KODLAR = { Enter: 13, Escape: 27, Tab: 9, F: 70, f: 70, N: 78, n: 78, P: 80, p: 80, T: 84, t: 84, '1': 49, '2': 50, '3': 51, '4': 52, '5': 53, '=': 187, '-': 189, '0': 48 };
 
 /** Uygulamayi acar, CDP'ye baglanir. */
+// v4.0: sahte medya yardimcisi (protokol electron/medya-yardimci.ps1 ile ayni). Tetik dosyasi yokken "yok";
+// dosyadaki JSON ({ baslik, caliyor }) durum olarak yayinlanir. Komutlar MEDYA_KOMUT dosyasina eklenir.
+const MEDYA_TETIK = path.join(TEST_DIZIN, 'medya-tetik.json');
+const MEDYA_KOMUT = path.join(TEST_DIZIN, 'medya-komut.txt');
+function sahteMedyaYaz() {
+  const dosya = path.join(TEST_DIZIN, 'sahte-medya.cjs');
+  if (fs.existsSync(dosya)) return dosya;
+  fs.mkdirSync(TEST_DIZIN, { recursive: true });
+  fs.writeFileSync(
+    dosya,
+    `const fs = require('fs');
+const yaz = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+yaz({ tur: 'hazir' });
+let son = '';
+setInterval(() => {
+  let ham = '';
+  try { ham = fs.readFileSync(${JSON.stringify(MEDYA_TETIK)}, 'utf8'); } catch { ham = ''; }
+  if (ham === son) return;
+  son = ham;
+  if (!ham) return yaz({ tur: 'yok' });
+  const t = JSON.parse(ham);
+  yaz({ tur: 'durum', uygulama: 'Spotify.exe', baslik: t.baslik, sanatci: 'Deneme Sanatci', album: '', caliyor: t.caliyor, konumMs: 10000, sureMs: 200000, guncelMs: Date.now(), oynat: true, sonraki: true, onceki: true, kapakKimlik: t.baslik });
+  yaz({ tur: 'kapak', kimlik: t.baslik, mime: 'image/png', veri: null });
+}, 150);
+process.stdin.on('data', (d) => { for (const k of String(d).split(/\\r?\\n/).filter(Boolean)) { if (k === 'cik') process.exit(0); fs.appendFileSync(${JSON.stringify(MEDYA_KOMUT)}, k + '\\n'); } });
+process.stdin.on('end', () => process.exit(0));
+`
+  );
+  return dosya;
+}
+
+/**
+ * v4.0, Ada'nin sayfalari: sekme seridi, sayfa gecisi, odak sayaci (hapta canli gosterge), liste (tarih
+ * ayiklama + isaretleme), sayfa kapatma, minimal hap, medya (sahte yardimci; komut yardimciya ulasir) ve
+ * ana penceredeki Ayarlar sayfasi. Acilisin hemen ardindan kosar: oturum yok, hap sakin.
+ */
+async function v40Testi(cdp, adaCdp) {
+  console.log('v4.0: Ada sayfalari');
+  const adaAc = () => adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 230, y: 18 });
+  const adaKapat = () => adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 510 });
+  const sekme = async (k) => {
+    await adaAc();
+    await adaCdp.bekle(`!!document.querySelector('[data-ada-sekme="${k}"]')`, 5000, 'sekme ' + k);
+    await adaCdp.js(`(() => { document.querySelector('[data-ada-sekme="${k}"]').click(); return true; })()`);
+  };
+  await adaCdp.bekle(`!!document.querySelector('.ada-kart')`, 10000, 'ada karti');
+  await adaAc();
+  await adaCdp.bekle(`!!document.querySelector('.ada-kart [role="tablist"]')`, 5000, 'sekme seridi');
+  const sekmeler = await adaCdp.js(`[...document.querySelectorAll('[data-ada-sekme]')].map((b) => b.dataset.adaSekme + (b.getAttribute('aria-selected') === 'true' ? '*' : ''))`);
+  kontrol('sekme seridi: oturumlar secili + yedi sayfa + ayarlar', sekmeler.join(',') === 'oturum*,medya,odak,liste,takvim,sistem,hava,raf,ayar', sekmeler);
+  kontrol('sekmelerin erisilebilir adi var', await adaCdp.js(`[...document.querySelectorAll('[data-ada-sekme]')].every((b) => (b.getAttribute('aria-label') || '').length > 2)`));
+
+  // Odak: sayfadan baslat -> main'de calisiyor -> kapali hapta geri sayim.
+  await sekme('odak');
+  await adaCdp.bekle(`!!document.querySelector('[data-ada-sayfa="odak"]')`, 5000, 'odak sayfasi');
+  kontrol('odak: baslat tiklandi', await adaCdp.js(`(() => { const b = [...document.querySelectorAll('[data-ada-sayfa="odak"] button')].find((x) => x.textContent.trim() === 'Başlat'); if (!b) return false; b.click(); return true; })()`));
+  let odak = null;
+  for (let i = 0; i < 20 && !(odak && odak.calisiyor); i++) { await uyu(150); odak = await adaCdp.js(`window.kokpit.odakGetir()`); }
+  kontrol('odak: main sayaci calistirdi (25 dk, odak asamasi)', !!odak && odak.calisiyor === true && odak.asama === 'odak' && odak.sureMs === 25 * 60000 && odak.bitis > Date.now(), odak);
+  kontrol('odak: sayfa "Duraklat" gosteriyor', await adaCdp.bekle(`[...document.querySelectorAll('[data-ada-sayfa="odak"] button')].some((x) => x.textContent.trim() === 'Duraklat')`, 3000, 'duraklat').catch(() => false));
+  await adaKapat();
+  const hapOdak = await adaCdp.bekle(`/^2[45]:\\d\\d/.test(document.querySelector('.ada-kart.rounded-full [data-ada-odak]')?.textContent ?? '')`, 5000, 'hapta sayac').catch(() => false);
+  kontrol('odak: kapali hapta geri sayim gorunuyor', hapOdak, await adaCdp.js(`document.querySelector('.ada-kart')?.innerText ?? null`));
+  kontrol('odak: ana pencere ayni yayini aliyor', (await cdp.js(`window.kokpit.odakGetir().then((d) => d.calisiyor)`)) === true);
+  await adaCdp.js(`(() => { window.kokpit.odakKomut({ tur: 'sifirla' }); return true; })()`);
+  await adaCdp.bekle(`!document.querySelector('[data-ada-odak]')`, 5000, 'sayac gitti');
+  kontrol('odak: sifirlaninca hap gostergesi kalkti', true);
+
+  // Minimal hap: sakinken metin ve limit yok; goz kalir, ozet ekran okuyucuda.
+  await adaCdp.js(`window.kokpit.adaAyarYaz({ minimal: true }).then(() => true)`);
+  const minimal = await adaCdp.bekle(`!!document.querySelector('.ada-kart.rounded-full') && !document.querySelector('.ada-kart .ada-metin') && !!document.querySelector('.ada-kart .ada-goz') && !!document.querySelector('.ada-kart .sr-only')`, 5000, 'minimal').catch(() => false);
+  kontrol('minimal hap: yalniz goz (metin gizli, ozet ekran okuyucuda)', minimal, await adaCdp.js(`document.querySelector('.ada-kart')?.innerHTML.slice(0, 300) ?? null`));
+  await adaCdp.js(`window.kokpit.adaAyarYaz({ minimal: false }).then(() => true)`);
+  kontrol('minimal kapaninca metin geri geldi', await adaCdp.bekle(`!!document.querySelector('.ada-kart .ada-metin')`, 5000, 'metin').catch(() => false));
+
+  // Liste: "yarın ..." tarihe cevrilir; sayfada isaretlenince biter.
+  await adaCdp.js(`(() => { window.kokpit.listeKomut({ tur: 'ekle', metin: 'yarın deneme işi' }); return true; })()`);
+  let liste = [];
+  for (let i = 0; i < 20 && liste.length === 0; i++) { await uyu(150); liste = await adaCdp.js(`window.kokpit.listeGetir()`); }
+  // "Yarin" 05:00 gun sinirina gore (yapilacak.cjs): gece 02:00'de soylenen "yarın" o takvim gunudur.
+  const yarin = new Date(Date.now() - 5 * 3600000 + 86400000);
+  const yarinStr = yarin.getFullYear() + '-' + String(yarin.getMonth() + 1).padStart(2, '0') + '-' + String(yarin.getDate()).padStart(2, '0');
+  kontrol('liste: "yarın deneme işi" -> metin + yarinin tarihi', liste.length === 1 && liste[0].metin === 'deneme işi' && liste[0].tarih === yarinStr && liste[0].bitti === false, liste);
+  await sekme('liste');
+  await adaCdp.bekle(`document.querySelector('[data-ada-sayfa="liste"]')?.innerText.includes('deneme işi')`, 5000, 'liste satiri');
+  kontrol('liste: isaret kutusu tiklandi', await adaCdp.js(`(() => { const b = document.querySelector('[data-ada-sayfa="liste"] [role="checkbox"]'); if (!b) return false; b.click(); return true; })()`));
+  for (let i = 0; i < 20 && !liste[0]?.bitti; i++) { await uyu(150); liste = await adaCdp.js(`window.kokpit.listeGetir()`); }
+  kontrol('liste: is bitti olarak kaydedildi', liste[0]?.bitti === true && typeof liste[0]?.bittiT === 'number', liste);
+  await adaCdp.js(`(() => { window.kokpit.listeKomut({ tur: 'temizle' }); return true; })()`);
+  for (let i = 0; i < 20 && liste.length > 0; i++) { await uyu(150); liste = await adaCdp.js(`window.kokpit.listeGetir()`); }
+  kontrol('liste: temizle bitenleri sildi', liste.length === 0, liste);
+
+  // Sayfa kapatma: sekme kalkar, acik sayfa kapatilirsa Oturumlar'a duser.
+  await sekme('sistem');
+  await adaCdp.bekle(`!!document.querySelector('[data-ada-sayfa="sistem"]')`, 5000, 'sistem sayfasi');
+  kontrol('sistem: olcum geldi (islemci satiri)', await adaCdp.bekle(`/%\\d+/.test(document.querySelector('[data-ada-sayfa="sistem"]')?.innerText ?? '')`, 8000, 'sistem olcumu').catch(() => false));
+  await adaCdp.js(`window.kokpit.adaAyarYaz({ sayfalar: { sistem: false } }).then(() => true)`);
+  await adaAc();
+  kontrol('sayfa kapatildi: sekmesi kalkti, kart Oturumlar\'a dustu', await adaCdp.bekle(`!document.querySelector('[data-ada-sekme="sistem"]') && document.querySelector('[data-ada-sekme="oturum"]')?.getAttribute('aria-selected') === 'true'`, 5000, 'sistem sekmesi').catch(() => false));
+  await adaCdp.js(`window.kokpit.adaAyarYaz({ sayfalar: { sistem: true } }).then(() => true)`);
+  kontrol('sayfa acildi: sekmesi geri geldi', await adaCdp.bekle(`!!document.querySelector('[data-ada-sekme="sistem"]')`, 5000, 'sistem geri').catch(() => false));
+
+  // Medya: sahte yardimci parca yayinlar -> hapta gosterge + parca adi; komut yardimciya ulasir.
+  fs.writeFileSync(MEDYA_TETIK, JSON.stringify({ baslik: 'Deneme Parcasi', caliyor: true }));
+  await adaKapat();
+  kontrol('medya: calan parca hapta (gosterge + ad)', await adaCdp.bekle(`!!document.querySelector('.ada-kart [data-ada-medya]') && (document.querySelector('.ada-kart .ada-metin')?.textContent ?? '').includes('Deneme Parcasi')`, 8000, 'medya hapta').catch(() => false), await adaCdp.js(`document.querySelector('.ada-kart')?.innerText ?? null`));
+  await sekme('medya');
+  await adaCdp.bekle(`document.querySelector('[data-ada-sayfa="medya"]')?.innerText.includes('Deneme Parcasi')`, 5000, 'medya sayfasi');
+  kontrol('medya: duraklat tiklandi', await adaCdp.js(`(() => { const b = document.querySelector('[data-ada-sayfa="medya"] button[aria-label="Duraklat"]'); if (!b) return false; b.click(); return true; })()`), await adaCdp.js(`[...document.querySelectorAll('[data-ada-sayfa="medya"] button')].map((b) => b.getAttribute('aria-label'))`));
+  let komut = '';
+  for (let i = 0; i < 20 && !komut; i++) { await uyu(150); try { komut = fs.readFileSync(MEDYA_KOMUT, 'utf8'); } catch { komut = ''; } }
+  kontrol('medya: komut yardimciya ulasti (oynat-duraklat)', komut.trim() === 'oynat-duraklat', komut);
+  fs.writeFileSync(MEDYA_TETIK, '');
+  await adaKapat();
+  kontrol('medya: oturum bitince hap gostergesi kalkti', await adaCdp.bekle(`!document.querySelector('[data-ada-medya]')`, 8000, 'medya gitti').catch(() => false));
+  // Sonraki bolumler Oturumlar sayfasini bekler.
+  await sekme('oturum');
+  await adaKapat();
+
+  // Ana pencere: Ayarlar (Ctrl+8) ayni ayari gosterir ve degistirir.
+  await cdp.gonder('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: '8', code: 'Digit8', modifiers: 2, windowsVirtualKeyCode: 56 });
+  await cdp.gonder('Input.dispatchKeyEvent', { type: 'keyUp', key: '8', code: 'Digit8', modifiers: 2, windowsVirtualKeyCode: 56 });
+  kontrol('ayarlar sayfasi: Ctrl+8 ile acildi', await cdp.bekle(`!!document.querySelector('section[aria-label="Ada ayarları"] [role="switch"]')`, 8000, 'ayarlar').catch(() => false));
+  kontrol('ayarlar: "Minimal hap" anahtari tiklandi', await cdp.js(`(() => { const b = [...document.querySelectorAll('section[aria-label="Ada ayarları"] [role="switch"]')].find((x) => (x.closest('button') ?? x).textContent.includes('Minimal hap') || x.getAttribute('aria-label')?.includes('Minimal hap')); if (!b) return false; (b.closest('button') ?? b).click(); return true; })()`));
+  let ayar = null;
+  for (let i = 0; i < 20 && !(ayar && ayar.minimal); i++) { await uyu(150); ayar = await adaCdp.js(`window.kokpit.adaAyarlar()`); }
+  kontrol('ayarlar: ana pencereden degisen ayar Ada\'ya ulasti', ayar?.minimal === true, ayar);
+  await cdp.js(`window.kokpit.adaAyarYaz({ minimal: false }).then(() => true)`);
+  await cdp.gonder('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: '1', code: 'Digit1', modifiers: 2, windowsVirtualKeyCode: 49 });
+  await cdp.gonder('Input.dispatchKeyEvent', { type: 'keyUp', key: '1', code: 'Digit1', modifiers: 2, windowsVirtualKeyCode: 49 });
+}
+
 async function baslat(ekOrtam = {}) {
   // Ustu kapali pencerede Chromium kare uretmeyi durdurur (visibilityState hidden, rAF ve
   // ResizeObserver durur): Scryne makineyi kullanirken test penceresi arkada kalinca
@@ -227,6 +359,8 @@ async function baslat(ekOrtam = {}) {
       KOKPIT_TEST_SES_DOSYA: SES_METNI,
       // v3.3: Aria sahte claude ile (gercek claude vault hook'larini calistirir, limit harcar).
       KOKPIT_TEST_ARIA_SAHTE: path.join(__dirname, 'sahte-claude.cjs'),
+      // v4.0: gercek medya oturumu okunmaz; sahte yardimci tetik dosyasi yazilana kadar "yok" der.
+      KOKPIT_MEDYA_YARDIMCI: sahteMedyaYaz(),
       ...ekOrtam,
     },
   });
@@ -1004,6 +1138,12 @@ async function main() {
     await cdp.bekle(`document.querySelectorAll('table tbody tr').length > 0`, 20000, 'proje tablosu');
     const satir = await cdp.js(`document.querySelectorAll('table tbody tr').length`);
     kontrol('proje tablosu dolu', satir > 0, satir);
+
+    try {
+      await v40Testi(cdp, adaCdp);
+    } catch (e) {
+      kontrol('v4.0 senaryosu', false, e.message);
+    }
 
     console.log('Pano v2.9: push bekleyen commit, okuma hatasinda son olcum korunur');
     const tazeleBas = () => cdp.js(`(() => { const b = [...document.querySelectorAll('header button')].find(x => x.textContent.includes('Tazele')); if (!b) return false; b.click(); return true; })()`);

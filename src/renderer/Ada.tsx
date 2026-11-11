@@ -1,8 +1,35 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
-import { ArrowDownFromLine, ArrowUpToLine, Camera, Check, ChevronDown, CornerDownLeft, FileText, Mic, RefreshCw, X } from 'lucide-react';
+import {
+  ArrowDownFromLine,
+  ArrowUpToLine,
+  CalendarDays,
+  Camera,
+  Check,
+  ChevronDown,
+  CloudSun,
+  CornerDownLeft,
+  Cpu,
+  FileText,
+  Layers,
+  ListTodo,
+  Mic,
+  Music,
+  RefreshCw,
+  Settings2,
+  TerminalSquare,
+  Timer,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import type {
+  AdaAyarlari,
   AdaEki,
   AdaKipi,
+  AdaSayfaKimligi,
+  MedyaDurumu,
+  OdakDurumu,
+  RafOgesi,
+  Yapilacak,
   Brifing,
   BotIsi,
   BotNobeti,
@@ -29,6 +56,15 @@ import { sureMetni } from './parcalar';
 import { AdaGoz, gozPozu, type GozHali } from './AdaGoz';
 import { VadeMetni, vadeEtiketi } from './Nobet';
 import { kayitBaslat, mikrofonHatasi, sesCal, uyanmaBaslat, type Kayit, type UyanmaDinleyici } from './sesKayit';
+import { sayacMetni } from './ada/ortak';
+import { MedyaCubuklari, MedyaSayfasi } from './ada/MedyaSayfasi';
+import { ODAK_ADI, OdakSayfasi, odakKalan } from './ada/OdakSayfasi';
+import { SistemSayfasi } from './ada/SistemSayfasi';
+import { HavaSayfasi } from './ada/HavaSayfasi';
+import { ListeSayfasi } from './ada/ListeSayfasi';
+import { TakvimSayfasi } from './ada/TakvimSayfasi';
+import { RafSayfasi } from './ada/RafSayfasi';
+import { AyarSayfasi, SAYFA_ADI } from './ada/AyarSayfasi';
 
 // Ada: Kokpit arka plandayken ekranin ust ortasindaki serit (electron/ada.cjs).
 // Kapali: tek satirlik hap — en onemli tek sey. Acik: oturum basina satir + limitler.
@@ -49,6 +85,12 @@ import { kayitBaslat, mikrofonHatasi, sesCal, uyanmaBaslat, type Kayit, type Uya
 // Tam ekran uygulama ondeyken (main: kip 'sinema') pencere gizlidir; seni bekleyen varsa yalniz cene.
 // Saklanmisken "bitti/seni bekliyor" kendiliginden acmaz (5 sn bakis yok): cene amber yanar, o kadar.
 // Hap baslik satirindan suruklenir (main pencereyi imlecle tasir), merkeze yakinsa ortaya oturur.
+//
+// v4.0, sayfalar: acik kartin basliginin altinda sekme seridi. Oturumlar (bugune kadarki kart) + medya,
+// odak, liste, takvim, sistem, hava, raf + ayarlar (src/renderer/ada/). Kapali hapta canli gostergeler:
+// calisan odak sayaci, calan sarki. "Minimal hap" ayarinda sakin hap yalniz goz + bu gostergeler.
+// Kart kendiliginden acildiginda (oturum bitti/bekliyor, ek, brifing, ses) hep Oturumlar sayfasi gelir;
+// imlecle acildiginda en son bakilan sayfa.
 //
 // Pencere saydam, bu yuzden zemin kendi tonunu tasir (ada-zemin, ~%92 opak): arkada ne
 // olursa olsun metin okunur. backdrop-filter yok — saydam pencerede masaustunu bulaniklastiramaz.
@@ -84,6 +126,22 @@ const BRIFING_BAKIS_MS = 25_000;
 const BRIFING_MS = 30 * 60 * 1000;
 /** v3.1: ayni oturum icin iki sesli bildirim arasi en az. */
 const BILDIRIM_ARASI_MS = 20_000;
+
+/** v4.0: kartin sayfalari. 'oturum' ve 'ayar' kapatilamaz; digerleri Ayarlar'dan. */
+type AdaSayfasi = 'oturum' | AdaSayfaKimligi | 'ayar';
+const SAYFA_SIRASI: AdaSayfaKimligi[] = ['medya', 'odak', 'liste', 'takvim', 'sistem', 'hava', 'raf'];
+const SAYFA_IKONU: Record<AdaSayfasi, LucideIcon> = {
+  oturum: TerminalSquare,
+  medya: Music,
+  odak: Timer,
+  liste: ListTodo,
+  takvim: CalendarDays,
+  sistem: Cpu,
+  hava: CloudSun,
+  raf: Layers,
+  ayar: Settings2,
+};
+const SON_SAYFA = 'ada-sayfa';
 
 const SIRA: Record<OturumEtkinligi['durum'], number> = { bekliyor: 0, calisiyor: 1, bitti: 2, bosta: 3, kapandi: 4 };
 /** Gorev gonderildi bildirimi bu kadar kalir; oturum satiri zaten listede belirir. */
@@ -210,7 +268,36 @@ export default function Ada() {
   // v3.2: gunun brifingi (ses, palet ya da gunun ilk ani). "Tamam" ya da BRIFING_MS sonra kalkar.
   const [brifing, setBrifing] = useState<{ b: Brifing; t: number } | null>(null);
 
+  // v4.0: sayfalar ve verileri (main yayinlar). Son bakilan sayfa bu pencerenin deposunda kalir.
+  const [ayar, setAyar] = useState<AdaAyarlari | null>(null);
+  const [medya, setMedya] = useState<MedyaDurumu | null>(null);
+  const [odak, setOdak] = useState<OdakDurumu | null>(null);
+  const odakRef = useRef(odak);
+  odakRef.current = odak;
+  const [yapilacaklar, setYapilacaklar] = useState<Yapilacak[]>([]);
+  const [raf, setRaf] = useState<RafOgesi[]>([]);
+  const [sayfa, setSayfaHam] = useState<AdaSayfasi>(() => {
+    try {
+      const k = localStorage.getItem(SON_SAYFA);
+      return k === 'ayar' || (SAYFA_SIRASI as string[]).includes(k ?? '') ? (k as AdaSayfasi) : 'oturum';
+    } catch {
+      return 'oturum';
+    }
+  });
+  const sayfaRef = useRef(sayfa);
+  sayfaRef.current = sayfa;
+  const setSayfa = useCallback((y: AdaSayfasi) => {
+    setSayfaHam(y);
+    try {
+      localStorage.setItem(SON_SAYFA, y);
+    } catch {
+      /* depolama kapali: secim bu oturumda kalir */
+    }
+  }, []);
+
+  /** Kart bir olay yuzunden kendiliginden aciliyor: olay Oturumlar sayfasinda gorunur. */
   const bak = useCallback((ms: number = BAKIS_MS) => {
+    setSayfaHam('oturum');
     setBakis(true);
     if (bakisZamani.current) clearTimeout(bakisZamani.current);
     bakisZamani.current = setTimeout(() => setBakis(false), ms);
@@ -240,6 +327,7 @@ export default function Ada() {
     const k8 = window.kokpit.adaEklerDinle((v) => {
       setEkler(v.ekler);
       if (v.acil) {
+        setSayfaHam('oturum');
         setOdakta(true);
         setEkIstegi((n) => n + 1);
       } else if ((v.neden === 'pano' || v.neden === 'birak') && v.ekler.length > 0) bak();
@@ -251,6 +339,16 @@ export default function Ada() {
       disRef.current = l;
       setDis(l);
     });
+    void window.kokpit.adaAyarlar().then((a) => a && setAyar(a));
+    void window.kokpit.medyaGetir().then(setMedya);
+    void window.kokpit.odakGetir().then((d) => d && setOdak(d));
+    void window.kokpit.listeGetir().then(setYapilacaklar);
+    void window.kokpit.rafGetir().then(setRaf);
+    const s1 = window.kokpit.adaAyarlarDinle(setAyar);
+    const s2 = window.kokpit.medyaDinle(setMedya);
+    const s3 = window.kokpit.odakDinle(setOdak);
+    const s4 = window.kokpit.listeDinle(setYapilacaklar);
+    const s5 = window.kokpit.rafDinle(setRaf);
     const k4 = window.kokpit.adaKlavyeDinle(({ anaOdakta }) => {
       if (anaOdakta) {
         // Kokpit zaten onde (ada gizli): kisayol sirasi gelen oturuma orada goturur.
@@ -263,6 +361,8 @@ export default function Ada() {
         return;
       }
       void window.kokpit.komutlarGetir().then(setKomutlar);
+      // Klavyeyle Ada: amac sirasi gelen oturuma cevap; o Oturumlar sayfasinda.
+      setSayfaHam('oturum');
       setOdakta(true);
       setKlavyeIstegi((n) => n + 1);
     });
@@ -282,6 +382,11 @@ export default function Ada() {
       k9();
       k10();
       k11();
+      s1();
+      s2();
+      s3();
+      s4();
+      s5();
       clearInterval(t);
       if (sarkmaZamani.current) clearTimeout(sarkmaZamani.current);
     };
@@ -300,6 +405,8 @@ export default function Ada() {
     setUzerinde(icinde);
     if (!icinde) setTakip(null);
     if (icinde) void window.kokpit.komutlarGetir().then(setKomutlar);
+    // Seni bekleyen bir oturum varken kart hangi sayfada kalmis olursa olsun soru gorunsun.
+    if (icinde && Object.values(anlikRef.current?.oturumlar ?? {}).some((e) => e.durum === 'bekliyor')) setSayfaHam('oturum');
     window.kokpit.adaFare(icinde);
   }, []);
 
@@ -402,6 +509,12 @@ export default function Ada() {
     !bekleyen.length && !calisan.length && !disBekleyen.length && !disCalisan.length && simdi - sonOlay > UYKU_MS;
   const sessizlik = uyku ? sureMetni(Math.floor((simdi - sonOlay) / 1000)) : null;
   const toplam = satirlar.length + dis.length;
+  // v4.0: sayfa ayarlari ve canli gostergeler. Ayar gelmeden sayfalar acik sayilir (varsayilan).
+  const sayfaAcik = (k: AdaSayfaKimligi) => ayar?.sayfalar[k] !== false;
+  const medyaCaliyor = sayfaAcik('medya') && !!medya && medya.caliyor && !!medya.baslik;
+  const odakCalisiyor = sayfaAcik('odak') && !!odak && odak.calisiyor;
+  const acikSayfalar: AdaSayfasi[] = ['oturum', ...SAYFA_SIRASI.filter(sayfaAcik), 'ayar'];
+  const etkinSayfa: AdaSayfasi = acikSayfalar.includes(sayfa) ? sayfa : 'oturum';
   const ozet = bekleyen.length
     ? bekleyen[0].o.ad + ' seni bekliyor' + (bekleyen.length > 1 ? ' +' + (bekleyen.length - 1) : '')
     : takilan.length
@@ -418,6 +531,8 @@ export default function Ada() {
               ? dusenBot[0].proje + ' · ' + dusenBot[0].ad + ' düştü' + (dusenBot.length > 1 ? ' +' + (dusenBot.length - 1) : '')
             : yakinVade.length
               ? yakinVade[0].proje + ': ' + vadeEtiketi(yakinVade[0])
+            : medyaCaliyor
+              ? medya!.baslik + (medya!.sanatci ? ' · ' + medya!.sanatci : '')
             : uyku
               ? (toplam ? toplam + ' oturum · ' : '') + sessizlik + ' sessiz'
               : toplam
@@ -471,6 +586,10 @@ export default function Ada() {
   const tepsiVar = ekler.length > 0 || birakilanMetin !== '';
   const genis = uzerinde || odakta || birakiliyor || (bakis && !saklandi);
   const soruVar = bekleyen.some((x) => x.e?.soruAyrinti?.cevaplanabilir);
+  // v4.0 minimal hap: soylenecek bir sey yokken yalniz goz + canli gostergeler. Bir sey olunca metin geri gelir.
+  const sakin =
+    !sesOzeti && !ilk && !disBekleyen.length && !disCalisan.length && !dusenBot.length && !yakinVade.length && !tepsiVar;
+  const minimal = ayar?.minimal === true && !genis && sakin;
   const hedefler = satirlar.map(({ o, e }) => ({ id: o.id, ad: o.ad, durum: e?.durum ?? 'bosta' }));
 
   // v3.1: sesli eylemler asenkron gelir (kayit -> main -> eylem); o anki tepsiyi ve oturumlari okusunlar.
@@ -593,6 +712,12 @@ export default function Ada() {
         sesNotuGoster(e.hata ?? 'Cevap gönderilemedi');
         void konus(e.hata ?? 'Cevap gönderilemedi');
         return;
+      // v4.0: sayfa komutu main'de yapildi; Ada yalniz soyler. Uzun cumle (hava, liste) kartta tam gorunur.
+      case 'bilgi':
+        sesNotuGoster(e.cumle);
+        if (e.cumle.length > 48) bak(SES_CEVAP_MS);
+        if (e.konus) void konus(e.cumle);
+        return;
       default:
         sesNotuGoster('Duyamadım');
     }
@@ -706,6 +831,16 @@ export default function Ada() {
       }),
     [bak, konus]
   );
+  // v4.0: duyuru (odak bitti, mola bitti): hapta yazar, kart bir an bakar, istenirse soyler.
+  useEffect(
+    () =>
+      window.kokpit.adaDuyuruDinle((d) => {
+        sesNotuGoster(d.metin);
+        if (kipRef.current === 'normal') bak();
+        if (d.konus) void konus(d.metin, true);
+      }),
+    [bak, konus, sesNotuGoster]
+  );
   // v3.2: main'den kisa not (secili metin bulunamadi gibi): hapta birkac saniye.
   useEffect(() => window.kokpit.adaNotDinle((m) => sesNotuGoster(m)), [sesNotuGoster]);
 
@@ -720,7 +855,9 @@ export default function Ada() {
       const once = oncekiDurum.current[o.id];
       if (!once || once === d || !sesli || !sesKurulu.tts || dinlemeRef.current !== 'yok') continue;
       if (Date.now() - (sonBildirim.current[o.id] ?? 0) < BILDIRIM_ARASI_MS) continue;
-      const cumle = d === 'bekliyor' ? o.ad + ' seni bekliyor' : d === 'bitti' && o.dikkat ? o.ad + ' bitti' : null;
+      // v4.0: odak sayaci calisirken yalniz "seni bekliyor" soylenir; "bitti" odagi bolmez (kartta yine gorunur).
+      const odakta = odakRef.current?.calisiyor === true && odakRef.current.asama === 'odak';
+      const cumle = d === 'bekliyor' ? o.ad + ' seni bekliyor' : d === 'bitti' && o.dikkat && !odakta ? o.ad + ' bitti' : null;
       if (!cumle) continue;
       sonBildirim.current[o.id] = Date.now();
       void konus(cumle, true);
@@ -816,6 +953,8 @@ export default function Ada() {
           const t = [...ev.dataTransfer.types];
           if (!t.includes('Files') && !t.includes('text/plain')) return;
           ev.preventDefault();
+          // Raf sayfasi acikken birakilan rafa girer; degilse oturuma gonderilecekler tepsisine (Oturumlar).
+          if (sayfaRef.current !== 'raf') setSayfaHam('oturum');
           setBirakiliyor(true);
           fare(true);
         }}
@@ -832,7 +971,8 @@ export default function Ada() {
           ev.preventDefault();
           setBirakiliyor(false);
           const yollar = [...ev.dataTransfer.files].map((d) => window.kokpit.dosyaYolu(d)).filter((y) => y.length > 0);
-          if (yollar.length > 0) window.kokpit.adaBirak(yollar);
+          if (yollar.length > 0 && sayfaRef.current === 'raf') window.kokpit.rafEkle(yollar);
+          else if (yollar.length > 0) window.kokpit.adaBirak(yollar);
           else {
             const m = ev.dataTransfer.getData('text/plain').replace(/\s+/g, ' ').trim().slice(0, 2000);
             if (m) setBirakilanMetin(m);
@@ -867,8 +1007,9 @@ export default function Ada() {
           <span ref={gozRef} className="-my-1 -ml-1 flex">
             <AdaGoz hal={gozHali} poz={gozPozu(calisan[0]?.e ?? null, simdi)} altSayisi={altSayisi} onay={onay} takip={takip} />
           </span>
+          {minimal && <span className="sr-only">{ozet}</span>}
           {/* Metin degisince (arac, durum) yumusak gecis. Sayilar anahtar disi: sayan sure her saniye metni yeniden dogurup titretiyordu. */}
-          <span
+          {!minimal && <span
             key={(sesOzeti ?? ozet).replace(/\d+/g, '#')}
             className={
               'ada-metin min-w-0 truncate ' +
@@ -883,7 +1024,7 @@ export default function Ada() {
             aria-live={sesOzeti ? 'polite' : undefined}
           >
             {sesOzeti ?? ozet}
-          </span>
+          </span>}
           {dinleme === 'dinliyor' && (
             <span aria-hidden="true" className="ada-seviye" style={{ '--s': seviye } as React.CSSProperties}>
               <i />
@@ -899,6 +1040,21 @@ export default function Ada() {
           )}
           {altSayisi > 0 && <span className="sr-only">, {altSayisi} alt ajan çalışıyor</span>}
           {ozetSure && <span className="enstruman shrink-0 text-metin-soluk">{ozetSure}</span>}
+          {/* v4.0 canli gostergeler: calisan sayac ve calan sarki, hap ne yazarsa yazsin gorunur. */}
+          {odakCalisiyor && odak && (
+            <span data-ada-odak className="enstruman flex shrink-0 items-center gap-1 text-metin-ikincil" title={ODAK_ADI[odak.asama] + ' sayacı'}>
+              <Timer className="size-3.5" aria-hidden="true" />
+              {sayacMetni(odakKalan(odak, simdi))}
+              <span className="sr-only"> {ODAK_ADI[odak.asama]} kaldı</span>
+            </span>
+          )}
+          {medyaCaliyor && medya && (
+            <span data-ada-medya className="flex shrink-0 items-center gap-1.5" title={medya.baslik + (medya.sanatci ? ' · ' + medya.sanatci : '')}>
+              {medya.kapak && <img src={medya.kapak} alt="" className="size-4 rounded-[4px] object-cover" />}
+              <MedyaCubuklari caliyor />
+              <span className="sr-only">Çalıyor: {medya.baslik}</span>
+            </span>
+          )}
           {ekler.length > 0 && (
             <span className="enstruman flex shrink-0 items-center gap-1 text-metin-ikincil" title={ekler.length + ' ek gönderilmeyi bekliyor'}>
               <Camera className="size-3.5" aria-hidden="true" />
@@ -906,7 +1062,7 @@ export default function Ada() {
               <span className="sr-only"> ek gönderilmeyi bekliyor</span>
             </span>
           )}
-          {(bes !== null || haf !== null) && (
+          {!minimal && (bes !== null || haf !== null) && (
             <span className="enstruman ml-auto flex shrink-0 gap-2 pl-2 text-metin-soluk">
               {bes !== null && (
                 <span title="5 saatlik limit" className={bes >= 80 ? 'text-dikkat-metin' : undefined}>
@@ -959,7 +1115,54 @@ export default function Ada() {
 
         {!genis && bes !== null && <LimitKenari kart={kart} yuzde={bes} />}
         {genis && (
-          <div className="max-h-[440px] overflow-y-auto border-t border-kenar px-1.5 pb-1.5 pt-1">
+          <div
+            role="tablist"
+            aria-label="Ada sayfaları"
+            className="flex items-center gap-0.5 border-t border-kenar px-1.5 py-1"
+            onKeyDown={(ev) => {
+              if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+              ev.preventDefault();
+              const i = acikSayfalar.indexOf(etkinSayfa);
+              const y = acikSayfalar[(i + (ev.key === 'ArrowRight' ? 1 : acikSayfalar.length - 1)) % acikSayfalar.length];
+              setSayfa(y);
+              requestAnimationFrame(() => kart.current?.querySelector<HTMLElement>(`[data-ada-sekme="${y}"]`)?.focus());
+            }}
+          >
+            {acikSayfalar.map((k) => {
+              const Ikon = SAYFA_IKONU[k];
+              const sec = k === etkinSayfa;
+              const ad = k === 'oturum' ? 'Oturumlar' : k === 'ayar' ? 'Ayarlar' : SAYFA_ADI[k];
+              const bekleyenVar = k === 'oturum' && !sec && (bekleyen.length > 0 || disBekleyen.length > 0);
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  role="tab"
+                  aria-selected={sec}
+                  aria-label={ad + (bekleyenVar ? ', seni bekleyen var' : '')}
+                  title={ad}
+                  data-ada-sekme={k}
+                  tabIndex={sec ? 0 : -1}
+                  onClick={() => setSayfa(k)}
+                  className={
+                    'relative flex h-6 cursor-pointer items-center gap-1.5 rounded-kontrol px-2 text-xs transition-colors duration-[120ms] ' +
+                    (k === 'ayar' ? 'ml-auto ' : '') +
+                    (sec ? 'bg-yuzey-guclu text-metin' : 'text-metin-soluk hover:bg-yuzey-guclu hover:text-metin')
+                  }
+                >
+                  <Ikon className="size-3.5" aria-hidden="true" />
+                  {/* Yalniz secili sekme adini yazar: dokuz ikon + dokuz ad 440 px'e sigmaz, secili olan ne oldugunu soyler. */}
+                  {sec && <span>{ad}</span>}
+                  {bekleyenVar && <span aria-hidden="true" className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-dikkat" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {genis && (
+          <div role="tabpanel" aria-label={etkinSayfa === 'oturum' ? 'Oturumlar' : etkinSayfa === 'ayar' ? 'Ayarlar' : SAYFA_ADI[etkinSayfa]} className="max-h-[404px] overflow-y-auto border-t border-kenar px-1.5 pb-1.5 pt-1">
+            {etkinSayfa === 'oturum' ? (
+            <>
             {/* v3.2: Ada'nin uzun sesli cevabi (ozet, brifing) hapa sigmaz; kartin basinda tam hali. */}
             {sesNotu && (sesNotu.metin.length > 48 || ariaCevabi) && simdi - sesNotu.t < SES_CEVAP_MS && (
               <div data-ada-cevap role="status" className="mb-1 border-b border-kenar px-2 pb-2 pt-1 text-xs leading-relaxed text-metin-ikincil">
@@ -1029,6 +1232,24 @@ export default function Ada() {
             {dis.length > 0 && <DisOturumlar dis={dis} simdi={simdi} ayrac={satirlar.length > 0} />}
             {projeler.length > 0 && <GorevKutusu projeler={projeler} onGonder={gorevGonder} />}
             <AdaLimitler l={l ?? null} durum={anlik?.limitDurumu} simdi={simdi} />
+            </>
+            ) : etkinSayfa === 'medya' ? (
+              <MedyaSayfasi medya={medya} sozlerAcik={ayar?.sozler !== false} />
+            ) : etkinSayfa === 'odak' ? (
+              <OdakSayfasi odak={odak} />
+            ) : etkinSayfa === 'liste' ? (
+              <ListeSayfasi liste={yapilacaklar} />
+            ) : etkinSayfa === 'takvim' ? (
+              <TakvimSayfasi vadeler={vadeler} liste={yapilacaklar} />
+            ) : etkinSayfa === 'sistem' ? (
+              <SistemSayfasi />
+            ) : etkinSayfa === 'hava' ? (
+              <HavaSayfasi konum={ayar?.havaKonum ?? null} />
+            ) : etkinSayfa === 'raf' ? (
+              <RafSayfasi raf={raf} oturumVar={satirlar.length > 0} />
+            ) : (
+              <AyarSayfasi ayar={ayar} />
+            )}
           </div>
         )}
         {/* Klavye ipucu kaydirma alaninin disinda: uzun listede de gorunsun. */}
@@ -1250,6 +1471,7 @@ const BRIFING_TUR: Record<string, string> = {
   oturum: 'oturum',
   push: 'push',
   kirli: 'kirli',
+  liste: 'liste',
   limit: 'limit',
   beyin: 'beyin',
   saglik: 'sağlık',

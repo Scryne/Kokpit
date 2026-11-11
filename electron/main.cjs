@@ -35,6 +35,7 @@ const hafizaAg = require('./hafiza-ag.cjs');
 const ariaArac = require('./aria-arac.cjs');
 const geceVardiyasi = require('./gece.cjs');
 const surum = require('./surum.cjs');
+const adaSayfalar = require('./ada-sayfalar.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
@@ -376,6 +377,12 @@ function adaKur() {
     onSesCoz: async (wav, liste) => {
       const r = await ses.coz(wav, sesKomut.ipucu(liste.map((o) => o.ad)));
       if ('hata' in r) return r;
+      // v4.0: cumlenin tamami bir sayfa komutuysa ("müziği durdur", "25 dakika odak") burada biter.
+      const sayfa = await adaSayfalar.sesKomutu(r.metin).catch((e) => (logHata('sayfa komutu', e), null));
+      if (sayfa) {
+        log('ada sesi: sayfa komutu (' + r.ms + ' ms)');
+        return { metin: r.metin, eylem: sayfa, ms: r.ms };
+      }
       const eylem = sesliEylem(sesKomut.komutCoz(r.metin, liste), liste);
       log('ada sesi: ' + eylem.tur + (eylem.hedef ? ' @' + eylem.hedef.ad : eylem.tur === 'not' ? ' hedefsiz' : '') + (eylem.gonder ? ' +gonder' : '') + (eylem.hata ? ' (' + eylem.hata + ')' : '') + ' (' + r.ms + ' ms)');
       return { metin: r.metin, eylem, ms: r.ms };
@@ -387,7 +394,8 @@ function adaKur() {
       if ('hata' in r) return { uyandi: false };
       const u = sesKomut.uyanmaAyikla(r.metin);
       if (!u.uyandi) return { uyandi: false };
-      const eylem = u.kalan ? sesliEylem(sesKomut.komutCoz(u.kalan, liste), liste) : null;
+      const sayfa = u.kalan ? await adaSayfalar.sesKomutu(u.kalan).catch((e) => (logHata('sayfa komutu', e), null)) : null;
+      const eylem = sayfa ?? (u.kalan ? sesliEylem(sesKomut.komutCoz(u.kalan, liste), liste) : null);
       log('ada uyandi' + (eylem ? ': ' + eylem.tur + (eylem.hedef ? ' @' + eylem.hedef.ad : '') : ' (komut bekleniyor)') + ' (' + r.ms + ' ms)');
       return { uyandi: true, metin: u.kalan, eylem };
     },
@@ -405,6 +413,35 @@ function adaKur() {
   });
   // Pano bekcisi: test kosucularinda yalniz istenirse (gercek Kokpit de ayni panoyu izliyor).
   if (!TEST || process.env.KOKPIT_TEST_PANO === '1') yakala.baslat();
+}
+
+/**
+ * v4.0: Ada'nin sayfalari (medya, odak, liste, sistem, hava, raf) ve ortak Ada ayarlari. Ayar hangi
+ * yuzeyden degisirse degissin (tepsi, Ada'nin Ayarlar sayfasi, ana penceredeki Ayarlar) etkisi burada uygulanir.
+ */
+function adaSayfalariKur() {
+  adaSayfalar.kur({
+    test: TEST,
+    pencereler: () => [pencere && !pencere.isDestroyed() ? pencere.webContents : null, ada.icerik()].filter(Boolean),
+    sesDurumu: () => ses.durum(),
+    duyur: (metin, konus) => ada.duyuru(metin, konus),
+    // Raftaki dosya Ada'nin ek tepsisine: oradan hedef oturum secilip gonderilir (v3.0 yolu).
+    rafOturuma: (yol) => yakala.birak([yol]),
+    ayarDegisti: (d) => {
+      if ('ada' in d) {
+        ada.ayar(d.ada);
+        if (pencere) pencere.webContents.send('ada:ayar-degisti', d.ada);
+      }
+      if ('adaHep' in d) ada.ayar(ada.durum().acik, d.adaHep);
+      if ('adaTamEkran' in d) ada.tamEkranAyarla(d.adaTamEkran);
+      if ('adaSesli' in d) ada.sesliAyarla(d.adaSesli);
+      if ('adaUyanma' in d) {
+        ada.uyanmaAyarla(d.adaUyanma);
+        if (d.adaUyanma) void ses.hazirla();
+      }
+      tepsiMenusu();
+    },
+  });
 }
 
 /**
@@ -493,6 +530,7 @@ async function brifingHazirla() {
     liste: ada.oturumListesi(),
     simdi: Date.now(),
     gece: geceVardiyasi.sabahOzeti(),
+    yapilacaklar: adaSayfalar.yapilacaklar(),
   });
 }
 /** Brifingi Ada'da gosterir; `konus` acik istekte (ses, palet) her zaman, gunun ilkinde sesli ayara bagli. */
@@ -1274,6 +1312,8 @@ function surumBekcisiKur() {
 }
 
 function tepsiMenusu() {
+  // v4.0: ayni ayarlar Ada'nin ve ana pencerenin Ayarlar sayfasinda da gorunur; tepsiden degisen oraya da gitsin.
+  adaSayfalar.ayarYayinla();
   if (!tepsi) return;
   const a = ada.durum();
   const sablon = [
@@ -1321,6 +1361,7 @@ function tepsiMenusu() {
       click: (m) => {
         ayarlar.yaz({ adaTamEkran: m.checked });
         ada.tamEkranAyarla(m.checked);
+        tepsiMenusu();
       },
     },
     ...(a.ortada ? [] : [{ label: "Ada'yı ortala", enabled: a.acik, click: () => ada.ortala() }]),
@@ -1357,7 +1398,10 @@ function tepsiMenusu() {
       label: 'Her gün ilk açılışta brifing',
       type: 'checkbox',
       checked: ayarlar.oku().adaBrifing !== false,
-      click: (m) => ayarlar.yaz({ adaBrifing: m.checked }),
+      click: (m) => {
+        ayarlar.yaz({ adaBrifing: m.checked });
+        tepsiMenusu();
+      },
     },
   ];
   if (ACILIS_DESTEKLI) {
@@ -1469,6 +1513,7 @@ app.whenReady().then(() => {
   void ariaKur();
   pencereKur();
   adaKur();
+  adaSayfalariKur();
   tepsiKur();
   surumBekcisiKur();
   // Genel kisayol: Kokpit arka plandayken de Inbox notu. Ctrl+Alt+Shift+N secildi:
@@ -1564,6 +1609,7 @@ app.on('before-quit', (olay) => {
   ses.durdur();
   kanca.durdur();
   limit.durdur();
+  adaSayfalar.kapat();
   ada.kapat();
   if (tepsi) {
     tepsi.destroy();

@@ -25,6 +25,11 @@ const VARSAYILAN = Object.freeze({
   telefon: false, // v3.2: yeni claude oturumlari --remote-control ile acilir (telefondan erisim)
   adaUyanma: false, // v3.2: eller serbest ("Ada, ..."); mikrofon surekli acik oldugu icin varsayilan kapali
   sonBrifing: null, // v3.2: son brifingin gunu (05:00 sinirli YYYY-MM-DD); gunde bir kez
+  // v4.0: Ada'nin sayfalari. Kapali sayfa arka planda calismaz (medya yardimcisi, sistem olcumu).
+  adaSayfalar: { medya: true, odak: true, liste: true, takvim: true, sistem: true, hava: true, raf: true },
+  adaMinimal: false, // v4.0: sakin hap yalniz goz + canli gostergeler (odak sayaci, calan sarki)
+  adaSozler: true, // v4.0: sarki sozleri (lrclib.net'e calan parcanin adi gider)
+  havaKonum: null, // v4.0: { ad, bolge?, ulke?, enlem, boylam }; Hava sayfasindan secilir
   tepsi: true, // v2.6: pencerenin X'i tepsiye indirir, cikis tepsi menusunden
   tepsiBildirildi: false, // "tepside calisiyor" balonu bir kez
   // acilistaBaslat: bilerek varsayilansiz. Yoksa ilk calisma kaydi acar (main.cjs tepsiKur).

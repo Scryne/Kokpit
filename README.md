@@ -67,6 +67,21 @@ Tıklayınca Kokpit o sekmeyle öne gelir. Komut paletinden "Ada'yı kapat".
 - **Fark ettiklerim.** Aria'nın günlük notu: Kokpit'i ve hafızayı okuyup gözden kaçanları kaynaklı maddelerle yazar. "Şimdi
   düşün" ile elle, "her gün" açıksa günün ilk brifingiyle birlikte (limit harcar, varsayılan kapalı).
 
+**v4.0, Ada'nın sayfaları:**
+- **Sayfalar.** Ada'nın açık kartında sekme şeridi: Oturumlar (bugüne kadarki kart), **Medya** (çalan parça, kapak,
+  çal/duraklat/atla, eşli şarkı sözleri), **Odak** (pomodoro: 25/5/15, özel süre), **Liste** (yapılacaklar; "yarın rapor"
+  tarihi kendisi ayıklar), **Takvim** (proje vadeleri + tarihli işler), **Sistem** (işlemci, bellek, ekran kartı),
+  **Hava** (seçtiğin şehir), **Raf** (dosya ve bağlantıyı geçici tut, sonra sürükle, aç ya da bir oturuma ekle), **Ayarlar**.
+  Her sayfa Ayarlar'dan kapatılır; kapalı sayfa arka planda çalışmaz.
+- **Canlı hap.** Kapalı hapta çalışan odak sayacı ve çalan parça görünür. **Minimal hap** açıkken sakin Ada yalnız göz
+  ve bu göstergelerdir; bir oturum çalışınca ya da seni bekleyince metin geri gelir.
+- **Sesli.** "Müziği durdur", "sonraki şarkı", "25 dakika odak", "mola ver", "listeye ekle: yarın rapor", "listede ne
+  var", "hava nasıl". Cümlenin tamamı komutsa çalışır; "Kokpit'e yaz, müziği durduran kodu sil" yine oturuma gider.
+- **Ayarlar sayfası (Ctrl+8).** Ada'nın bütün ayarları (tepsi menüsüyle aynı kayıt), kısayollar, sesli komutlar.
+- **Brifing** listedeki bugünkü ve gecikmiş işleri de sayar; odak çalışırken Ada yalnız "seni bekliyor"u sesli söyler.
+- **Ağ:** yalnız açık sayfalar için. Şarkı sözü: çalan parçanın adı lrclib.net'e gider (Ayarlar'dan kapatılır). Hava:
+  seçilen şehrin koordinatı open-meteo.com'a gider. Başka hiçbir şey gitmez; telemetri yok.
+
 **v3.5, denetim + bildirim geçmişi:**
 - **Gece vardiyası teknik olarak sınırlı.** Gözetimsiz claude oturumları ayrı bir ayarla açılır: `git push`, `rm -rf`,
   `gh`, geçmişi yeniden yazma izin listesinde reddedilir (izinleri atlayan modda bile). Limit ölçülemiyorsa görev başlamaz;
@@ -303,6 +318,9 @@ npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontro
 npm run ekran:ada    # v2.3–v2.4 yüzeylerinin ekran görüntüsü (ada, ada-klavye, ada-bitti, terminal, Pano)
 npm run ekran:ajan   # v2.6: oturumsuz hap, dış oturum, açık kart, proje listesi
 npm run ekran:goz    # Ada gözünün her hali, hap 4x (boşta, düşün, oku, yaz, komut, web, ajan, soru, kenar, sevinç, bitti, uyku)
+npm run test:sayfa   # v4.0: odak, liste (tarih ayıklama), sistem, hava, raf, sayfa sesli komutları (341 kontrol)
+npm run test:medya   # v4.0: medya yardımcısı (sahte) + şarkı sözleri; GERCEK=1 ile gerçek yardımcı duman testi (88 kontrol)
+npm run ekran:sayfa  # v4.0: Ada'nın sekiz sayfası, hap, minimal hap, Ayarlar; taşma ve konsol hatası denetler
 npm run typecheck
 npm run build
 npm run design:lint  # DESIGN.md spec denetimi

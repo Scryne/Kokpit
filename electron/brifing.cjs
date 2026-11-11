@@ -83,6 +83,22 @@ function brifingKur(g) {
   }
   if (yarin.length) soz.push('Yarın ' + yarin.length + ' iş var.');
 
+  // 1b. v4.0: Ada'nin listesindeki tarihli isler (bugun ve gecikmis). Tarihsizler brifinge girmez: gurultu.
+  const gunStr = (t) => {
+    const d = new Date(t);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  };
+  const bugunStr = gunStr(simdi);
+  const listeIsleri = (g.yapilacaklar ?? []).filter((y) => y && !y.bitti && typeof y.tarih === 'string' && y.tarih <= bugunStr);
+  for (const y of listeIsleri.slice(0, 5)) {
+    const gecikti = y.tarih < bugunStr;
+    maddeler.push({ tur: 'liste', metin: y.metin + (gecikti ? ' (gecikti)' : ' (bugün)'), onem: gecikti ? 'dikkat' : 'normal' });
+  }
+  if (listeIsleri.length) {
+    soz.push('Listende bugüne ' + listeIsleri.length + ' iş var: ' + listeIsleri.slice(0, 3).map((y) => y.metin).join('; ') + '.');
+    oneri = oneri ?? 'listendeki işi kapat: ' + listeIsleri[0].metin;
+  }
+
   // 2. Dusen / geciken botlar.
   const isler = g.nobet?.isler ?? [];
   const dusen = isler.filter((x) => x.hal === 'dustu');

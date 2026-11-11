@@ -1,7 +1,7 @@
 ---
 proje: Kokpit
 created: 2026-09-10
-modified: 2026-10-29
+modified: 2026-11-11
 type: roadmap
 status: aktif
 ---
@@ -88,6 +88,12 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 70 | Denetim: Aria ve ses dayanıklılığı | ✅ Tamamlandı | Aria süreci: eski çıktı yeni tura karışmaz, başlatma hatası/çıkış kurtarılır, kuyruk cevapsız kalmaz; whisper asılınca yeniden başlar; ses sırası; mikrofon hataları ayrışır |
 | 71 | Denetim: arayüz | ✅ Tamamlandı | ~60 arayüz bulgusu: terminal boyutu, Teslim yarışı, durum hatası her sayfada, markdown tablo/alıntı, ağın klavye erişimi, öneri metninin tamamı, sessiz hataların görünür olması |
 | 72 | Bildirim geçmişi | ✅ Tamamlandı | Başlıkta zil: son 50 bildirim (hatalar dahil, gece notları), okunmamış sayısı, Esc; kısa satır 4 sn |
+| 73 | Ada sayfaları: iskelet ve ayarlar | ✅ Tamamlandı | Açık kartta sekme şeridi (Oturumlar + 7 sayfa + Ayarlar), kart kendiliğinden açılınca Oturumlar gelir; ayarlar tek kayıtta (tepsi, Ada, ana pencere aynı nesne); kapalı sayfa arka planda çalışmaz (`test:ada`, `test:ui`) |
+| 74 | Medya ve şarkı sözleri | ✅ Tamamlandı | Windows medya oturumu (Spotify, tarayıcı) okunuyor: parça, kapak, konum, çal/duraklat/atla; eşli sözler doğru satırda; yardımcı süreç ebeveyn ölünce ölüyor (`test:medya` 88, gerçek duman testi) |
+| 75 | Odak, liste, takvim | ✅ Tamamlandı | Pomodoro (25/5/15, özel süre, kalıcı), yapılacaklar ("yarın …" tarihe çevrilir), ay takvimi (vadeler + tarihli işler); brifing bugünkü ve gecikmiş liste işlerini sayar (`test:sayfa`) |
+| 76 | Sistem, hava, raf | ✅ Tamamlandı | CPU/RAM/GPU ölçümü yalnız sayfa açıkken yayınlanır; hava seçilen şehirden (Open-Meteo), ağ yokken son ölçüm; raf dosya/bağlantı tutar, oturuma ekler (`test:sayfa` 341) |
+| 77 | Canlı hap, minimal kip, sesli komutlar | ✅ Tamamlandı | Kapalı hapta odak geri sayımı ve çalan parça; minimal hapta sakinken yalnız göz; "müziği durdur", "25 dakika odak", "listeye ekle …", "hava nasıl" cümlenin tamamı komutsa çalışır, oturum notunu kapmaz (34 olumsuz örnek) |
+| 78 | Ana pencere: Ayarlar sayfası | ✅ Tamamlandı | Ctrl+8: Ada ayarları (Ada'daki sayfayla aynı bileşen), kısayollar, sesli komutlar, dosyalar; paletten odak ve müzik komutları (`test:ui`) |
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -1040,3 +1046,45 @@ Ada/ses/Aria, arayüz ×2), ~130 bulgu; her biri kodda doğrulanıp düzeltildi 
   Teslim HEAD ve çapalı adres, ses yanlış eşleşmeleri, hafıza junction kaçışı, Aria yeni sohbet çakışması), `test:kanca` 125
   (gece ayar dosyası), `test:pty` (jeton sızmaz), `test:ui` 260 (+2 bilinen odak ön koşulu; bildirim, tablo, çekmece Esc,
   klavye listesi). Mutasyon: jeton, Aria eski çıktı, ad çakışması, tuval çizimi testleri hata geri konunca düştü.
+
+### v4.0 — Ada'nın sayfaları (Faz 73–78, 2026-11-11)
+
+Scryne: "Kokpit'i ve Ada'yı geliştir, son haline getir. Şu repoyu buldum (Yemresalcan/ada-notch, Windows için Rust ile
+yazılmış bir Dynamic Island); doğrudan kullanma, fikir al. Tamamen özgürsün." O depodan **kod alınmadı**; özellik
+listesi okundu (medya + söz, dosya rafı, yapılacaklar, takvim, odak sayacı, hava, sistem, minimal kip, sayfa ayarları) ve
+her biri Kokpit'in kendi kurallarıyla (DESIGN.md, hareket bütçesi, "yol renderer'a gitmez") yeniden tasarlandı.
+Alınmayanlar: Windows bildirimlerini yansıtma (paket kimliği ister), futbol sayfası (kişisel tercih; Scryne'a soruldu),
+"Merhaba" maskotu (Ada'nın gözü zaten var).
+
+- **Kullanım kanıtı (`~/.kokpit`):** `adaSakli: true`; Ada 34 kez kenara çekilmiş, 32 kez taşınmış. Ada yolda duruyor ama
+  kapatılmıyor: **minimal hap** bunun için (sakinken yalnız göz + canlı göstergeler). Ekran yakalama 51, Inbox notu 43
+  kez; ses 10 kez; gece vardiyası hiç kullanılmamış (kaldırma kararı Scryne'da, soruldu).
+- **Faz 73, iskelet** (✅): `electron/ada-sayfalar.cjs` sayfaların IPC'sini ve yaşam döngüsünü toplar (main.cjs büyümesin).
+  İstek yalnız Kokpit'in iki penceresinden kabul edilir. `AdaAyarlari` tek kayıt: tepsiden, Ada'dan ya da ana pencereden
+  değişen diğer ikisine yayınlanır. Kart imleçle açılınca son bakılan sayfa, bir olayla açılınca (oturum bitti/bekliyor, ek,
+  brifing, ses) ya da seni bekleyen varken Oturumlar.
+- **Faz 74, medya** (✅): **spike** Windows PowerShell 5.1'in WinRT yansıtmasıyla `GlobalSystemMediaTransportControls`
+  okunuyor (pwsh 7'de yok); kapak `AsStreamForRead`'in yansıtmayla çağrılmasıyla. Yardımcı `medya-yardimci.ps1` satır
+  başına JSON yazar, stdin'den komut alır. Ölçüldü: açılış ~0,9 sn, boşta tek çekirdeğin ~%0,5'i, ebeveyn ölünce ≤ 20 ms'de
+  ölüyor (iş nesnesi + stdin EOF, ikisi ayrı ayrı denendi). Sözler LRCLIB'den (`family: 4`: bu makinede AAAA'sız alan
+  adında DNS ~12 sn), diskte önbellek; gerçek istekle doğrulandı (191 ms, 56 eşli satır).
+- **Faz 75, odak/liste/takvim** (✅): odak durumu `~/.kokpit/odak.json`'da, tek zamanlayıcı bitişe kurulur (saniyelik tik
+  yok; geri sayımı renderer çizer). Odak bitince mola kendiliğinden başlar, mola bitince sayaç durur. Odak çalışırken Ada
+  yalnız "seni bekliyor"u sesli söyler. Liste `yapilacaklar.json`; gün sınırı brifingle aynı (05:00). Takvim vadeleri kendi
+  tarihinden yeniden hesaplar (`kalan_gun` `durum.py` çalıştığı anda donuyor).
+- **Faz 76, sistem/hava/raf** (✅): GPU `nvidia-smi` ile, yalnız sayfa açıkken 4 sn'de bir; yoksa bir daha denenmez. Hava
+  şehri Scryne seçer (IP'den konum yok); yalnız koordinat gider. Raf yolu saklar, kopyalamaz; renderer yalnız kimlik görür.
+- **Faz 77, hap ve ses** (✅): `ses-sayfa.cjs` mevcut çözücüden önce çalışır ve yalnız cümlenin tamamı komutsa eşleşir.
+  "Durdur" duran şarkıyı başlatmaz (tuş aç-kapa; durum değişmeyecekse komut gitmez).
+- **Faz 78, Ayarlar** (✅): ayarlar yalnız tepsi menüsündeydi, kısayolları hatırlamanın yolu README'ydi.
+- **Bulgular:** (1) Medya çubukları için istenen 400 ms'lik geçiş 480 ms'lik adımla birleşince compositor'u zamanın
+  %83'ünde meşgul tutuyordu (hareket bütçesine aykırı; alt ajan raporladı) → 120 ms. (2) Bash heredoc içinde kaçış
+  dizileri bozuldu, `yapilacak.cjs`'e ham satır ayırıcı yazıldı ve dosya kırıldı (`\p{Zl}\p{Zp}` ile düzeldi).
+  (3) `test:ui`'daki "yarın" beklentisi gece 04:00'te düştü: test takvim gününü, kod 05:00 sınırlı günü kullanıyordu;
+  kod doğruydu, test düzeltildi.
+- **Testler:** `test:sayfa` 341 (yeni), `test:medya` 88 (yeni; `GERCEK=1` ile 94), `test:ada` 304 (291'den), `test:kanca`
+  125, `test:pty`, `test:ui` 284 (260'tan; +2 bilinen odak ön koşulu, ortam). Mutasyon: medya 5/5, sayfa 5/5. Ekran:
+  `npm run ekran:sayfa` (sekiz sayfa + hap + minimal + Ayarlar; yatay taşma ve konsol hatası denetler).
+- **Kontrol edilemeyen:** raftan dışarı sürükleme (`startDrag`; otomasyonla sürüklenemiyor), gerçek Spotify'a komut
+  (Scryne'ın müziğine dokunulmadı; yalnız okuma gerçek oturumla sınandı), gerçek sesle yeni komutlar, çalışan Kokpit'te
+  yeniden başlatma.

@@ -391,6 +391,34 @@ olay. Yeni renk ve yeni cam yok.
   okunuyor…" yazar, boş ekran yok.
 - **Arka planda duran animasyonlar**: `animate-pulse`, `animate-spin`, Aria'nın yazı imleci, çalışma işareti (`html.arka-plan`).
 
+## Ada v4.0: sayfalar (2026-11-11)
+
+Scryne bir Dynamic Island deposu gösterdi ("fikir al, doğrudan kullanma"). Özellikler alındı, görsel dil alınmadı: o
+siyah hap + kırmızı kimlik taşıyor; burada yeni renk ve yeni cam yok, amber yine yalnız "seni bekliyor / gecikmiş / ≥ %80".
+
+- **Sekme şeridi** — başlık satırının altında, `border-t kenar`. Dokuz ikon (lucide), yalnız **seçili sekme adını yazar**
+  (dokuz ikon + dokuz ad 440 px'e sığmaz; seçili olan ne olduğunu söyler). Seçili `yuzey-guclu` + `metin`, diğerleri
+  `metin-soluk`. Ayarlar sağa yaslı: sayfa değil, sayfaların ayarı. Oturumlar başka sayfadayken seni bekleyen varsa
+  sekmesinde amber nokta. Ok tuşlarıyla gezilir (`role="tablist"`).
+- **Hangi sayfa açılır** — imleçle açınca son bakılan; kart bir olayla kendiliğinden açılınca ya da seni bekleyen varken
+  Oturumlar. Ada'nın asıl işi oturumlar; sayfalar onu gölgelemez.
+- **Her sayfada tek odak noktası:** medyada parça + etkin söz satırı, odakta sayaç (`enstruman text-3xl`), sistemde
+  grafik, havada şu anki sıcaklık. Gerisi satır/tablo; eşit ağırlıklı kutu ızgarası yok.
+- **Canlı hap** — odak: `Timer` ikonu + mono geri sayım (`metin-ikincil`); medya: 16 px kapak + üç çubuk (`aksan`).
+  Hap ne yazarsa yazsın görünürler. Çubuklar 480 ms'lik adımla, 120 ms'lik geçişle (kısa geçiş, uzun durak: hareket
+  bütçesi v2.5; 400 ms'lik geçiş compositor'u zamanın %83'ünde meşgul tutuyordu). Duraklatılmışsa gösterge yok.
+- **Minimal hap** — sakinken (söylenecek bir şey yok) metin ve limit yazısı çizilmez: göz + canlı göstergeler; limit
+  kenarı kalır. Özet ekran okuyucuda durur. Bir şey olunca hap kendiliğinden tam haline döner.
+- **Anahtar (switch)** — 28×16 ray; kapalı `kenar-guclu` + soluk topuz, açık `metin-ikincil` + grafit topuz
+  (`aksan-uzeri`: açık topuz açık rayda 1.4:1 kalıyordu). Renk yok: konum + ton. Satırın tamamı tıklanır.
+- **Sistem** — eşik `Olcer` kuralı (≥ %80 amber, ≥ %95 kırmızı), sıcaklık ≥ 85°C amber. Çizgi `metin-ikincil`:
+  gümüş aksan grafikte kullanılamaz (v2 kuralı), burada tek seri olduğu için kimlik rengi gerekmez.
+- **Takvim** — vade dolu nokta, yapılacak boş halka (biçimle ayrım); bugün `kenar-guclu` çerçeve, seçili gün `aksan`
+  dış çizgi (birincil gümüş yalnız birincil eyleme). Gecikmiş/bugünkü vade noktası amber.
+- **Hava** — ikonlar renksiz (`currentColor`); gün satırında haftanın min–max'ına göre konumlu ince aralık çubuğu.
+- **Ayarlar (ana pencere, Ctrl+8)** — solda Ada (Ada'daki Ayarlar sayfasıyla **aynı bileşen**: bir ayar iki yerde iki
+  farklı şekilde anlatılmaz), sağda kısayol ve sesli komut tabloları (kısayol mono).
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;
