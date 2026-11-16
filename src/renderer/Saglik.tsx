@@ -56,7 +56,8 @@ function Halka({
         <p className={'enstruman mt-1.5 text-xl leading-none ' + (seviye === 'kotu' ? 'text-hata-metin' : seviye === 'dikkat' ? 'text-dikkat-metin' : 'text-metin')}>
           {deger}
         </p>
-        <p className="mt-1.5 truncate text-xs text-metin-soluk">{alt}</p>
+        {/* 1024'te tek satira sigmiyordu ("64 dos...", "4 açık thr..."): kirpmak yerine sarar. */}
+        <p className="mt-1.5 text-xs text-pretty text-metin-soluk">{alt}</p>
       </div>
       {!son && (
         <ArrowRight className="size-3.5 shrink-0 self-center text-metin-soluk/60" aria-hidden="true" />
@@ -262,18 +263,45 @@ function CiHucresi({ ci }: { ci: NobetProjesi['ci'] }) {
         )}
       </span>
     );
-  return <span className="text-metin-soluk">{ci.durum}</span>;
+  return (
+    <span className="text-metin-soluk" title={ci.neden ?? ci.durum}>
+      {durumMetni(ci.durum)}
+    </span>
+  );
+}
+
+/** GitHub'in onem adlari arayuzde Turkce (2026-11-14 denetimi: "1 moderate" dil karisikligiydi). */
+const ONEM_ADI: Record<string, string> = { critical: 'kritik', high: 'yüksek', moderate: 'orta', medium: 'orta', low: 'düşük' };
+const ONEM_SIRASI = ['critical', 'high', 'moderate', 'medium', 'low'];
+
+/** saglik.py'nin makine durum kodlari okunur metne; bilinmeyen kod tiresiz yazilir. */
+const DURUM_METNI: Record<string, string> = {
+  'kapali-ya-da-erisim-yok': 'kapalı ya da erişim yok',
+  okunamadi: 'okunamadı',
+  'kosu-yok': 'koşu yok',
+  yok: 'yok',
+  belirsiz: 'belirsiz',
+};
+function durumMetni(kod: string) {
+  return DURUM_METNI[kod] ?? kod.replace(/-/g, ' ');
 }
 
 function DependabotHucresi({ d }: { d: NobetProjesi['dependabot'] }) {
   if (!d) return <span className="text-metin-soluk">—</span>;
-  if (d.durum !== 'okundu') return <span className="text-metin-soluk">{d.durum}</span>;
-  const acik = Object.entries(d.acik ?? {}).filter(([, n]) => n > 0);
+  if (d.durum !== 'okundu')
+    return (
+      <span className="text-metin-soluk" title={d.durum}>
+        {durumMetni(d.durum)}
+      </span>
+    );
+  const acik = Object.entries(d.acik ?? {})
+    .filter(([, n]) => n > 0)
+    .sort(([a], [b]) => (ONEM_SIRASI.indexOf(a) + 99) % 99 - (ONEM_SIRASI.indexOf(b) + 99) % 99);
   if (acik.length === 0) return <span className="text-metin-ikincil">açık yok</span>;
   const ciddi = (d.acik?.critical ?? 0) + (d.acik?.high ?? 0) > 0;
   return (
     <span className={ciddi ? 'text-dikkat-metin' : 'text-metin-ikincil'}>
-      {acik.map(([s, n]) => n + ' ' + s).join(', ')}
+      {acik.map(([s, n]) => n + ' ' + (ONEM_ADI[s] ?? s)).join(', ')}
     </span>
   );
 }
@@ -291,7 +319,7 @@ function ModelHucresi({ m }: { m: NobetProjesi['modeller'] }) {
           }
         >
           <span className="enstruman">{x.model.split('/').pop()}</span> ·{' '}
-          {x.durum === 'yasiyor' ? 'yaşıyor' : x.durum === 'OLU' ? 'ÖLÜ' : x.durum}
+          {x.durum === 'yasiyor' ? 'yaşıyor' : x.durum === 'OLU' ? 'ÖLÜ' : durumMetni(x.durum)}
         </li>
       ))}
     </ul>

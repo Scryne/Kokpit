@@ -125,7 +125,10 @@ export function sureMetni(saniye: number) {
   if (saniye < 60) return saniye + ' sn';
   const dk = Math.floor(saniye / 60);
   if (dk < 60) return dk + ' dk';
-  return Math.floor(dk / 60) + ' sa ' + (dk % 60) + ' dk';
+  const sa = Math.floor(dk / 60);
+  // Gun asan sureler (Botlar'da "27 sa 0 dk önce", "50 sa 0 dk önce") gun + saat olarak; dakika o olcekte gurultu.
+  if (sa >= 24) return Math.floor(sa / 24) + ' gün' + (sa % 24 ? ' ' + (sa % 24) + ' sa' : '');
+  return sa + ' sa ' + (dk % 60) + ' dk';
 }
 
 /** Asama rozeti: ikon + metin. Renk tek basina anlam tasimaz (DESIGN.md). */
@@ -269,7 +272,11 @@ export function Olcum({
       >
         {deger}
       </p>
-      {alt && <p className="mt-1.5 truncate text-xs text-metin-soluk">{alt}</p>}
+      {alt && (
+        <p className="mt-1.5 truncate text-xs text-metin-soluk" title={alt}>
+          {alt}
+        </p>
+      )}
     </div>
   );
 }

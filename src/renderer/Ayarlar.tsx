@@ -60,7 +60,7 @@ export default function Ayarlar() {
   }, []);
 
   return (
-    <div className="grid items-start gap-4 pb-4 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+    <div className="grid items-start gap-4 pb-4 xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
       <section aria-label="Ada ayarları" className="halka relative rounded-base bg-yuzey p-3">
         <h2 className="mb-1 px-2 text-sm font-medium text-metin">Ada</h2>
         <div className="px-2">

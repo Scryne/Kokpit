@@ -179,7 +179,9 @@ cocuk.stdout.on('data', async (d) => {
     const yasiyor = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
     kontrol('servisin ana ve torun sureci calisiyor', !!pidler && yasiyor(pidler.ana) && yasiyor(pidler.torun));
     ws2.close();
-    await bekle(2500);
+    // taskkill /T yuklu makinede 3-4 sn surebiliyor (11-16 olcumu: 3,4 sn); sabit bekleme yerine yokla.
+    // Garanti ayni: 10 sn icinde agac olmezse kontrol duser.
+    for (let i = 0; i < 40 && pidler && (yasiyor(pidler.ana) || yasiyor(pidler.torun)); i++) await bekle(250);
     kontrol('bolme kapaninca agac oldu (ana + torun)', !!pidler && !yasiyor(pidler.ana) && !yasiyor(pidler.torun));
     const portAcik = await new Promise((r) => {
       const b = net.connect(pidler ? pidler.port : 1, '127.0.0.1');

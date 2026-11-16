@@ -57,6 +57,9 @@ body,
    soluk metni esigin altina iterdi. Isik kaynagi tutarli: sol-ust acik, sag-alt koyu. */
 body {
   margin: 0;
+  /* Yerel denetimler (onay kutusu, kaydirma cubugu, tarih alani) koyu temada cizilsin: yoksa Aria'daki
+     "her gün" kutusu isaretsizken beyaz bir kare olarak kaliyordu (2026-11-14 denetimi). */
+  color-scheme: dark;
   color: var(--color-metin);
   font-family: var(--font-arayuz);
   font-size: 0.875rem;

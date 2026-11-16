@@ -1062,7 +1062,12 @@ export default function Ada() {
               <span className="sr-only"> ek gönderilmeyi bekliyor</span>
             </span>
           )}
-          {!minimal && (bes !== null || haf !== null) && (
+          {/* Hap "Liman seni bekli...", "Orkide · Gec..." diye kirpiliyordu (2026-11-14: odak sayaci + calan parca +
+              limitler ayni satirda). Limitler esigin (%80) altindaysa ve biri bekliyor ya da canli gosterge varsa hapta
+              yer kaplamaz; kartin altinda tam halleriyle duruyor. Esigi gecen limit her zaman gorunur. */}
+          {!minimal &&
+            (bes !== null || haf !== null) &&
+            ((bes ?? 0) >= 80 || (haf ?? 0) >= 80 || (bekleyen.length === 0 && !(odakCalisiyor && odak) && !(medyaCaliyor && medya))) && (
             <span className="enstruman ml-auto flex shrink-0 gap-2 pl-2 text-metin-soluk">
               {bes !== null && (
                 <span title="5 saatlik limit" className={bes >= 80 ? 'text-dikkat-metin' : undefined}>

@@ -107,7 +107,9 @@ export default function Pano({
           deger={kirliToplam}
           alt={
             [
-              kirliToplam > 0 ? 'commit bekliyor' : pushToplam > 0 ? null : 'tüm repolar temiz',
+              // Iki bilgi birden dar kartta kirpiliyordu (1440'ta "... push bekliyor ..."); kirli sayi zaten
+              // "commit bekliyor" der, push bekliyorsa yalniz o yazilir.
+              pushToplam > 0 ? null : kirliToplam > 0 ? 'commit bekliyor' : 'tüm repolar temiz',
               pushToplam > 0 ? pushToplam + ' commit push bekliyor' + (pushProjesi > 1 ? ' (' + pushProjesi + ' repo)' : '') : null,
             ]
               .filter(Boolean)

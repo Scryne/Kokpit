@@ -119,7 +119,7 @@ export function VadeSeridi({ vadeler }: { vadeler: Vade[] | undefined }) {
             const acil = v.kalan_gun <= 1;
             return (
               <li key={v.proje + v.tarih + v.metin} className="flex min-w-0 items-baseline gap-3">
-                <span className={'enstruman w-36 shrink-0 ' + (acil ? 'text-dikkat-metin' : 'text-metin-ikincil')}>{vadeEtiketi(v)}</span>
+                <span className={'enstruman w-40 shrink-0 whitespace-nowrap ' + (acil ? 'text-dikkat-metin' : 'text-metin-ikincil')}>{vadeEtiketi(v)}</span>
                 <span className="min-w-0 truncate text-metin" title={v.metin.replace(/`/g, '')}>
                   <VadeMetni metin={v.metin} />
                 </span>
@@ -189,7 +189,7 @@ export default function Botlar({ nobet, simdi, onTazele }: { nobet: BotNobeti | 
             <thead>
               <tr className="border-b border-kenar text-left">
                 <th scope="col" className="etiket px-4 py-2.5 font-normal">Hal</th>
-                <th scope="col" className="etiket px-2 py-2.5 font-normal">Proje · iş</th>
+                <th scope="col" className="etiket whitespace-nowrap px-2 py-2.5 font-normal">Proje · iş</th>
                 <th scope="col" className="etiket px-2 py-2.5 font-normal">Son koşu</th>
                 <th scope="col" className="etiket px-2 py-2.5 font-normal">Sıklık</th>
                 <th scope="col" className="etiket px-4 py-2.5 font-normal">Ayrıntı</th>
@@ -207,8 +207,9 @@ export default function Botlar({ nobet, simdi, onTazele }: { nobet: BotNobeti | 
                       </span>
                     </td>
                     <td className="px-2 py-2.5">
-                      <span className="enstruman text-metin">{x.proje}</span>
-                      <span className="text-metin-ikincil"> · {x.ad}</span>
+                      {/* Dar pencerede "Liman ·" / "Gece" / "senkronu" diye uce bolunuyordu: proje ustte, is altta. */}
+                      <span className="enstruman block whitespace-nowrap text-metin">{x.proje}</span>
+                      <span className="block text-xs text-metin-ikincil">{x.ad}</span>
                     </td>
                     <td className="enstruman whitespace-nowrap px-2 py-2.5 text-metin-ikincil" title={x.son ?? undefined}>
                       {onceMetni(x.son, simdi)}
@@ -216,7 +217,8 @@ export default function Botlar({ nobet, simdi, onTazele }: { nobet: BotNobeti | 
                     </td>
                     <td className="whitespace-nowrap px-2 py-2.5 text-metin-soluk">{siklikMetni(x.siklik_saat) ?? (x.tur === 'engel' ? 'engel dosyası' : 'sürekli')}</td>
                     <td className="max-w-[28rem] px-4 py-2.5">
-                      <span className="block truncate text-metin" title={x.ayrinti}>
+                      {/* Otomatik tablo duzeninde truncate sutunu daraltmiyor, tablo kartin disina tasip kirpiliyordu (1024). */}
+                      <span className="line-clamp-2 text-metin" title={x.ayrinti}>
                         {x.ayrinti || (x.sayac ? x.sayac.ad + ': ' + x.sayac.deger : '')}
                       </span>
                       <span className="enstruman flex items-center gap-1 text-xs text-metin-soluk">

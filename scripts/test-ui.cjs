@@ -443,6 +443,23 @@ public static class Pencere {
     SetWindowPos(a, new IntPtr(1), 0, 0, 0, 0, 0x13);
     return Ustte(hedef) == 0 ? 1 : 0;
   }
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool c);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+  // Ada'yi on plana alir (odak testinin on kosulu). Windows'un odak kilidi sentetik CDP girdisini kullanici girdisi
+  // saymiyor; onde baska bir surec varken ada.focus() reddediliyor (2026-11-14: onde explorer). Gercek kisayol/tik
+  // gercek girdi oldugu icin urunde bu engel yok. Sinema formundaki gibi: ondeki pencerenin is parcacigina baglanip
+  // SetForegroundWindow. Yalniz bu surecin "Kokpit Ada" penceresine dokunur. 1: Ada onde.
+  public static int OneAl(uint hedef) {
+    IntPtr a = Ada(hedef); if (a == IntPtr.Zero) return -1;
+    uint p; uint on = GetWindowThreadProcessId(GetForegroundWindow(), out p); uint ben = GetCurrentThreadId();
+    bool bagli = on != 0 && on != ben && AttachThreadInput(on, ben, true);
+    BringWindowToTop(a); SetForegroundWindow(a);
+    if (bagli) AttachThreadInput(on, ben, false);
+    return GetForegroundWindow() == a ? 1 : 0;
+  }
   public static int Kapat(uint hedef) {
     int n = 0;
     EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p != hedef) return true;
@@ -1146,9 +1163,21 @@ async function main() {
     }
 
     console.log('Pano v2.9: push bekleyen commit, okuma hatasinda son olcum korunur');
-    const tazeleBas = () => cdp.js(`(() => { const b = [...document.querySelectorAll('header button')].find(x => x.textContent.includes('Tazele')); if (!b) return false; b.click(); return true; })()`);
-    const tazeleBitti = () => cdp.bekle(`[...document.querySelectorAll('header button')].some(x => x.textContent.includes('Tazele') && !x.disabled)`, 20000, 'tazele bitti');
-    const ilkProje = await cdp.js(`document.querySelector('table tbody tr:nth-child(2) th .enstruman')?.textContent ?? ''`);
+    // 2026-11-14: gercek durum.py bu makinede 17 sn surdu (diger isler varken daha uzun); 20 sn'lik sabit bekleme
+    // tazeleme bitmeden "↑3 yok" diye dusuyordu. Artik basildiktan sonra okumanin BITMESI beklenir ("Okunuyor" ->
+    // "Tazele"), kontrol ondan sonra yapilir: sure degil, okumanin sonucu sinanir.
+    const okumaBitti = `[...document.querySelectorAll('header button')].some(x => x.textContent.includes('Tazele') && !x.disabled)`;
+    const tazeleBitti = () => cdp.bekle(okumaBitti, 120000, 'tazele bitti');
+    const tazeleBas = async () => {
+      const basildi = await cdp.js(`(() => { const b = [...document.querySelectorAll('header button')].find(x => x.textContent.includes('Tazele')); if (!b) return false; b.click(); return true; })()`);
+      if (!basildi) return false;
+      await cdp.bekle(`[...document.querySelectorAll('header button')].some(x => x.textContent.includes('Okunuyor'))`, 3000, 'okuma basladi').catch(() => null);
+      await tazeleBitti();
+      return true;
+    };
+    // Push bekleyeni olmayan ilk proje: sarmalayici ahead'i 3 yapar, toplam tam +3 artmali. (2026-11-14: ikinci satir
+    // gercekte zaten ↑3 tasiyordu; "↑3" kontrolu bos yere gecti, toplam degismedi ve test dustu.)
+    const ilkProje = await cdp.js(`[...document.querySelectorAll('table tbody tr')].find(tr => tr.querySelector('th .enstruman') && !tr.textContent.includes('↑'))?.querySelector('th .enstruman').textContent ?? ''`);
     // Gercek depolarda zaten push bekleyen commit olabilir (Tezgah bilerek push edilmiyor): taban + 3 beklenir.
     const pushSayisi = `Number((document.querySelector('section[aria-label="Ölçümler"]').textContent.match(/(\\d+) commit push bekliyor/) || [0, 0])[1])`;
     const pushTaban = await cdp.js(pushSayisi);
@@ -1446,11 +1475,19 @@ async function main() {
     // On kosul: Ada OS odagini aldi. Gercekte kisayol gercek tus oldugu icin Windows one gecmeye izin verir; testte
     // girdi sentetik ve odak birak/al dongusu ~yari yariya tutmuyor (olculdu 2026-10-29, v3.0'dan ONCEKI derlemede
     // de ayni: tekrar 1 ve 3 false). Odak alinamadiysa birakip yeniden istenir; asil kontrol ipucunun kendisi.
+    // 2026-11-14 kok neden: Windows odak kilidi (onde baska surec varken sentetik girdiyle SetForegroundWindow
+    // reddedilir). Urun yolu (adaOdak -> setFocusable + focus) yine once denenir; reddedilirse on kosul sinema formundaki
+    // gibi AttachThreadInput ile kurulur (Pencere.OneAl). Kontrol degismedi: Ada odakta mi, ipucu gorundu mu.
     let adaOdakta = false;
     for (let i = 0; i < 4 && !adaOdakta; i++) {
       await adaCdp.js(`(() => { window.kokpit.adaOdak(true); return true; })()`);
       await uyu(350);
       adaOdakta = await adaCdp.js(`document.hasFocus()`);
+      if (!adaOdakta) {
+        pwshPencere(`[Pencere]::OneAl(${app.pid})`);
+        await uyu(350);
+        adaOdakta = await adaCdp.js(`document.hasFocus()`);
+      }
       if (!adaOdakta) {
         await adaCdp.js(`(() => { window.kokpit.adaOdak(false); return true; })()`);
         await uyu(350);
