@@ -273,7 +273,7 @@ export function Olcum({
         {deger}
       </p>
       {alt && (
-        <p className="mt-1.5 truncate text-xs text-metin-soluk" title={alt}>
+        <p className="mt-1.5 text-xs text-pretty text-metin-soluk" title={alt}>
           {alt}
         </p>
       )}
