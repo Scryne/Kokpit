@@ -21,10 +21,16 @@ Set-Content $skillHedef $skill -Encoding utf8 -NoNewline
 
 # 3) CLAUDE.md: rol dagilimina tek satir
 $md = Join-Path $claude 'CLAUDE.md'
-$satir = 'DeepSeek (OpenCode Go, `deepseek-isci` skill''i): mekanik implementasyonun ilk tercihi. Sonnet: tasarım gerektiren implementasyon ve DeepSeek''in takıldığı iş.'
+$satir = 'DeepSeek (OpenCode Go, `deepseek-isci` skill''i): angarya işçi; mekanik implementasyonun ilk tercihi ve resim okuma (yalnız resim). Sonnet: tasarım gerektiren implementasyon ve DeepSeek''in takıldığı iş.'
 $icerik = Get-Content $md -Raw -Encoding utf8
-if ($icerik.Contains('deepseek-isci')) {
-  'CLAUDE.md -> satir zaten var, dokunulmadi'
+if ($icerik.Contains($satir)) {
+  'CLAUDE.md -> satir guncel, dokunulmadi'
+} elseif ($icerik.Contains('deepseek-isci')) {
+  # Eski surum satir var: yerinde degistir.
+  Copy-Item $md "$md.yedek" -Force
+  $yeni = ($icerik -split "`r?`n" | ForEach-Object { if ($_ -like '*deepseek-isci*') { $satir } else { $_ } }) -join "`n"
+  Set-Content $md $yeni -Encoding utf8 -NoNewline
+  "CLAUDE.md -> satir guncellendi (yedek: $md.yedek)"
 } else {
   $capa = 'Sonnet implementasyon (kod, taşıma, mekanik iş).'
   if (-not $icerik.Contains($capa)) { throw "CLAUDE.md'de beklenen satir bulunamadi; elle ekle: $satir" }

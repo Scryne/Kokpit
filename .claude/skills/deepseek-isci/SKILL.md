@@ -1,6 +1,6 @@
 ---
 name: deepseek-isci
-description: Mekanik, iyi tanımlı, testle ölçülen implementasyon işini (silme, taşıma, kalıp izleyen ekleme) ucuz DeepSeek işçisine devretmek gerektiğinde kullan.
+description: Mekanik, iyi tanımlı, testle ölçülen implementasyon işini (silme, taşıma, kalıp izleyen ekleme) ya da resim okuma işini (ekran görüntüsü, fotoğraf) ucuz DeepSeek işçisine devretmek gerektiğinde kullan.
 ---
 
 # DeepSeek işçisi
@@ -9,9 +9,13 @@ DeepSeek işçisi ayrı bir başsız Claude Code süreci (`claude -p`). Ortamı 
 
 ## Kim ne yapar
 
-- **DeepSeek:** mekanik, iyi tanımlı, kabul komutuyla ölçülen iş. Silme, taşıma, mevcut kalıbı izleyen ekleme.
+- **DeepSeek:** angarya. Mekanik, iyi tanımlı, kabul komutuyla ölçülen iş: silme, taşıma, mevcut kalıbı izleyen ekleme. Ayrıca resim okuma (aşağıda).
 - **Sonnet alt ajanı:** tasarım kararı, UI, belirsiz kapsam, DeepSeek'in takıldığı paket.
 - **Opus:** denetim.
+
+## Resim okuma
+
+İşçi görüntü girdisi alır (jpeg, png, gif, webp; yalnız resim, video ve PDF değil). Çok sayıda ekran görüntüsünü ya da fotoğrafı kendi bağlamına almak yerine ona okut: resim dosyalarını `-Dizin`'in altına koy, brifte her resim için yanıtlanacak somut soruları yaz ve yanıtı bir dosyaya yazdır. Brife "göremiyorsan uydurma, öyle yaz" cümlesini ekle. Görsel yargı gerektiren iş (hizalama, tasarım kalitesi, ince piksel farkı) orkestratörde ya da Sonnet'te kalır; işçiye olgu sorulur: hangi sekme seçili, ekranda hangi metin var, hata mesajı ne diyor.
 
 ## Brif
 
@@ -30,15 +34,16 @@ Brifi scratchpad'e yaz, sonra PowerShell aracıyla `run_in_background: true` ile
 
 ```
 pwsh -File scripts/ds-isci.ps1 -Brif <brif.md> -Dizin <repo> -Cikti <cikti.json>
-# Varsayılan izin listesi dar: npm run typecheck|build|test:*|design:lint, npx tsc, node --check,
+# Varsayılan izin listesi dar: npm run typecheck|build|test*|design:lint, npx tsc, node --check,
 # git status/diff/log/rm/mv. Başka kabul komutu gereken projede -IzinliAraclar ile ver.
-# İşçi package.json'ı düzenleyebildiği için test:* yine de keyfi komut kapısıdır: commit/push
+# Desende `:*` yazma (eski önek sözdizimi sayılır, `test:ui`'yi eşlemez); `test*` yaz.
+# İşçi package.json'ı düzenleyebildiği için test* yine de keyfi komut kapısıdır: commit/push
 # yasağı güvenlik sınırı değil kuraldır. Her paketten sonra git log ve git status ile doğrula.
 ```
 
 Bitince çıktı JSON'unun `result` alanını ve `git diff --stat`'ı oku. Betik son satırda sağlayıcı, model, çıkış kodu ve çıktı yolunu yazar; hata ayrıntısı `<cikti>.err` içindedir.
 
-İsteğe bağlı: `-Efor low|medium|high|xhigh|max`, `-Saglayici opencode|ozel|deepseek`, `-IzinliAraclar` (varsayılan: `npm run`, `npx tsc`, `git status/diff/log/rm/mv`; `git commit` ve `git push` her zaman kapalı).
+İsteğe bağlı: `-Efor low|medium|high|xhigh|max`, `-Saglayici opencode|ozel|deepseek`, `-IzinliAraclar` (`git commit` ve `git push` her zaman kapalı). OpenCode Go'da `-Efor high` ile koşan turda düşünme token'ı 0 raporlandı (2026-11-17); eforun çeviriden geçtiği doğrulanmadı, ona güvenme.
 
 ## Anahtar ve sağlayıcı
 

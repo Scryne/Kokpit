@@ -111,7 +111,7 @@ if (-not $IzinliAraclar -or $IzinliAraclar.Count -eq 0) {
   # 'npm run *' bilerek YOK: acceptEdits ile birlikte package.json'a betik yazip keyfi komut
   # calistirmaya acik kapi olurdu. Somut betikler sayilir; baska proje baska komut gerekiyorsa
   # -IzinliAraclar ile verilir.
-  $desen = 'npm run typecheck', 'npm run build', 'npm run test:*', 'npm run design:lint', 'npx tsc *', 'node --check *', 'git status*', 'git diff*', 'git log*', 'git rm *', 'git mv *'
+  $desen = 'npm run typecheck', 'npm run build', 'npm run test*', 'npm run design:lint', 'npx tsc *', 'node --check *', 'git status*', 'git diff*', 'git log*', 'git rm *', 'git mv *'
   $IzinliAraclar = foreach ($d in $desen) { "Bash($d)"; "PowerShell($d)" }
 }
 $yasakli = foreach ($d in 'git commit*', 'git push*') { "Bash($d)"; "PowerShell($d)" }
