@@ -112,6 +112,15 @@ function temizOrtam() {
 
 const ORTAM = temizOrtam();
 
+// Model saglayicisi (~/.kokpit/saglayici.json). Yalniz claude/claude-devam oturumlarina uygulanir;
+// servis ve duz kabuk oturumlari etkilenmez. Modul yuklenemezse oturum yine acilir.
+let saglayici = null;
+try {
+  saglayici = require('./saglayici.cjs');
+} catch (e) {
+  log('FAIL saglayici modulu yuklenemedi: ' + e.message);
+}
+
 /** Sabit zamanli karsilastirma: token icerigi zamanlamadan sizmasin. */
 function tokenGecerli(gelen) {
   const a = Buffer.from(String(gelen));
@@ -294,13 +303,31 @@ wss.on('connection', (ws, istek) => {
             ? ['-NoLogo', '-NoProfile']
             : [];
 
+      // Model saglayicisi (yalniz claude komutlu oturumlar; KOKPIT_TEST_KABUK seam'i dahil).
+      // ORTAM mutate edilmez: temiz kopya uzerine once sil, sonra ekle. Duz kabuk ve servis
+      // oturumlari etkilenmez. Hata oturumu engellemez; saglayicisiz devam edilir.
+      let oturumOrtam = ORTAM;
+      if ((m.komut === 'claude' || m.komut === 'claude-devam') && saglayici) {
+        try {
+          const s = saglayici.ortam();
+          const kopya = { ...ORTAM };
+          for (const ad of s.sil) delete kopya[ad];
+          Object.assign(kopya, s.ekle);
+          oturumOrtam = kopya;
+          // Anahtar log'a yazilmaz; yalniz secim ve model adi.
+          log(`saglayici=${s.secili} model=${(s.model || '-').slice(0, 80)} efor=${s.efor}`);
+        } catch (e) {
+          log('saglayici ortami uygulanamadi: ' + e.message);
+        }
+      }
+
       try {
         p = pty.spawn(dosya, argumanlar, {
           name: 'xterm-256color',
           cols: Number(m.cols) || 100,
           rows: Number(m.rows) || 30,
           cwd,
-          env: oturumId ? { ...ORTAM, KOKPIT_OTURUM: oturumId } : ORTAM,
+          env: oturumId ? { ...oturumOrtam, KOKPIT_OTURUM: oturumId } : oturumOrtam,
         });
       } catch (e) {
         log('FAIL pty acilamadi: ' + e.message);

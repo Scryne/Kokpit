@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import type {
   Durum,
+  Efor,
   EtkinlikAnlik,
   GonderIstegi,
   HizliKomut,
@@ -34,6 +35,8 @@ import type {
   OturumBaglami,
   OturumDurumu,
   Proje,
+  SaglayiciGorunum,
+  SaglayiciKimligi,
   SonOturum,
 } from './types';
 import Pano from './Pano';
@@ -41,6 +44,7 @@ import Saglik from './Saglik';
 import Envanter from './Envanter';
 import Okuma from './Okuma';
 import NotKutusu from './NotKutusu';
+import SaglayiciAyari from './SaglayiciAyari';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
 import KomutPaleti, { type Komut } from './KomutPaleti';
@@ -87,6 +91,22 @@ const GORUNUM_BASLIK: Record<Gorunum, string> = {
   saglik: 'Sağlık',
   envanter: 'Envanter',
   okuma: 'Okuma',
+};
+
+// Baslik rozeti ve komut paleti ipucu (model saglayicisi, v3.0).
+const SAGLAYICI_ADI: Record<SaglayiciKimligi, string> = {
+  varsayilan: 'Varsayılan',
+  anthropic: 'Anthropic',
+  deepseek: 'DeepSeek',
+  ozel: 'Özel API',
+};
+const EFOR_ADI: Record<Efor, string> = {
+  varsayilan: '',
+  low: 'düşük',
+  medium: 'orta',
+  high: 'yüksek',
+  xhigh: 'çok yüksek',
+  max: 'en yüksek',
 };
 
 /** Onceki calismadan kalan oturumlar icin tek satirlik teklif. Bir kez gorunur. */
@@ -172,6 +192,12 @@ export default function App() {
   // Inbox notu (Ctrl+Shift+N) ve kaydedildi bildirimi (4 sn).
   const [notAcik, setNotAcik] = useState(false);
   const [notBildirimi, setNotBildirimi] = useState<string | null>(null);
+  // Model saglayicisi (v3.0): yeni claude sekmeleri bununla acilir. Anahtar renderer'a gelmez.
+  const [saglayici, setSaglayici] = useState<SaglayiciGorunum | null>(null);
+  const [saglayiciAcik, setSaglayiciAcik] = useState(false);
+  useEffect(() => {
+    void window.kokpit.saglayiciGetir().then(setSaglayici).catch(() => {});
+  }, []);
   useEffect(() => {
     if (!notBildirimi) return;
     const t = setTimeout(() => setNotBildirimi(null), 4000);
@@ -1065,6 +1091,13 @@ export default function App() {
     }
     k.push(
       { id: 'e-not', grup: 'Eylem', baslik: "Inbox'a not", ipucu: 'Ctrl+Shift+N', calistir: () => setNotAcik(true) },
+      {
+        id: 'e-saglayici',
+        grup: 'Eylem',
+        baslik: 'Model sağlayıcısı',
+        ipucu: saglayici && saglayici.secili !== 'varsayilan' ? SAGLAYICI_ADI[saglayici.secili] : 'ortam',
+        calistir: () => setSaglayiciAcik(true),
+      },
       { id: 'e-tazele', grup: 'Eylem', baslik: 'Durumu tazele', calistir: () => void tazele('elle') },
       { id: 'e-kenar', grup: 'Eylem', baslik: 'Kenar çubuğunu aç/kapat', ipucu: 'Ctrl+B', calistir: () => setKenarAcik((a) => !a) },
       { id: 'e-arsiv', grup: 'Eylem', baslik: arsivAcik ? 'Arşivi gizle' : 'Arşivi göster', calistir: () => setArsivAcik((a) => !a) },
@@ -1145,7 +1178,7 @@ export default function App() {
     }
     k.push({ id: 'e-komutlar', grup: 'Eylem', baslik: 'Hızlı komutları düzenle', ipucu: 'komutlar.json', calistir: () => void window.kokpit.komutlarDuzenle() });
     return k;
-  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur, gece, geceDegistir]);
+  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, saglayici, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur, gece, geceDegistir]);
 
   // Bağlam: statusline'dan (kesin, her turda) varsa o; yoksa transcript yoklamasi (20 sn).
   const baglamOku = (id: string) => {
@@ -1548,6 +1581,19 @@ export default function App() {
             <h1 className="shrink-0 text-sm font-medium text-metin">
               {gorunum === 'terminal' ? (aktifOturum?.ad ?? 'Terminaller') : GORUNUM_BASLIK[gorunum]}
             </h1>
+            {saglayici && saglayici.secili !== 'varsayilan' && (
+              <button
+                type="button"
+                onClick={() => setSaglayiciAcik(true)}
+                title="Model sağlayıcısı — değiştir"
+                className="shrink-0 cursor-pointer rounded-rozet border border-kenar px-2 py-0.5 text-xs text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
+              >
+                {SAGLAYICI_ADI[saglayici.secili]}
+                {saglayici.efor !== 'varsayilan' && (
+                  <span className="text-metin-soluk"> · {EFOR_ADI[saglayici.efor]}</span>
+                )}
+              </button>
+            )}
             {gorunum === 'pano' && durum && (
               <span className="enstruman text-xs text-metin-soluk">
                 {durum.projeler.length} proje
@@ -1625,6 +1671,16 @@ export default function App() {
           onKaydedildi={() => {
             setNotAcik(false);
             setNotBildirimi("Not Inbox'a düştü");
+          }}
+        />
+
+        <SaglayiciAyari
+          acik={saglayiciAcik}
+          gorunum={saglayici}
+          onKapat={() => setSaglayiciAcik(false)}
+          onKaydedildi={(g) => {
+            setSaglayici(g);
+            setSaglayiciAcik(false);
           }}
         />
 

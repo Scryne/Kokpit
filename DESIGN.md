@@ -326,6 +326,7 @@ Pano bir enstruman, Okuma bir okuma odasi. Yogunluk dashboard-dense degil, nefes
   satir sayisi kabuga yanlis bildirilir ve TUI kayar. `document.fonts.ready` beklenir.
 - **Ikon seti: lucide**, `currentColor` ile inline SVG. Emoji yasak — roadmap verisindeki
   isaretler arayuzde ikona cevrilir, oldugu gibi basilmaz.
+- **Sağlayıcı ayarı** — not kutusuyla aynı desen (yerel `<dialog>`).
 
 ## Do's and Don'ts
 

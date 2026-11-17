@@ -407,6 +407,62 @@ export interface NightResumeTab {
   claude: string | null;
 }
 
+/** Model saglayicisi (electron/saglayici.cjs). Anahtar renderer'a hic gelmez. */
+export type SaglayiciKimligi = 'varsayilan' | 'anthropic' | 'deepseek' | 'ozel';
+export type Efor = 'varsayilan' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export interface SaglayiciGorunum {
+  secili: SaglayiciKimligi;
+  efor: Efor;
+  anthropic: { anahtarVar: boolean };
+  deepseek: {
+    baseUrl: string;
+    anahtarVar: boolean;
+    model: string;
+    hafifModel: string;
+    altModel: string;
+    baglam: number;
+  };
+  ozel: {
+    baseUrl: string;
+    anahtarVar: boolean;
+    model: string;
+    hafifModel: string;
+    altModel: string;
+    baglam: number;
+  };
+}
+/** Renderer yamasi: yalniz gonderilen alanlar degisir; anahtarSil anahtar'i siler. */
+export interface SaglayiciYama {
+  secili?: SaglayiciKimligi;
+  efor?: Efor;
+  /** Secili saglayicinin anahtarini siler (ust duzey kisayol). */
+  anahtarSil?: boolean;
+  anthropic?: { anahtar?: string; anahtarSil?: boolean };
+  deepseek?: {
+    anahtar?: string;
+    anahtarSil?: boolean;
+    baseUrl?: string;
+    model?: string;
+    hafifModel?: string;
+    altModel?: string;
+    baglam?: number | null;
+  };
+  ozel?: {
+    anahtar?: string;
+    anahtarSil?: boolean;
+    baseUrl?: string;
+    model?: string;
+    hafifModel?: string;
+    altModel?: string;
+    baglam?: number | null;
+  };
+}
+export interface SaglayiciKaydetSonucu {
+  ok: boolean;
+  gorunum: SaglayiciGorunum;
+  hata?: string;
+}
+
 declare global {
   interface Window {
     kokpit: {
@@ -432,6 +488,8 @@ declare global {
       }) => Promise<number>;
       ayarGetir: () => Promise<Ayarlar>;
       ayarKaydet: (yama: Partial<Ayarlar>) => Promise<Ayarlar>;
+      saglayiciGetir: () => Promise<SaglayiciGorunum>;
+      saglayiciKaydet: (yama: SaglayiciYama) => Promise<SaglayiciKaydetSonucu>;
       kapanisSorulunca: (cb: () => void) => () => void;
       kapanisAlindi: () => void;
       kapanisIptal: () => void;

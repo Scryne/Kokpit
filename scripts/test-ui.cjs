@@ -25,6 +25,7 @@ const AYARLAR = path.join(TEST_DIZIN, 'ayarlar.json');
 const DEFTER = path.join(TEST_DIZIN, 'oturumlar.jsonl');
 const KOMUTLAR = path.join(TEST_DIZIN, 'komutlar.json');
 const CALISTIR = path.join(TEST_DIZIN, 'calistir.json');
+const SAGLAYICI = path.join(TEST_DIZIN, 'saglayici.json');
 const LOG = (ad) => path.join(TEST_DIZIN, ad);
 const { VAULT } = require('../electron/config.cjs');
 const INBOX = path.join(VAULT, '\u{1F4E5} 000-Inbox', 'Dump');
@@ -713,6 +714,91 @@ async function main() {
     // Test notunu geri al: dosya yoksa sil, varsa eklenen satiri cikar.
     if (inboxOnce === null) fs.unlinkSync(inboxDosya);
     else fs.writeFileSync(inboxDosya, inboxSonra.split('\n').filter((l) => !l.includes(isaret)).join('\n'));
+
+    console.log('Model saglayicisi (v3.0): diyalog yalniz Kaydet ile yazar');
+    // Kaan'in duzeltmesi: acma, yazma, "Sil" hicbir IPC/disk yazimi yapmaz. Tum duzenlemeler
+    // yerel state; ancak Kaydet uygular. Anahtar test ciktisina yazilmaz.
+    const sagAc = async () => {
+      await cdp.tus('P', 2 | 8, 'KeyP');
+      await cdp.bekle(`document.activeElement?.getAttribute('role') === 'combobox'`, 3000, 'palet odagi');
+      await cdp.yaz('Model sağlayıcısı');
+      await cdp.bekle(
+        `!!document.querySelector('[role="option"][aria-selected="true"]')?.textContent.includes('Model sağlayıcısı')`,
+        3000,
+        'saglayici komutu'
+      );
+      await cdp.tus('Enter');
+      await cdp.bekle(`!!document.querySelector('dialog[open] #saglayici-baslik')`, 3000, 'saglayici diyalogu');
+    };
+    const sagRadio = (deger) =>
+      `(() => { const r = [...document.querySelectorAll('dialog[open] input[type="radio"]')].find(i => i.value === ${JSON.stringify(deger)}); if (!r) return false; r.click(); return true; })()`;
+    const sagAnahtarYaz = (deger) => cdp.js(`(() => {
+      const i = document.querySelector('#saglayici-anahtar-deepseek');
+      if (!i) return false;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${JSON.stringify(deger)});
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    const sagDugme = (metin) =>
+      cdp.js(`(() => { const b = [...document.querySelectorAll('dialog[open] button')].find(x => x.textContent.trim() === ${JSON.stringify(metin)}); if (!b) return false; b.click(); return true; })()`);
+    const sagDosya = () => (fs.existsSync(SAGLAYICI) ? JSON.parse(fs.readFileSync(SAGLAYICI, 'utf8')) : null);
+    const anahtar1 = 'ui-anahtar-' + Date.now().toString(36);
+    const anahtar2 = anahtar1 + 'b';
+
+    kontrol('baslangicta saglayici.json yok', !fs.existsSync(SAGLAYICI));
+    await sagAc();
+    kontrol('paletten "Model sağlayıcısı" diyalogu acildi', true);
+    await cdp.js(sagRadio('deepseek'));
+    await sagAnahtarYaz(anahtar1);
+    await sagDugme('Vazgeç');
+    await cdp.bekle(`!document.querySelector('dialog[open]')`, 3000, 'vazgec kapatti');
+    kontrol('Vazgeç disk yazmadi (dosya hala yok)', !fs.existsSync(SAGLAYICI));
+
+    await sagAc();
+    await cdp.js(sagRadio('deepseek'));
+    await sagAnahtarYaz(anahtar1);
+    await sagDugme('Kaydet');
+    await cdp.bekle(`!document.querySelector('dialog[open]')`, 5000, 'kaydet kapatti');
+    const sg1 = sagDosya();
+    kontrol('Kaydet diske yazdi: secili=deepseek', sg1?.secili === 'deepseek');
+    kontrol('Kaydet anahtari diske yazdi', sg1?.saglayicilar?.deepseek?.anahtar === anahtar1);
+    kontrol(
+      'baslikta DeepSeek rozeti',
+      await cdp.js(`[...document.querySelectorAll('header button')].some(b => b.textContent.trim().startsWith('DeepSeek'))`)
+    );
+
+    await sagAc();
+    kontrol('yeniden acilista anahtar kutusu bos', await cdp.js(`document.querySelector('#saglayici-anahtar-deepseek')?.value === ''`));
+    kontrol(
+      'kayitli durumu gorunuyor ("Kayıtlı")',
+      await cdp.js(`document.querySelector('[data-anahtar-durum="deepseek"]')?.textContent.trim() === 'Kayıtlı'`)
+    );
+    await sagAnahtarYaz(anahtar2);
+    await sagDugme('Vazgeç');
+    await cdp.bekle(`!document.querySelector('dialog[open]')`, 3000, 'vazgec 2');
+    kontrol('Vazgeç yazilan yeni anahtari diske islemedi', sagDosya()?.saglayicilar?.deepseek?.anahtar === anahtar1);
+
+    await sagAc();
+    await sagDugme('Sil');
+    await sagDugme('Vazgeç');
+    await cdp.bekle(`!document.querySelector('dialog[open]')`, 3000, 'vazgec 3');
+    kontrol('Sil yalniz yerel: Vazgeç sonrasi anahtar duruyor', sagDosya()?.saglayicilar?.deepseek?.anahtar === anahtar1);
+
+    await sagAc();
+    await sagDugme('Sil');
+    await sagDugme('Kaydet');
+    await cdp.bekle(`!document.querySelector('dialog[open]')`, 5000, 'kaydet 2');
+    kontrol('Sil + Kaydet anahtari sildi', sagDosya()?.saglayicilar?.deepseek?.anahtar === '');
+
+    await sagAc();
+    await cdp.js(sagRadio('varsayilan'));
+    await sagDugme('Kaydet');
+    await cdp.bekle(`!document.querySelector('dialog[open]')`, 5000, 'kaydet 3');
+    kontrol('test sonrasi varsayilana donuldu', sagDosya()?.secili === 'varsayilan');
+    kontrol(
+      'varsayilanda rozet yok',
+      await cdp.js(`![...document.querySelectorAll('header button')].some(b => b.textContent.trim().startsWith('DeepSeek'))`)
+    );
 
     console.log('Gece gorevi (palet, rozet, iptal; bekci --dry-run)');
     const GECE = path.join(TEST_DIZIN, 'night.json');

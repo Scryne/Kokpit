@@ -185,6 +185,211 @@ cocuk.stdout.on('data', async (d) => {
     try { fs.rmSync(gecici, { recursive: true, force: true }); } catch { /* */ }
   }
 
+  // 4c) Model saglayici env kapsami: yalniz `claude` komutlu oturum alir. Test seam'i
+  // (KOKPIT_TEST_KABUK=1) gercek claude acmaz; ayni ortam yolunu duz pwsh ile sinar.
+  try {
+    const fs = require('fs');
+    const os = require('os');
+    const DIZIN = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-pty-saglayici-'));
+    const ANAHTAR = 'pty-test-anahtar'; // dummy: ciktiya gercek anahtar yazilmaz
+    fs.writeFileSync(
+      path.join(DIZIN, 'saglayici.json'),
+      JSON.stringify(
+        {
+          surum: 1,
+          secili: 'deepseek',
+          efor: 'varsayilan',
+          saglayicilar: {
+            anthropic: { anahtar: '' },
+            deepseek: {
+              anahtar: ANAHTAR,
+              baseUrl: 'https://api.deepseek.com/anthropic',
+              model: 'deepseek-flash[1m]',
+              hafifModel: 'deepseek-flash',
+              altModel: 'deepseek-flash',
+              baglam: 786432,
+            },
+            ozel: { anahtar: '', baseUrl: '', model: '', hafifModel: '', altModel: '', baglam: 0 },
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    // Ebeveyn ortamindaki gercek ANTHROPIC_* degerleri temizlenir: "bos" iddiasi onlara bagli kalmasin.
+    const YONETILEN = [
+      'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL',
+      'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+      'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_DEFAULT_FABLE_MODEL',
+      'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_EFFORT_LEVEL',
+      'CLAUDE_CODE_AUTO_COMPACT_WINDOW', 'ANTHROPIC_SMALL_FAST_MODEL',
+    ];
+    const TEMIZ = {
+      ...process.env,
+      KOKPIT_PTY_TOKEN: TOKEN,
+      KOKPIT_DIZIN: DIZIN,
+      KOKPIT_TEST_KABUK: '1',
+    };
+    for (const ad of YONETILEN) delete TEMIZ[ad];
+
+    const sunucu2 = spawn('node', [SUNUCU], { stdio: ['pipe', 'pipe', 'pipe'], env: TEMIZ });
+    sunucu2.stderr.setEncoding('utf8');
+    sunucu2.stderr.on('data', (d) => console.log('[saglayici sunucu stderr]', d.trim()));
+    const port2 = await new Promise((coz, red) => {
+      let t = '';
+      const zaman = setTimeout(() => red(new Error('saglayici sunucu hazir olmadi')), 10000);
+      sunucu2.stdout.setEncoding('utf8');
+      sunucu2.stdout.on('data', (d) => {
+        t += d;
+        const satir = t.split('\n').find((s) => s.includes('"hazir"'));
+        if (!satir) return;
+        clearTimeout(zaman);
+        coz(JSON.parse(satir).port);
+      });
+    });
+
+    // Degerler ayri satirlarda yazilir; marker parcali kurulur ki komutun EKO satiri
+    // gercek cikti sanilmasin (echo icinde "BASE=" bitisik gecmez).
+    const envKomutu = () =>
+      'Write-Output ("BA"+"SE="+$env:ANTHROPIC_BASE_URL);' +
+      'Write-Output ("TO"+"K="+$env:ANTHROPIC_AUTH_TOKEN);' +
+      'Write-Output ("MO"+"DEL="+$env:ANTHROPIC_MODEL);' +
+      'Write-Output ("BA"+"G="+$env:CLAUDE_CODE_AUTO_COMPACT_WINDOW);' +
+      'Write-Output ("OT"+"U="+$env:KOKPIT_OTURUM);' +
+      'Write-Output ("KOKPIT"+"ENV-BITTI")';
+    const deger = (ekran, ad) => {
+      // ANSI kacislari satir basina yapisabiliyor; marker komutta parcali yazildigi icin
+      // ("BA"+"SE=") eko satiri bu desenle eslesmez.
+      const m = ekran.match(new RegExp(ad + '=([^\\r\\n]*)'));
+      return m ? m[1].trim() : null;
+    };
+    const envOturum = (hedefPort, ac, elleYaz) =>
+      new Promise((coz, red) => {
+        const w = new WebSocket(`ws://127.0.0.1:${hedefPort}/?token=${TOKEN}`);
+        let ekran = '';
+        const zaman = setTimeout(() => {
+          try { w.close(); } catch { /* */ }
+          red(new Error('env oturumu zaman asimi'));
+        }, 20000);
+        w.on('open', () => {
+          w.send(JSON.stringify(ac));
+          if (elleYaz) {
+            setTimeout(() => {
+              try { w.send(JSON.stringify({ t: 'veri', d: envKomutu() + '\r' })); } catch { /* */ }
+            }, 2500);
+          }
+        });
+        w.on('message', (ham) => {
+          const m = JSON.parse(ham.toString());
+          if (m.t === 'veri') {
+            ekran += m.d;
+            if (ekran.includes('KOKPITENV-BITTI')) {
+              clearTimeout(zaman);
+              try { w.close(); } catch { /* */ }
+              coz(ekran);
+            }
+          } else if (m.t === 'hata') {
+            clearTimeout(zaman);
+            try { w.close(); } catch { /* */ }
+            red(new Error(m.mesaj));
+          }
+        });
+        w.on('error', (e) => { clearTimeout(zaman); red(e); });
+      });
+
+    const c1 = await envOturum(
+      port2,
+      { t: 'ac', cwd: KOK, komut: 'claude', oturum: 'saglayici-test', cols: 100, rows: 30 },
+      true
+    );
+    kontrol('claude (test kabugu): BASE_URL saglayicidan geldi', deger(c1, 'BASE') === 'https://api.deepseek.com/anthropic');
+    kontrol('claude (test kabugu): AUTH_TOKEN saglayicidan geldi', deger(c1, 'TOK') === ANAHTAR);
+    kontrol('claude (test kabugu): MODEL saglayicidan geldi', deger(c1, 'MODEL') === 'deepseek-flash[1m]');
+    kontrol('claude (test kabugu): AUTO_COMPACT saglayicidan geldi', deger(c1, 'BAG') === '786432');
+    kontrol('claude (test kabugu): KOKPIT_OTURUM korunuyor', deger(c1, 'OTU') === 'saglayici-test');
+
+    const c2 = await envOturum(port2, { t: 'ac', cwd: KOK, cols: 100, rows: 30 }, true);
+    kontrol('duz kabuk: saglayici env yok (BASE/TOK bos)', deger(c2, 'BASE') === '' && deger(c2, 'TOK') === '');
+    kontrol('duz kabuk: model ve baglam bos', deger(c2, 'MODEL') === '' && deger(c2, 'BAG') === '');
+
+    const c3 = await envOturum(
+      port2,
+      { t: 'ac', cwd: KOK, komut: 'servis', calistir: envKomutu() + ';exit', cols: 120, rows: 30 },
+      false
+    );
+    kontrol(
+      'servis oturumu: saglayici env yok',
+      deger(c3, 'BASE') === '' && deger(c3, 'TOK') === '' && deger(c3, 'MODEL') === '' && deger(c3, 'BAG') === ''
+    );
+
+    try { sunucu2.stdin.end(); } catch { /* */ }
+    await bekle(1500);
+    try { fs.rmSync(DIZIN, { recursive: true, force: true }); } catch { /* kilitliyse temp'te kalir */ }
+
+    // Miras AUTH_TOKEN: saglayici.json anahtari BOS. DeepSeek dalinda AUTH_TOKEN silinmedigi
+    // icin ebeveyn ortamindan gelen deger claude oturumunda korunur (dolu olsaydi uzerine yazardi).
+    // Duz kabuk/servis temiz ebeveynli sunucuda kosar: saglayici env'i onlara hic uygulanmaz
+    // (parent env'lerinde dummy token olsaydi onlar da miras alirdi; bu yuzden ayri sunucu).
+    const DIZIN2 = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-pty-miras-'));
+    fs.writeFileSync(
+      path.join(DIZIN2, 'saglayici.json'),
+      JSON.stringify(
+        {
+          surum: 1,
+          secili: 'deepseek',
+          efor: 'varsayilan',
+          saglayicilar: {
+            anthropic: { anahtar: '' },
+            deepseek: {
+              anahtar: '',
+              baseUrl: 'https://api.deepseek.com/anthropic',
+              model: 'deepseek-flash[1m]',
+              hafifModel: 'deepseek-flash',
+              altModel: 'deepseek-flash',
+              baglam: 786432,
+            },
+            ozel: { anahtar: '', baseUrl: '', model: '', hafifModel: '', altModel: '', baglam: 0 },
+          },
+        },
+        null,
+        2
+      )
+    );
+    const TEMIZ2 = { ...TEMIZ, KOKPIT_DIZIN: DIZIN2, ANTHROPIC_AUTH_TOKEN: 'miras-token' };
+    const sunucu3 = spawn('node', [SUNUCU], { stdio: ['pipe', 'pipe', 'pipe'], env: TEMIZ2 });
+    sunucu3.stderr.setEncoding('utf8');
+    sunucu3.stderr.on('data', (d) => console.log('[miras sunucu stderr]', d.trim()));
+    const port3 = await new Promise((coz, red) => {
+      let t = '';
+      const zaman = setTimeout(() => red(new Error('miras sunucu hazir olmadi')), 10000);
+      sunucu3.stdout.setEncoding('utf8');
+      sunucu3.stdout.on('data', (d) => {
+        t += d;
+        const satir = t.split('\n').find((s) => s.includes('"hazir"'));
+        if (!satir) return;
+        clearTimeout(zaman);
+        coz(JSON.parse(satir).port);
+      });
+    });
+    const c4 = await envOturum(
+      port3,
+      { t: 'ac', cwd: KOK, komut: 'claude', oturum: 'miras-test', cols: 100, rows: 30 },
+      true
+    );
+    kontrol('miras AUTH_TOKEN: claude oturumu koruyor (anahtar bos)', deger(c4, 'TOK') === 'miras-token');
+    kontrol(
+      'miras AUTH_TOKEN: duz kabuk ve serviste yok (temiz sunucu)',
+      deger(c2, 'TOK') === '' && deger(c3, 'TOK') === ''
+    );
+    try { sunucu3.stdin.end(); } catch { /* */ }
+    await bekle(1500);
+    try { fs.rmSync(DIZIN2, { recursive: true, force: true }); } catch { /* kilitliyse temp'te kalir */ }
+  } catch (e) {
+    kontrol('saglayici env kapsami calisti', false);
+    console.log('[saglayici env testi]', e.message);
+  }
+
   // 5) Yetim kontrolu
   cocuk.stdin.end();
   await bekle(1500);

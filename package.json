@@ -16,6 +16,7 @@
     "test:ui": "node scripts/test-ui.cjs",
     "test:okuyucu": "node scripts/test-vault-okuyucu.cjs",
     "test:okuma-ui": "node scripts/test-okuma-ui.cjs",
+    "test:saglayici": "node scripts/test-saglayici.cjs",
     "ikon": "electron scripts/ikon-uret.cjs",
     "ekran": "node scripts/ekran.cjs",
     "ekran:ada": "node scripts/ekran-ada.cjs",

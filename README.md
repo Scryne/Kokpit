@@ -72,6 +72,35 @@ Projeler ("en son ne oldu": son oturumun kararları ve yapılacakları, son notl
 linkler içeride açılır, Alt+Sol geri. Sağ üstte "Aydınlık": sayfa kâğıt temaya geçer, seçim hatırlanır.
 Pano'nun Beyin bloğunda okunmamış not sayısı. Kokpit vault'a yazmaz; okundu bilgisi `~/.kokpit/okuma.json`.
 
+**Model sağlayıcısı (v3.0):** Claude Code CLI'sini farklı bir Anthropic-uyumlu API'ye (özellikle DeepSeek)
+yönlendirir. Komut paletinden (Ctrl+Shift+P → "Model sağlayıcısı") ya da başlıktaki sağlayıcı rozetine
+tıklanarak açılır. Seçim `~/.kokpit/saglayici.json`'a yazılır; **API anahtarı bu dosyada düz metindir** ve
+kullanıcı profiline özeldir (renderer'a, loga ve hata metinlerine dönmez). Yalnız **yeni açılan** claude
+sekmelerine uygulanır; açık sekmeler eski bağlantıyla devam eder. Varsayılan "Ortamdan miras" bugünkü
+davranıştır. Diyalogda yapılan düzenlemeler (anahtar yazma, "Sil") **yalnız Kaydet'e basınca** diske iner;
+Vazgeç/Esc hiçbir şey yazmaz.
+
+| Seçim | PTY'ye eklenen |
+| --- | --- |
+| Varsayılan | yalnız `CLAUDE_CODE_EFFORT_LEVEL` (efor seçiliyse) |
+| Anthropic | anahtar yazıldıysa `ANTHROPIC_API_KEY` (x-api-key); miras alınan API_KEY korunur; `BASE_URL`/`AUTH_TOKEN`/model alias'ları silinir |
+| DeepSeek / Özel | `ANTHROPIC_BASE_URL` (zorunlu), `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL` + `DEFAULT_OPUS`/`DEFAULT_SONNET`/`DEFAULT_FABLE`, `DEFAULT_HAIKU` (hafif yoksa ana), `CLAUDE_CODE_SUBAGENT_MODEL` (alt yoksa hafif → ana), `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (100000–1000000, düz sayı), efor varsa `CLAUDE_CODE_EFFORT_LEVEL` |
+
+`ANTHROPIC_API_KEY` hiçbir sağlayıcıda silinmez; DeepSeek/Özel'de `ANTHROPIC_AUTH_TOKEN` da silinmez.
+Anahtar alanı boşsa ortamdan miras alınan AUTH_TOKEN (DeepSeek/Özel) ya da API_KEY (Anthropic) kullanılır;
+doldurulursa üzerine yazılır (DeepSeek/Özel AUTH_TOKEN/Bearer, Anthropic API_KEY/x-api-key). Anthropic'te
+BASE_URL/AUTH_TOKEN/model alias'ları silinir. Claude Code'da AUTH_TOKEN, API_KEY'den önceliklidir (ikisi
+birlikte başlangıç uyarısı verebilir). `ANTHROPIC_SMALL_FAST_MODEL` deprecated: yalnız silinir, yazılmaz.
+
+Özel API ve DeepSeek için Base URL zorunludur; boşsa Kaydet reddedilir. Anahtar alanı boş ve miras anahtar
+da yoksa sağlayıcı isteği reddeder. Ana model boş bırakılırsa model env'i yazılmaz; Claude Code'un
+varsayılan model adları sağlayıcıya gider.
+
+**Efor:** low · medium · high · xhigh · max ("Varsayılan" = hiç gönderilmez). Desteklenmeyen seviyede Claude
+Code sessizce en yakın alt seviyeye düşer. **Uyarı:** PTY'ye verilen env, `~/.claude/settings.json` içindeki
+`env` bloğu tarafından ezilebilir; örneğin orada sabit `CLAUDE_CODE_SUBAGENT_MODEL` varsa Kokpit'in değeri
+uygulanmaz. Kokpit o dosyaya dokunmaz.
+
 **Ada v2.5, Ada'nın gözü:** hapın solunda gümüş bir gövde, iki göz. Ne yaptığını gösterir: çalışırken araca
 göre bakar (Read satır okur, Edit aşağı odaklanır, Bash kısılır, Web yukarı bakar, araçlar arası düşünür),
 soru sorunca amber halkayla sana bakar, bitince gülüp bir kez zıplar, 30 dk sessizlikte uyur, Ada'dan cevap
@@ -145,11 +174,12 @@ tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
 ## Test
 
 ```bash
-npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ağacı dahil (18 kontrol)
+npm run test:pty     # PTY sunucusunun uçtan uca testi, servis ağacı ve sağlayıcı kapsamı dahil (28 kontrol)
 npm run test:kanca   # kanca köprüsü, soru/son söz/istek/komut/tarif/adres/kimlik (101 kontrol)
-npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada penceresi ve gözü dahil (84 kontrol, önce build)
+npm run test:ui      # gerçek Electron + CDP ile arayüz testi, Ada penceresi ve gözü dahil (113 kontrol, önce build)
 npm run test:okuyucu # Okuma sayfasının ana süreç modülü, sahte vault ile (61 kontrol; CI'da)
 npm run test:okuma-ui # Okuma sayfası gerçek Electron'da, sahte vault ile (26 kontrol, önce build)
+npm run test:saglayici # Model sağlayıcısı ayarı, saf Node (73 kontrol; Electron/claude yok)
 npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontrol; elle, plan kullanır)
 npm run ekran:ada    # v2.3–v2.4 yüzeylerinin ekran görüntüsü (ada, ada-klavye, ada-bitti, terminal, Pano)
 npm run ekran:goz    # Ada gözünün her hali, hap 4x (boşta, düşün, oku, yaz, komut, web, ajan, soru, kenar, sevinç, bitti, uyku)

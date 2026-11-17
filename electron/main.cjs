@@ -19,6 +19,7 @@ const calistir = require('./calistir.cjs');
 const { gonderIstegi } = require('./gonder-istegi.cjs');
 const { createNightHost } = require('./night-host.cjs');
 const okuyucu = require('./vault-okuyucu.cjs');
+const saglayici = require('./saglayici.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
@@ -529,6 +530,9 @@ function ayarCevabi(a) {
 }
 ipcMain.handle('ayar:getir', () => ayarCevabi(ayarlar.oku()));
 ipcMain.handle('ayar:kaydet', (_e, yama) => ayarCevabi(ayarlar.yaz(ayarlar.rendererYamasi(yama))));
+// Model saglayicisi (~/.kokpit/saglayici.json): anahtar renderer'a donmez, yalniz var/yok.
+ipcMain.handle('saglayici:getir', () => saglayici.gorunum());
+ipcMain.handle('saglayici:kaydet', (_e, yama) => saglayici.kaydet(yama));
 
 // Content-Security-Policy tek kaynaktan. Dev'de Vite'in HMR'i inline script ve ws
 // istiyor; uretimde hicbiri gerekmiyor.

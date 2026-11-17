@@ -1,14 +1,14 @@
 ---
 proje: Kokpit
 created: 2026-09-10
-modified: 2026-10-16
+modified: 2026-11-17
 type: roadmap
 status: aktif
 ---
 # Kokpit — Roadmap
 
 Durum sütunu session-start hook'u tarafından otomatik okunur — format bozulmasın:
-⏳ Bekliyor / 🔄 Devam Ediyor / ✅ Tamamlandı.
+⏳ Bekliyor / 🔄 Devam Ediyor / ✅ Tamamlandı / ⛔ Emekli.
 
 **Sıralama ilkesi:** her faz sonunda elde *çalışan bir şey* olur. Faz 1'de pencere açılıp
 gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fazı yok.
@@ -45,7 +45,22 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | 27 | Gece görevi | ✅ Tamamlandı | İşaretli sekme bitti mi diye soruluyor, onaylayan güvenli kapanıyor, hepsi kapanınca bilgisayar kapanıyor; durum makinesi `test:night`, bekçi `test:night-guard` (v2.7) |
 | 28 | Ada istenen yerde | ✅ Tamamlandı | Ada bırakıldığı yerde kalıyor, hap yeri kaydediliyor, altta kart yukarı açılıyor; `test:ui` iki ekranda (v2.8) |
 | 29 | Okuma sayfası + okuma teması | ✅ Tamamlandı | Vault'un Companion/daily/knowledge/proje kesimi Kokpit'te okunuyor; okunmamış işareti; proje başına "en son ne oldu"; alan dışı yol reddediliyor; aydınlık "Kâğıt" teması Okuma'da kalıcı; `test:okuyucu` + `test:okuma-ui` (v2.9) |
-| 30 | Kokpit aydınlık mod (tüm yüzeyler) | ⏳ Bekliyor | `data-tema` `<html>`'de; Pano/Sağlık/Envanter/Ada ham renkleri token'a çevrildi; `nativeTheme` ayara bağlı; aydınlıkta akrilik kontrastı yeniden ölçüldü; terminal koyu kalıyor |
+| 30 | Kokpit aydınlık mod (tüm yüzeyler) | ⛔ Emekli | Mod yoluyla değiştirildi (2026-11-04): Claude Desktop temayı kendisi yönetiyor. Eski kriter: `data-tema` `<html>`'de; Pano/Sağlık/Envanter/Ada ham renkleri token'a çevrildi; `nativeTheme` ayara bağlı |
+| 31 | Okuma zenginleştirme: düzenleme/okuma modu + arama | ⛔ Emekli | Mod yoluyla değiştirildi (2026-11-04): Okuma M4'te mod Pane'inde, salt okur. Düzenleme fikri vault yazma kapsamı kararı gelene kadar askıda (bkz. "Not: Okuma zenginleştirme") |
+| 32 | Model sağlayıcısı: DeepSeek + özel API | ✅ Tamamlandı | Sağlayıcı (varsayılan/Anthropic/DeepSeek/özel), efor ve API anahtarı Kokpit'ten seçiliyor; **yeni açılan** claude oturumu seçilen endpoint/model/efor ile başlıyor; anahtar renderer'a/log'a dönmüyor; `test:saglayici` 73, `test:pty` 28 (kapsam ve miras dahil), `test:ui` 113 geçti; eski davranış (ortam mirası) varsayılan kaldı (v3.0) |
+| M0 | Mod: doğrulama spike'ı | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17, Kaan): Electron'da devam. Ayrıntı `docs/Mod-Plani.md` |
+| M1 | Mod: brifing band + tek Pane | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17) |
+| M2 | Mod: etkinlik, limit, bağlam | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17) |
+| M3 | Mod: çok oturum görünümü | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17) |
+| M4 | Mod: Okuma + Inbox + hızlı komutlar | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17) |
+| M5 | Mod: Sağlık + Envanter | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17) |
+| M6 | Mod: beyin/aşama enjeksiyonu devri | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17) |
+| M7 | Gece görevi → OS tetikleyicisi | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17) |
+| M8 | Electron kararı | ⛔ Emekli | Karar verildi (2026-11-17): Electron uygulamasında devam; Desktop geçişi durduruldu |
+
+**Mod yolu (2026-11-04 → durduruldu 2026-11-17):** Kokpit'in değerini Claude Desktop'un mod (plugin)
+sistemiyle taşıma denemesi Kaan tarafından durduruldu; Electron uygulaması bir süre daha ana yüzey.
+Kayıt olarak: `docs/Mod-Plani.md`.
 
 **v1.1 → v2 kararı (2026-09-21):** Scryne 10 günlük günlük kullanımdan sonra "sınırsız yetki,
 en profesyonel seviyeye çıkar" dedi. Sıra ihtiyaca göre: en çok dokunulan yüzey (terminal) →
@@ -734,3 +749,51 @@ yapıldı" özeti olarak); aydınlık tema önce yalnız bu sayfada, sonra büt�
 - **Ölçülmedi:** Ada ve Pano'nun aydınlık hali (Faz 30); 1600 px üstündeki başlık listesi ekranda
   görülmedi; projelerin çoğunun daily'de `— <proje>` başlıklı oturumu yok (yalnız project_flush'tan
   geçenler), onlarda yalnız son notlar görünür.
+
+### Not: Okuma zenginleştirme (2026-10-26, henüz başlanmadı)
+
+Kaan: "okuma tarafında bi düzenleme/okuma modu + arama. varsayılan kombinasyonlar. bi nevi
+zenginleştirme. şu an değil, not edelim. ara güncelleme olmaktan daha yeni çıktı çünkü düzenleme
+olayını düşünürken." Yani bu bir ara sürüm değil, kendi sürümü olacak kadar büyük.
+
+- **Düzenleme/okuma modu:** Okuma sayfasında notu yerinde düzenleme. v2.9 okuyucusu bilerek **salt
+  okur** ve v2 kuralı "vault'a yalnızca dar ve açıkça listelenmiş yazmalar" diyor; düzenleme bu ikisini
+  değiştirir. Başlamadan karar: hangi köklerde yazılabilir, Obsidian açıkken çakışma, kayıt anı.
+- **Arama:** bugün yalnız başlıkta arama var; not içinde (tam metin) arama.
+- **Varsayılan kombinasyonlar:** kaydedilmiş/hazır görünümler (filtre + kapsam birleşimleri) — ne
+  kastedildiği başlarken Kaan'la netleşecek.
+
+### v3.0 (2026-11-17): Model sağlayıcısı
+
+Kaan: "Kokpit'e DeepSeek ve farklı API'lerle bağlanma seçeneği ekle; efor seviyesi ve API anahtarı
+ayarlanabilsin. Claude Desktop'a geçişi resmen durdurdum, bir süre daha Electron'dayız." Sağlayıcı
+seçimi Kokpit'in kendi ayarıdır; kabuk ortam değişkenleri değiştirilmez.
+
+- **Ayar:** `~/.kokpit/saglayici.json` (v1): `secili` (varsayilan/anthropic/deepseek/ozel), `efor`
+  (varsayilan/low/medium/high/xhigh/max), sağlayıcı başına anahtar/baseUrl/model/hafif model/alt ajan
+  modeli/bağlam penceresi. `electron/saglayici.cjs` her çağrıda diskten okur; atomik yazar. Anahtar
+  renderer'a, IPC dönüşüne, log'a ve hata metnine girmez (renderer yalnız "Kayıtlı/Yok" görür).
+- **Uygulama noktası:** `pty-server` yalnız `claude`/`claude-devam` oturumlarında temiz ORTAM'ın
+  kopyasına `sil`+`ekle` uygular; servis ve düz kabuk etkilenmez, `KOKPIT_OTURUM` korunur. Yalnız
+  **yeni** sekmeler seçimi alır; açık sekmeler eski bağlantıyla devam eder.
+- **DeepSeek maskesi (Kaan'ın çalışan kurulumu):** `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`,
+  `ANTHROPIC_MODEL`/`DEFAULT_OPUS`/`DEFAULT_SONNET`/`DEFAULT_FABLE=deepseek-flash[1m]`,
+  `DEFAULT_HAIKU=deepseek-flash`, `CLAUDE_CODE_SUBAGENT_MODEL=deepseek-flash`,
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW=786432`. Model alanları diyalogdan düzenlenebilir.
+- **Anahtar yönü:** DeepSeek/Özel'de `ANTHROPIC_AUTH_TOKEN` (Bearer), Anthropic'te `ANTHROPIC_API_KEY`
+  (x-api-key). `ANTHROPIC_API_KEY` hiçbir sağlayıcıda silinmez; DeepSeek/Özel'de anahtar alanı boşken
+  miras `ANTHROPIC_AUTH_TOKEN` da korunur (Kaan'ın anahtarı ortamda), doldurulursa üzerine yazılır.
+  Anthropic'te miras AUTH_TOKEN temizlenir, API_KEY korunur. Diyalog yalnız Kaydet'te yazar:
+  Vazgeç/Esc eski sağlayıcı ve anahtarı yürürlükte bırakır.
+- **Arayüz:** not kutusu deseninde yerel `<dialog>`; komut paletinden ("Model sağlayıcısı") ve başlıktaki
+  sağlayıcı rozetinden açılır. Boş Base URL (Özel/DeepSeek) kaydı reddeder; boş anahtar uyarısı miras
+  `ANTHROPIC_API_KEY` gerçeğini söyler.
+- **Testler:** `test:saglayici` 73 (env eşlemesi, doğrulama, anahtar sızıntısı, miras AUTH_TOKEN, atomik
+  yazım); `test:pty` 28 (kapsam: env yalnız claude oturumunda, düz kabuk/servis temiz, `KOKPIT_OTURUM`
+  korunuyor; miras AUTH_TOKEN boş anahtarda yaşıyor); `test:ui` 113 (13'ü diyalog: yalnız Kaydet yazar,
+  Vazgeç/Sil yerel, rozet, yeniden açılış).
+  Typecheck ve build temiz.
+- **Ölçülmedi:** Gerçek bir Kokpit sekmesinde canlı DeepSeek turu bu değişiklikle ayrıca koşulmadı
+  (env eşlemesi birim + PTY kapsam testiyle doğrulandı; Kaan'ın CLI maskesi zaten aynı). Sekme başına
+  ayrı sağlayıcı yok; seçim global. `~/.claude/settings.json` `env` bloğu PTY env'ini ezebilir (README'de
+  not); anahtar `saglayici.json` içinde düz metindir.

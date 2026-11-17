@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('kokpit', {
   sec: (secenek) => ipcRenderer.invoke('secim:sor', secenek),
   ayarGetir: () => ipcRenderer.invoke('ayar:getir'),
   ayarKaydet: (yama) => ipcRenderer.invoke('ayar:kaydet', yama),
+  // Model saglayicisi: anahtar renderer'a donmez, yalniz anahtarVar bilgisi.
+  saglayiciGetir: () => ipcRenderer.invoke('saglayici:getir'),
+  saglayiciKaydet: (yama) => ipcRenderer.invoke('saglayici:kaydet', yama),
   // Main "kapatiliyor, acik oturum var mi bak" der; renderer onay verince kapanir.
   kapanisSorulunca: (cb) => {
     const dinleyici = () => cb();
