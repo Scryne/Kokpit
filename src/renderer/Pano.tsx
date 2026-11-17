@@ -14,13 +14,13 @@ import {
   sureMetni,
   takvimGunFarki,
 } from './parcalar';
+import { Sure, useSimdi } from './saat';
 
 interface Props {
   durum: Durum;
   oturumlar: Oturum[];
   /** Kokpit'in defterinden: yol -> son kapanan oturum. */
   sonOturumlar: Record<string, SonOturum>;
-  simdi: number;
   arsivAcik: boolean;
   onArsivDegistir: () => void;
   onSaglik: () => void;
@@ -35,11 +35,29 @@ interface Props {
   onOturumaGit: (id: string) => void;
 }
 
+/**
+ * Acik oturumlarin suresi ("pano 4 dk · api 12 sn"). Saniyelik deger yalniz burada yasar;
+ * Pano'nun govdesi saniyede bir cizilmez.
+ */
+function AcikOturumSuresi({ oturumlar }: { oturumlar: Oturum[] }) {
+  const simdi = useSimdi(1000);
+  return (
+    <>
+      {oturumlar.map((o) => o.ad + ' ' + sureMetni(Math.floor((simdi - o.baslangic) / 1000))).join(' · ')}
+    </>
+  );
+}
+
+/** "son oturum" gun farki: takvim gunu degisince tazelenir, dakikada bir yeter. */
+function SonOturumGunu({ bitis }: { bitis: number }) {
+  const simdi = useSimdi(60_000);
+  return <>{gunMetni(takvimGunFarki(bitis, simdi))}</>;
+}
+
 export default function Pano({
   durum,
   oturumlar,
   sonOturumlar,
-  simdi,
   arsivAcik,
   onArsivDegistir,
   onSaglik,
@@ -105,11 +123,7 @@ export default function Pano({
           etiket="Açık oturum"
           deger={acikOturum.length}
           alt={
-            acikOturum.length > 0
-              ? acikOturum
-                  .map((o) => o.ad + ' ' + sureMetni(Math.floor((simdi - o.baslangic) / 1000)))
-                  .join(' · ')
-              : 'oturum yok'
+            acikOturum.length > 0 ? <AcikOturumSuresi oturumlar={acikOturum} /> : 'oturum yok'
           }
         />
         <Olcum
@@ -178,7 +192,6 @@ export default function Pano({
               const dikkat = oturumlar.some((o) => o.yol === p.yol && o.dikkat);
               const sirada = p.roadmap?.sirada;
               const son = sonOturumlar[p.yol];
-              const sonGun = son ? takvimGunFarki(son.bitis, simdi) : null;
               return (
                 <tr key={p.ad} className="border-b border-kenar last:border-b-0 hover:bg-yuzey-guclu">
                   <th scope="row" className="px-4 py-3 font-normal">
@@ -201,7 +214,7 @@ export default function Pano({
                       <span className="mt-0.5 block pl-3.5 text-xs text-metin-soluk">
                         son oturum{' '}
                         <span className="enstruman">
-                          {gunMetni(sonGun)} · {sureMetni(son.sureSn)}
+                          <SonOturumGunu bitis={son.bitis} /> · {sureMetni(son.sureSn)}
                           {son.ozet && son.ozet.dosya > 0 && (
                             <>
                               {' · '}
@@ -262,7 +275,7 @@ export default function Pano({
                         >
                           <TerminalSquare className="size-3.5" aria-hidden="true" />
                           <span className="enstruman">
-                            {sureMetni(Math.floor((simdi - oturum.baslangic) / 1000))}
+                            <Sure baslangic={oturum.baslangic} />
                           </span>
                         </button>
                       ) : (

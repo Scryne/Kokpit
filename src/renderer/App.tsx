@@ -53,13 +53,8 @@ import KomutPaleti, { type Komut } from './KomutPaleti';
 import HizliKomutMenusu from './HizliKomutlar';
 import CalistirKutusu from './CalistirKutusu';
 import { DurumIsareti, EtkinlikSeridi, LimitGostergesi, etkinlikCumlesi } from './Etkinlik';
-import {
-  BeyinKaydiRozeti,
-  GRUP_BASLIK,
-  projeGruplari,
-  sureMetni,
-  tokenMetni,
-} from './parcalar';
+import { BeyinKaydiRozeti, GRUP_BASLIK, projeGruplari, tokenMetni } from './parcalar';
+import { Sure } from './saat';
 
 // durum.py her cagrida ~2 sn'lik bir Python sureci demek (09-29 olcumu). Iki koruma:
 // - ayni anda tek istek (StrictMode'un cift effect'ini de yutar)
@@ -193,7 +188,6 @@ export default function App() {
   const [oturumlar, setOturumlar] = useState<Oturum[]>([]);
   const [aktifGrupId, setAktifGrupId] = useState<string | null>(null);
   const [aktifOturumId, setAktifOturumId] = useState<string | null>(null);
-  const [simdi, setSimdi] = useState(() => Date.now());
   // Onceki calismada acik kalmis oturumlar: geri yukleme teklifi (bir kez).
   const [oncekiler, setOncekiler] = useState<OncekiOturum[]>([]);
   const [sonOturumlar, setSonOturumlar] = useState<Record<string, SonOturum>>({});
@@ -294,15 +288,8 @@ export default function App() {
     );
   }, []);
 
-  // Tek sayac: acik oturum varsa sureler icin saniyede bir, yoksa dakikada bir tik.
-  // (Eskiden oturum yokken hic tiklemiyordu; gece acik kalan Kokpit'te "son oturum: bugün"
-  // ertesi gun de bugün diyordu.)
-  const oturumAcik = oturumlar.some((o) => o.durumu === 'acik');
-  useEffect(() => {
-    setSimdi(Date.now());
-    const t = setInterval(() => setSimdi(Date.now()), oturumAcik ? 1000 : 60_000);
-    return () => clearInterval(t);
-  }, [oturumAcik]);
+  // Saat artik burada yasamiyor: saniyelik "simdi"yi yalniz suresi gorunen en kucuk bilesen
+  // kendi icinde alir (./saat.ts). Eskiden App saniyede bir bastan ciziliyordu.
 
   // Bağlam yoklamasi: yalniz acik oturum varken ve pencere gorunurken, 20 sn'de bir.
   // Okuma transcript'in son 512 KB'i (~3 ms); claude'un yazdigi dosyaya dokunmaz.
@@ -383,8 +370,18 @@ export default function App() {
   // arka planda ~1 dk surer. Bekleyen yoksa yoklama yok.
   useEffect(() => {
     if (!Object.values(sonOturumlar).some((s) => s.beyin === 'bekliyor')) return;
-    const t = setInterval(sonlariYenile, 30_000);
-    return () => clearInterval(t);
+    // Pencere gizliyken yoklama yok (baglam yoklamasiyla ayni kalip); gorunur olunca bir kez
+    // hemen yenilenir.
+    const yokla = () => {
+      if (document.visibilityState !== 'visible') return;
+      sonlariYenile();
+    };
+    const t = setInterval(yokla, 30_000);
+    document.addEventListener('visibilitychange', yokla);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', yokla);
+    };
   }, [sonOturumlar, sonlariYenile]);
   useEffect(() => {
     sonlariYenile();
@@ -1442,7 +1439,7 @@ export default function App() {
 
         {kenarAcik && etkinlik.limitler && (
           <div className="border-t border-kenar px-4 py-3">
-            <LimitGostergesi limitler={etkinlik.limitler} simdi={simdi} />
+            <LimitGostergesi limitler={etkinlik.limitler} />
           </div>
         )}
 
@@ -1620,7 +1617,6 @@ export default function App() {
               durum={durum}
               oturumlar={gorunenOturumlar}
               sonOturumlar={sonOturumlar}
-              simdi={simdi}
               arsivAcik={arsivAcik}
               onArsivDegistir={() => setArsivAcik((a) => !a)}
               onSaglik={() => setGorunum('saglik')}
@@ -1788,7 +1784,7 @@ export default function App() {
                       )}
                       {g.uyeler.length === 1 && ilk.durumu === 'acik' && (
                         <span className="enstruman text-xs text-metin-soluk">
-                          {sureMetni(Math.floor((simdi - ilk.baslangic) / 1000))}
+                          <Sure baslangic={ilk.baslangic} />
                         </span>
                       )}
                     </button>
@@ -1966,7 +1962,7 @@ export default function App() {
                               </span>
                               {o.durumu === 'acik' && (
                                 <span className="enstruman text-xs text-metin-soluk">
-                                  {sureMetni(Math.floor((simdi - o.baslangic) / 1000))}
+                                  <Sure baslangic={o.baslangic} />
                                   {baglamOku(o.id) && ' · ' + tokenMetni(baglamOku(o.id)!.token)}
                                 </span>
                               )}
@@ -2025,7 +2021,6 @@ export default function App() {
                         {o.durumu === 'acik' && etkinlik.oturumlar[o.id] && (
                           <EtkinlikSeridi
                             e={etkinlik.oturumlar[o.id]}
-                            simdi={simdi}
                             sag={
                               <>
                                 <button

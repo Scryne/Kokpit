@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { EtkinlikAraci, Limit, Limitler, OturumEtkinligi } from './types';
 import { sureMetni } from './parcalar';
+import { useSimdi } from './saat';
 
 // Kanca koprusunun arayuzu: etkinlik seridi (bolme basina), etkinlik akisi, limit gostergesi.
 // DESIGN.md: mono = olculmus deger; renk yalniz seni bekleyen sey icin (dikkat). "Bitti"nin ve
@@ -135,14 +136,16 @@ function AracSatiri({ a, simdi }: { a: EtkinlikAraci; simdi: number }) {
  */
 export function EtkinlikSeridi({
   e,
-  simdi,
   sag,
 }: {
   e: OturumEtkinligi;
-  simdi: number;
   /** Seridin sag ucu (hizli komut menusu); akis dugmesinin disinda, ic ice dugme olmasin. */
   sag?: React.ReactNode;
 }) {
+  // Saniyelik deger yalniz burada yasar; App'in tamami tik basina cizilmez. Sure yalniz
+  // suren bir is varken akar (bosta serit saniyede bir cizilmesin).
+  const suruyorMu = (e.durum === 'calisiyor' && e.turBasladi !== null) || e.arac?.bitti === null;
+  const simdi = useSimdi(1000, suruyorMu);
   const [acik, setAcik] = useState(false);
   const kap = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -299,7 +302,9 @@ function LimitSatiri({ ad, l, simdi }: { ad: string; l: Limit; simdi: number }) 
 }
 
 /** Kenar cubugunun altinda: claude plan limitleri (statusline'dan, Kokpit oturumlarindan). */
-export function LimitGostergesi({ limitler, simdi }: { limitler: Limitler | null; simdi: number }) {
+export function LimitGostergesi({ limitler }: { limitler: Limitler | null }) {
+  // Sifirlanma metni ve "eski olcum" isareti dakikada bir yeter; saniyelik degil.
+  const simdi = useSimdi(60_000);
   if (!limitler || (!limitler.besSaat && !limitler.hafta)) return null;
   const eski = simdi - limitler.olculdu > 30 * 60_000;
   return (

@@ -234,7 +234,8 @@ export function Olcum({
 }: {
   etiket: string;
   deger: string | number;
-  alt?: string | null;
+  /** Alt satir metni; suresi kendi icinde akan kucuk bir bilesen de olabilir. */
+  alt?: React.ReactNode;
   vurgu?: boolean;
 }) {
   return (
