@@ -271,4 +271,4 @@ function durdur() {
   sunucu = null;
 }
 
-module.exports = { baslat, ptyOrtami, anlik, ozet, unut, durdur, mevcutBilgi: () => bilgi };
+module.exports = { baslat, ptyOrtami, anlik, ozet, unut, durdur };

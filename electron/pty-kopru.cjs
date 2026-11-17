@@ -124,4 +124,4 @@ function durdurBekle(ms = 6000) {
   });
 }
 
-module.exports = { baslat, durdur, durdurBekle, calisiyor: () => cocuk !== null, mevcutBilgi: () => bilgi };
+module.exports = { baslat, durdur, durdurBekle, calisiyor: () => cocuk !== null };

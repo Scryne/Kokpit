@@ -330,10 +330,6 @@ export interface OturumEtkinligi {
   soruAyrinti?: SoruAyrintisi | null;
   /** Bitti iken turun son mesaji (Stop hook'unun last_assistant_message'i). */
   sonSoz?: string | null;
-  /** `durum`un en son degistigi an ("ne zamandir bekliyor"). */
-  durumZamani?: number;
-  /** Acik sorunun dogdugu an; cevabin damgasi. */
-  soruZamani?: number | null;
   /** Calisan alt ajanlar (SubagentStart..SubagentStop). */
   altlar?: Record<string, { tur: string; t: number }>;
   turBasladi: number | null;
@@ -468,7 +464,6 @@ declare global {
   interface Window {
     kokpit: {
       durumGetir: () => Promise<DurumSonuc>;
-      logYolu: () => Promise<string>;
       klasorAc: (yol: string) => Promise<boolean>;
       ptyBilgi: () => Promise<PtyBilgiSonuc>;
       dosyaYolu: (dosya: File) => string;

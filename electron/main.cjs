@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { DEV_URL, DEV_PORT, KOKPIT_DIZIN } = require('./config.cjs');
-const { log, logHata, LOG_DOSYA } = require('./log.cjs');
+const { log, logHata } = require('./log.cjs');
 const { durumOku } = require('./durum.cjs');
 const ptyKopru = require('./pty-kopru.cjs');
 const uretim = require('./uretim-protokolu.cjs');
@@ -220,7 +220,6 @@ function pencereKur() {
 }
 
 ipcMain.handle('durum:getir', async () => durumOku());
-ipcMain.handle('log:yol', () => LOG_DOSYA);
 ipcMain.handle('pty:bilgi', async () => {
   try {
     // Kanca koprusu once hazir olmali: PTY sunucusu claude'u onun ayar dosyasiyla acar.

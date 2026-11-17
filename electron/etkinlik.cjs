@@ -22,15 +22,11 @@ function yeniDurum(simdi) {
     claudeOturumu: null,
     arac: null, // { ad, hedef, alt, arti, eksi, basladi, bitti }
     soru: null, // bekliyor iken kullaniciya sorulan sey (kisa)
-    soruAyrinti: null, // AskUserQuestion ise secenekler (ada'dan cevap icin), bkz. soruAyrintisi
+    soruAyrinti: null, // AskUserQuestion ise secenekler, bkz. soruAyrintisi
     sonSoz: null, // bitti iken turun son mesaji (Stop last_assistant_message), bkz. sonSoz
     turBasladi: null,
     sonTurSuresiMs: null,
     degisti: simdi, // son islenen olay (herhangi biri)
-    durumZamani: simdi, // `durum` en son ne zaman degisti ("ne zamandir bekliyor")
-    // Acik sorunun dogdugu an: ada'dan cevabin damgasi. `degisti`ye baglanamaz — soru acikken arka
-    // plan alt ajaninin araclari ve 60 sn sonraki idle_prompt da olay uretir (olculdu 2026-10-04).
-    soruZamani: null,
     altlar: {}, // calisan alt ajanlar: { [agent_id]: { tur, t } } (SubagentStart..SubagentStop)
     ozet: { araclar: 0, dosyalar: [], arti: 0, eksi: 0, turlar: 0 },
     olaylar: [], // son N arac: { t, ad, hedef, arti, eksi, alt }
@@ -92,7 +88,8 @@ function hedefOzeti(ad, girdi) {
 const SORU_SINIRI = 4;
 
 /**
- * AskUserQuestion'un sorulari ve secenekleri: Kokpit/ada bunlari dugme olarak gosterir.
+ * AskUserQuestion'un sorulari ve secenekleri; akis kararinda kullanilir (secenekli bir soru
+ * beklerken gelen bildirim onu ezmez).
  * TUI klavyesi gercek claude 2.1.289 ile olculdu (docs soylemiyor):
  *   - Tek soru (10-04): secenekler 1..N, rakam secip GONDERIR (Enter yok); N+1 "Type something"
  *     rakami serbest metin kutusunu acar, metin + Enter gonderir; N+2 "Chat about this".
@@ -123,9 +120,9 @@ function soruAyrintisi(girdi) {
 }
 
 /**
- * Stop'un `last_assistant_message`'i (claude 2.1.289'da var, olculdu): turun son sozu. Ada
- * "bitti" dediginde ne dedigini gosterir; Kokpit'e gecmeden cevap verilebilsin. Bellekte kalir,
- * deftere yazilmaz (README kural 7). Markdown'in yalniz gurultusu atilir; metin degismez.
+ * Stop'un `last_assistant_message`'i (claude 2.1.289'da var, olculdu): turun son sozu. "Bitti"
+ * bildiriminde ne dendigini gosterir. Bellekte kalir, deftere yazilmaz (README kural 7).
+ * Markdown'in yalniz gurultusu atilir; metin degismez.
  */
 const SON_SOZ_SINIRI = 4000;
 function sonSoz(metin) {
@@ -206,7 +203,6 @@ function isle(onceki, govde, simdi = Date.now()) {
   let sinyal = null;
   if (govde?.session_id) d.claudeOturumu = govde.session_id;
   const alt = Boolean(govde?.agent_id);
-  const oncekiDurum = d.durum;
   if (!d.altlar) d.altlar = {};
   // Alt ajanlar: SubagentStart..SubagentStop arasi (gercek claude 2.1.289: ikisi de agent_id +
   // agent_type tasir; ana tur Stop dedikten SONRA arka planda calismaya devam edebilir). Araclari
@@ -329,10 +325,6 @@ function isle(onceki, govde, simdi = Date.now()) {
   }
 
   d.degisti = simdi;
-  if (d.durum !== oncekiDurum) d.durumZamani = simdi;
-  // Soru damgasi yalniz yeni bir bekleyis dogunca degisir; bekleyis bitince silinir.
-  if (sinyal === 'bekliyor') d.soruZamani = simdi;
-  else if (d.durum !== 'bekliyor') d.soruZamani = null;
   return { durum: d, sinyal, degisti: true };
 }
 

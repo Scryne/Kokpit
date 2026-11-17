@@ -181,22 +181,19 @@ kontrol('bilinmeyen olay durumu degistirmez', r.degisti === false && r.durum ===
 // tasir; ana tur Stop dedikten SONRA alt ajan calismaya devam edebilir.
 {
   let s = etkinlik.isle(etkinlik.yeniDurum(0), P({ hook_event_name: 'UserPromptSubmit', prompt: 'x' }), 100).durum;
-  kontrol('durumZamani: durum degisince', s.durumZamani === 100, s.durumZamani);
   s = etkinlik.isle(s, P({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: 'C:/a' } }), 200).durum;
-  kontrol('durumZamani: ayni durumda arac olayi degistirmez', s.durumZamani === 100 && s.degisti === 200, s);
+  kontrol('ayni durumda arac olayi degisti yi tazeler', s.degisti === 200, s);
   s = etkinlik.isle(s, P({ hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'kasif' }), 300).durum;
   s = etkinlik.isle(s, P({ hook_event_name: 'SubagentStart', agent_id: 'a2', agent_type: 'arastirmaci' }), 310).durum;
   kontrol('SubagentStart: iki alt ajan, tur ile', Object.keys(s.altlar).length === 2 && s.altlar.a1.tur === 'kasif', s.altlar);
   s = etkinlik.isle(s, P({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Q?', options: [{ label: 'a' }] }] } }), 400).durum;
-  kontrol('soruZamani: soru dogunca', s.soruZamani === 400 && s.durum === 'bekliyor', s.soruZamani);
-  // Soru acikken: arka plan alt ajaninin araci ve 60 sn sonraki idle_prompt damgayi DEGISTIRMEZ
-  // (degistirseydi cevabin damgasi bayatlardi).
+  kontrol('soru dogunca durum bekliyor', s.durum === 'bekliyor', s.durum);
+  // Soru acikken: arka plan alt ajaninin araci ve 60 sn sonraki idle_prompt bekleyisi bozmaz.
   s = etkinlik.isle(s, P({ hook_event_name: 'PreToolUse', tool_name: 'Grep', agent_id: 'a1', agent_type: 'kasif', tool_input: { pattern: 'x' } }), 500).durum;
   s = etkinlik.isle(s, P({ hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'waiting' }), 61_000).durum;
-  kontrol('soruZamani: alt ajan araci ve idle_prompt dokunmaz', s.soruZamani === 400 && s.durum === 'bekliyor' && s.degisti === 61_000, { z: s.soruZamani, d: s.durum });
+  kontrol('alt ajan araci ve idle_prompt bekleyisi bozmaz', s.durum === 'bekliyor' && s.degisti === 61_000, { d: s.durum, g: s.degisti });
   kontrol('alt ajan araci kaydini tazeler', s.altlar.a1.t === 500, s.altlar.a1);
   s = etkinlik.isle(s, P({ hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion', tool_input: {}, tool_response: {} }), 62_000).durum;
-  kontrol('soruZamani: cevaplaninca silinir', s.soruZamani === null && s.durumZamani === 62_000, s.soruZamani);
   s = etkinlik.isle(s, P({ hook_event_name: 'Stop' }), 63_000).durum;
   kontrol('ana Stop alt ajanlari silmez (arka planda suruyorlar)', s.durum === 'bitti' && Object.keys(s.altlar).length === 2);
   s = etkinlik.isle(s, P({ hook_event_name: 'SubagentStop', agent_id: 'a2', agent_type: 'arastirmaci' }), 64_000).durum;
@@ -229,13 +226,7 @@ kontrol('bilinmeyen olay durumu degistirmez', r.degisti === false && r.durum ===
 // --- 1b3. Gonderme istegi bicimi (gonder-istegi.cjs) ---
 {
   const { gonderIstegi } = require(path.join(KOK, 'electron', 'gonder-istegi.cjs'));
-  const g = gonderIstegi({ id: 'Otomat-1', tur: 'cevap', cevaplar: [1, ' dev\r\nboy ', 0], damga: 5 });
-  kontrol('cevap: rakam ve metin karisik, metin tek satir', g && g.cevaplar[0] === 1 && g.cevaplar[1] === 'dev boy' && g.cevaplar[2] === 0 && g.damga === 5, g);
-  kontrol('cevap: damgasiz reddedilir (kural 8)', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [0] }) === null);
-  kontrol('cevap: 5 soru reddedilir', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [0, 0, 0, 0, 0], damga: 1 }) === null);
-  kontrol('cevap: secenek 4 (5. rakam) reddedilir', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [4], damga: 1 }) === null);
-  kontrol('cevap: bos metin reddedilir (bos Enter yanlis secenegi gonderirdi)', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [0, '  \n '], damga: 1 }) === null);
-  kontrol('cevap: bos dizi / dizi degil reddedilir', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [], damga: 1 }) === null && gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: 1, damga: 1 }) === null);
+  kontrol('cevap: kaldirilan tur null doner', gonderIstegi({ id: 'a', tur: 'cevap', cevaplar: [0], damga: 1 }) === null);
   kontrol('eski secim bicimi artik gecmez', gonderIstegi({ id: 'a', tur: 'secim', secim: 1, damga: 1 }) === null);
   kontrol('metin: satir sonu tek satira', gonderIstegi({ id: 'a', tur: 'metin', metin: 'a\nb' })?.metin === 'a b');
   kontrol('gecersiz kimlik reddedilir', gonderIstegi({ id: '../x y', tur: 'metin', metin: 'a' }) === null);

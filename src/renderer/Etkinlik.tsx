@@ -73,7 +73,7 @@ function sureMs(ms: number) {
   return sureMetni(Math.max(0, Math.floor(ms / 1000)));
 }
 
-/** Bildirim ve ada icin tek cumle: o an ne oluyor. */
+/** Bildirim icin tek cumle: o an ne oluyor. */
 export function etkinlikCumlesi(e: OturumEtkinligi, simdi: number): string {
   if (e.durum === 'bekliyor') return e.soru ? 'Soru: ' + e.soru : 'Seni bekliyor';
   if (e.durum === 'bitti') {
