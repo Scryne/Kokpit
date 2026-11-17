@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('kokpit', {
   vaultTazele: () => ipcRenderer.invoke('vault:tazele'),
   // Beyne dusmemis tek oturumu vault'un betigiyle doldurur (yazan vault'tur, Kokpit degil).
   beyinDoldur: (session, proje) => ipcRenderer.invoke('beyin:doldur', session, proje),
-  // Kanca koprusu: oturum etkinligi + limitler (main yayinlar, ana pencere ve ada dinler).
+  // Kanca koprusu: oturum etkinligi + limitler (main yayinlar, ana pencere dinler).
   etkinlikAnlik: () => ipcRenderer.invoke('etkinlik:anlik'),
   etkinlikDinle: (cb) => {
     const d = (_e, a) => cb(a);
@@ -72,50 +72,12 @@ contextBridge.exposeInMainWorld('kokpit', {
     ipcRenderer.on('oturum:kimlik', d);
     return () => ipcRenderer.removeListener('oturum:kimlik', d);
   },
-  // Ada: oturum listesi ana pencereden gider; adadan tiklama ana pencereye "oturuma git" doner.
-  adaListe: (liste) => ipcRenderer.send('ada:liste', liste),
-  adaAyar: (acik) => ipcRenderer.send('ada:ayar', acik),
-  adaListeDinle: (cb) => {
-    const d = (_e, l) => cb(l);
-    ipcRenderer.on('ada:liste', d);
-    return () => ipcRenderer.removeListener('ada:liste', d);
-  },
-  adaFare: (icinde) => ipcRenderer.send('ada:fare', icinde),
-  adaGit: (id) => ipcRenderer.send('ada:git', id),
-  oturumaGitDinle: (cb) => {
-    const d = (_e, id) => cb(id);
-    ipcRenderer.on('oturuma:git', d);
-    return () => ipcRenderer.removeListener('oturuma:git', d);
-  },
   // Calistir: projenin uygulamasini servis bolmesinde acma tarifi.
   calistirTarif: (yol) => ipcRenderer.invoke('calistir:tarif', yol),
   calistirKaydet: (yol, komut) => ipcRenderer.invoke('calistir:kaydet', yol, komut),
-  // Hizli komutlar ve oturuma gonderme (ada -> main -> ana pencere; PTY ana pencerede).
+  // Hizli komutlar (PTY ana pencerede).
   komutlarGetir: () => ipcRenderer.invoke('komutlar:getir'),
   komutlarDuzenle: () => ipcRenderer.invoke('komutlar:duzenle'),
-  adaGonder: (istek) => ipcRenderer.send('ada:gonder', istek),
-  adaOdak: (istek) => ipcRenderer.send('ada:odak', istek),
-  // v2.6: surukle-birak (asama: basla / tasi / bitir; x, y ekran koordinati) ve klavye yedegi.
-  // v2.8: bitir'de hap = hapin pencere icindeki dikdortgeni; ada oraya birakilir.
-  adaSurukle: (asama, x, y, hap) => ipcRenderer.send('ada:surukle', { asama, x, y, hap }),
-  adaYerlesimDinle: (cb) => {
-    const d = (_e, y) => cb(y);
-    ipcRenderer.on('ada:yerlesim', d);
-    return () => ipcRenderer.removeListener('ada:yerlesim', d);
-  },
-  adaSonrakiEkran: () => ipcRenderer.invoke('ada:sonraki-ekran'),
-  oturumaGonderDinle: (cb) => {
-    const d = (_e, istek) => cb(istek);
-    ipcRenderer.on('oturuma:gonder', d);
-    return () => ipcRenderer.removeListener('oturuma:gonder', d);
-  },
-  // v2.4: "gordum" (bitti rozeti ada'dan duser) ve klavyeyle ada (Ctrl+Alt+Shift+A).
-  adaGordum: (id) => ipcRenderer.send('ada:gordum', id),
-  oturumGordumDinle: (cb) => {
-    const d = (_e, id) => cb(id);
-    ipcRenderer.on('oturum:gordum', d);
-    return () => ipcRenderer.removeListener('oturum:gordum', d);
-  },
   pencereOdakDinle: (cb) => {
     const d = (_e, odakta) => cb(odakta === true);
     ipcRenderer.on('pencere:odak', d);
@@ -134,10 +96,5 @@ contextBridge.exposeInMainWorld('kokpit', {
     const d = (_e, a) => cb(a);
     ipcRenderer.on('night:action', d);
     return () => ipcRenderer.removeListener('night:action', d);
-  },
-  adaKlavyeDinle: (cb) => {
-    const d = (_e, k) => cb(k);
-    ipcRenderer.on('ada:klavye', d);
-    return () => ipcRenderer.removeListener('ada:klavye', d);
   },
 });

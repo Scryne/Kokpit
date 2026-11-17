@@ -19,7 +19,7 @@ export interface OturumApi {
   /** claude'a cikis tuslarini gonderir, SessionEnd bitene kadar bekler. Temiz ciktiysa true. */
   guvenliCik: () => Promise<boolean>;
   /**
-   * Kabuga ham girdi: klavyeden yazilmis gibi. Hizli komut / ada cevabi bunu kullanir.
+   * Kabuga ham girdi: klavyeden yazilmis gibi. Hizli komut bunu kullanir.
    * Baglanti yoksa false.
    */
   yaz: (d: string) => boolean;

@@ -13,10 +13,8 @@ const beyin = require('./beyin.cjs');
 const inboxNotu = require('./not.cjs');
 const geriDoldurma = require('./doldur.cjs');
 const kanca = require('./kanca.cjs');
-const ada = require('./ada.cjs');
 const komutlar = require('./komutlar.cjs');
 const calistir = require('./calistir.cjs');
-const { gonderIstegi } = require('./gonder-istegi.cjs');
 const { createNightHost } = require('./night-host.cjs');
 const okuyucu = require('./vault-okuyucu.cjs');
 const saglayici = require('./saglayici.cjs');
@@ -206,48 +204,18 @@ function pencereKur() {
     pencere.loadURL(uretim.BASLANGIC_URL).catch((e) => logHata('loadURL', e));
   }
 
-  // Ana pencere kapandiysa uygulama biter. Ada da bir pencere: o yasarken `window-all-closed`
-  // hic gelmiyordu ve surec arka planda kaliyordu (PTY sunucusu, servisler, genel kisayollar);
-  // sonraki `kokpit` tek ornek kilidine takilip bos pencereyi one getirmeye calisiyor, hicbir
-  // sey acilmiyordu. v2.2'den 2026-10-04'e kadar; test kosuculari adayi kurmadigi icin gorulmedi.
+  // Ana pencere kapandiysa uygulama biter.
   pencere.on('closed', () => {
     pencere = null;
-    ada.kapat();
     app.quit();
   });
-  // Ada yalniz Kokpit arka plandayken gorunur.
   pencere.on('focus', () => {
-    ada.anaOdak(true);
     pencere.webContents.send('pencere:odak', true);
   });
   pencere.on('blur', () => {
-    ada.anaOdak(false);
     // Renderer arka plandayken surekli animasyonlarini durdurur (main.tsx). document.hasFocus()
-    // buna yetmiyor: Ada'nin gorunurlugunu belirleyen kaynakla ayni olay kullanilir.
+    // buna yetmiyor: pencere odagi buradan bildirilir.
     if (pencere) pencere.webContents.send('pencere:odak', false);
-  });
-}
-
-/** Ada penceresi: ayni arayuz paketi, #ada adresiyle. Test kosucularinda kurulmaz. */
-function adaKur() {
-  if (process.env.KOKPIT_TEST_KABUK === '1' && process.env.KOKPIT_TEST_ADA !== '1') return;
-  ada.kur({
-    url: (DEV ? DEV_URL : uretim.BASLANGIC_URL) + '#ada',
-    preload: path.join(__dirname, 'preload.cjs'),
-    acik: ayarlar.oku().ada !== false,
-    onGit: (id) => {
-      pencereyiOneGetir();
-      if (pencere) pencere.webContents.send('oturuma:git', id);
-    },
-    // "Gordum": bitti rozeti Kokpit'e gecmeden duser (yalniz dikkat; oturuma bir sey gitmez).
-    onGordum: (id) => {
-      if (pencere) pencere.webContents.send('oturum:gordum', id);
-    },
-    // Ada odagi birakirken ana pencere bir an etkinlestirilemez olur (bkz. ada.cjs odakla).
-    ana: () => pencere,
-    // v2.6: surukle-birakla secilen ekran hatirlanir.
-    ekran: ayarlar.oku().adaEkran,
-    onEkran: (kayit) => ayarlar.yaz({ adaEkran: kayit }),
   });
 }
 
@@ -446,20 +414,6 @@ ipcMain.handle('etkinlik:anlik', async () => {
   await kanca.baslat().catch(() => {});
   return kanca.anlik();
 });
-// Renderer'in acik oturum listesi: ada adlari ve sirayi buradan bilir.
-ipcMain.on('ada:liste', (_e, liste) => {
-  if (!Array.isArray(liste)) return;
-  ada.liste(
-    liste
-      .filter((x) => x && typeof x.id === 'string' && typeof x.ad === 'string')
-      .slice(0, 24)
-      .map((x) => ({ id: x.id, ad: x.ad, baslangic: Number(x.baslangic) || null, dikkat: x.dikkat === true }))
-  );
-});
-ipcMain.on('ada:ayar', (_e, acik) => {
-  ayarlar.yaz({ ada: acik !== false });
-  ada.ayar(acik !== false);
-});
 // Calistir tarifi (~/.kokpit/calistir.json + package.json; bkz. calistir.cjs).
 ipcMain.handle('calistir:tarif', (_e, yol) => calistir.tarif(yol));
 ipcMain.handle('calistir:kaydet', (_e, yol, komut) => calistir.kaydet(yol, komut));
@@ -472,22 +426,6 @@ ipcMain.handle('komutlar:duzenle', async () => {
   if (hata) log('komutlar.json acilamadi: ' + hata);
   return !hata;
 });
-/**
- * Oturuma gonderme istegi (ada ya da ana pencere). Yazmanin kendisi ana pencerede: PTY
- * baglantisi orada yasar. Burada yalniz sekil denetlenir (gonder-istegi.cjs); "o soru hala
- * acik mi" karari App'te, kanca durumuyla (damga) verilir.
- */
-ipcMain.on('ada:gonder', (e, ham) => {
-  const istek = gonderIstegi(ham);
-  if (!istek) return;
-  log('ada: oturuma gonderiliyor ' + istek.id + ' (' + istek.tur + ')');
-  if (pencere) pencere.webContents.send('oturuma:gonder', istek);
-});
-// Ada'da yazi kutusu: ada normalde odak almaz (oyun/yazi ortasinda odak calmasin); kutuya
-// tiklaninca gecici olarak odaklanabilir olur, gonderince ya da kutudan cikinca geri doner.
-ipcMain.on('ada:odak', (_e, istek) => ada.odak(istek === true));
-// Komut paleti: ada'yi siradaki ekrana tasi (surukle-birakin klavye yedegi).
-ipcMain.handle('ada:sonraki-ekran', () => ada.sonrakiEkran());
 // Acik oturumlarin bağlam buyuklugu (transcript'in sonu, salt okuma).
 ipcMain.handle('oturum:baglam', (_e, liste) => {
   const sonuc = {};
@@ -524,7 +462,6 @@ function ayarCevabi(a) {
     kenarAcik: a.kenarAcik,
     yaziBoyutu: a.yaziBoyutu,
     arsivAcik: a.arsivAcik,
-    ada: a.ada !== false,
     okumaTema: a.okumaTema === 'acik' ? 'acik' : 'koyu',
   };
 }
@@ -566,24 +503,21 @@ app.whenReady().then(() => {
   cspKur();
   nightHost.boot(process.argv);
   if (!DEV) uretim.protokolKur(path.join(__dirname, '..', 'dist'), CSP);
-  // Kanca koprusu erken: olaylar hem ana pencereye hem adaya yayinlanir.
+  // Kanca koprusu erken: olaylar ana pencereye yayinlanir.
   kanca
     .baslat({
       yayin: (a) => {
         if (pencere) pencere.webContents.send('etkinlik:anlik', a);
-        ada.anlik(a);
       },
       sinyal: (id, sinyal, durum) => {
         // Durum sinyalle birlikte gider: yayin 80 ms kisiliyor, bildirim metni bayat olmasin.
         if (pencere) pencere.webContents.send('etkinlik:sinyal', { id, sinyal, durum });
-        ada.sinyal(id, sinyal);
       },
       kimlik: kimlikDegisti,
       hook: nightHost.hook,
     })
     .catch((e) => logHata('kanca baslatilamadi', e));
   pencereKur();
-  adaKur();
   // Genel kisayol: Kokpit arka plandayken de Inbox notu. Ctrl+Alt+Shift+N secildi:
   // Turkce klavyede Ctrl+Alt = AltGr, AltGr+harf karakter yazar; uc degistirici cakismaz.
   // Baska bir uygulama aldiysa kayit basarisiz olur, Kokpit yine calisir.
@@ -604,16 +538,6 @@ app.whenReady().then(() => {
       else pencereyiOneGetir();
     });
     log('genel kisayol ' + cagirKisayolu + (cagir ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
-  }
-  // Klavyeyle ada (v2.4): sirasi gelen oturuma cevap, Kokpit'e gecmeden. Ada kuruluysa kaydedilir
-  // (test kosucularinda yalniz KOKPIT_TEST_ADA ile; o zaman gercek Kokpit'inkiyle cakisabilir,
-  // kayit dusmesi loglanir ve test bunu bilir).
-  if (process.env.KOKPIT_TEST_KABUK !== '1' || process.env.KOKPIT_TEST_ADA === '1') {
-    const adaKisayolu = 'Control+Alt+Shift+A';
-    const adaKayit = globalShortcut.register(adaKisayolu, () => {
-      if (!ada.klavye(!!pencere && pencere.isFocused())) log('ada kisayolu: ada kapali ya da oturum yok');
-    });
-    log('genel kisayol ' + adaKisayolu + (adaKayit ? ' kayitli' : ' KAYDEDILEMEDI (baska uygulamada)'));
   }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) pencereKur(); });
 });
@@ -641,7 +565,6 @@ app.on('before-quit', (olay) => {
   }
   ptyKopru.durdur();
   kanca.durdur();
-  ada.kapat();
 });
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => { log('tum pencereler kapandi, cikiliyor'); app.quit(); });

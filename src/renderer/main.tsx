@@ -1,7 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import Ada from './Ada';
 import './index.css';
 
 // Pencerenin herhangi bir yerine birakilan dosya sayfayi o dosyaya GOTURMESIN.
@@ -9,19 +8,12 @@ import './index.css';
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => e.preventDefault());
 
-// Ayni paket iki pencereye hizmet eder: ana pencere ve ada (electron/ada.cjs, #ada).
-const adaMi = window.location.hash === '#ada';
-if (adaMi) {
-  document.documentElement.classList.add('ada');
-  // Sayfa basligi pencere basligini ezer; ada odak aldiginda (Ctrl+Alt+Shift+A) Windows'ta ana
-  // pencereyle ayni "Kokpit" adini tasimasin.
-  document.title = 'Kokpit Ada';
-} else {
-  // Ana pencere arka plandayken (Ada gorunurken) sureklilik animasyonlari durur: durumu o an Ada
-  // gosteriyor. Olculdu 2026-10-04: arka plandaki pencerenin nabzi tek basina ~%7 cekirdek.
-  window.kokpit.pencereOdakDinle((odakta) => document.documentElement.classList.toggle('arka-plan', !odakta));
-}
+// Pencere arka plandayken sureklilik animasyonlari durur. Olculdu 2026-10-04: arka plandaki
+// pencerenin nabzi tek basina ~%7 cekirdek.
+window.kokpit.pencereOdakDinle((odakta) => document.documentElement.classList.toggle('arka-plan', !odakta));
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>{adaMi ? <Ada /> : <App />}</StrictMode>
+  <StrictMode>
+    <App />
+  </StrictMode>
 );

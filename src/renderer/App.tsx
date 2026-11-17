@@ -167,8 +167,6 @@ export default function App() {
   const [etkinlik, setEtkinlik] = useState<EtkinlikAnlik>({ oturumlar: {}, baglamlar: {}, limitler: null });
   const etkinlikRef = useRef(etkinlik);
   etkinlikRef.current = etkinlik;
-  // Ada (Kokpit arka plandayken ust ortadaki serit) acik mi; komut paletinden degisir.
-  const [adaAcik, setAdaAcik] = useState(true);
   // Okuma sayfasi (v2.9): temasi kalici; okunmamis not sayisi nav rozeti ve Pano icin.
   const [okumaTema, setOkumaTema] = useState<OkumaTema>('koyu');
   const [okunmamisNot, setOkunmamisNot] = useState(0);
@@ -221,7 +219,6 @@ export default function App() {
       setKenarAcik(a.kenarAcik);
       setYaziBoyutu(a.yaziBoyutu);
       setArsivAcik(a.arsivAcik === true);
-      setAdaAcik(a.ada !== false);
       setOkumaTema(a.okumaTema === 'acik' ? 'acik' : 'koyu');
       ayarHazir.current = true;
     });
@@ -701,103 +698,30 @@ export default function App() {
   const onZilXterm = useCallback((id: string) => onZilRef.current(id, 'zil'), []);
   useEffect(() => window.kokpit.sinyalDinle((s) => onZilRef.current(s.id, s.sinyal, s.durum)), []);
 
-  // Adaya acik oturumlar: adlar burada yasar, ada yalniz kimlikle etkinligi eslestirir.
-  useEffect(() => {
-    window.kokpit.adaListe(
-      oturumlar
-        .filter((o) => !o.servis && (o.durumu === 'acik' || o.durumu === 'baglaniyor'))
-        .map((o) => ({ id: o.id, ad: o.ad, baslangic: o.baslangic, dikkat: o.dikkat === true }))
-    );
-  }, [oturumlar]);
-  // Adadan tiklama: main pencereyi one getirdi, burada o oturuma gecilir.
-  useEffect(
-    () =>
-      window.kokpit.oturumaGitDinle((id) => {
-        const o = oturumlarRef.current.find((x) => x.id === id);
-        if (o) grubaGit(o.grupId, o.id);
-      }),
-    [grubaGit]
-  );
-
   /**
-   * Oturuma gonderme: hizli komut, ada'dan yanit ya da acik sorunun cevabi. Klavyeden
-   * yazilmis gibi PTY'ye gider; claude'un kendi girdisi kaynak olarak kalir.
-   *
-   * Tuslar gercek claude 2.1.289 ile olculdu (etkinlik.cjs soruAyrintisi):
-   *   - mesaj: metin, ~350 ms sonra Enter (ayni pakette Enter yapistirmanin parcasi sayiliyor)
-   *   - soru basina: secenegin rakami; serbest cevap N+1 ("Type something") rakami, metin, Enter.
-   *     Tek soruda rakam gonderir; cok soruda sonraki soruya gecer ve sonda Review ekraninda
-   *     1 = "Submit answers".
-   * Soru cevabi `damga` ile gelir ve HER tustan once yeniden denetlenir: o arada soru
-   * degistiyse (terminalden cevaplandi, yenisi geldi) dizi durur. Rakam tusu baska bir ekranda
-   * baska bir sey secer; bayat cevap olmaz.
+   * Oturuma gonderme: hizli komut. Klavyeden yazilmis gibi PTY'ye gider; claude'un kendi
+   * girdisi kaynak olarak kalir.
    */
   const gonderiliyor = useRef(new Set<string>());
   const oturumaGonder = useCallback(async (istek: GonderIstegi): Promise<string | null> => {
     const o = oturumlarRef.current.find((x) => x.id === istek.id);
     const api = oturumApileri.current.get(istek.id);
     if (!o || o.durumu !== 'acik' || !api) return 'Oturum açık değil';
-    // Ayni oturuma iki dizi ust uste binerse tuslar karisir (cift tik, ada + palet).
+    // Ayni oturuma iki dizi ust uste binerse tuslar karisir (cift tik).
     if (gonderiliyor.current.has(istek.id)) return 'Önceki gönderim sürüyor';
     gonderiliyor.current.add(istek.id);
     const bekle = (ms: number) => new Promise((r) => setTimeout(r, ms));
     try {
-      if (istek.tur === 'metin') {
-        if (!api.yaz(istek.metin)) return 'Terminal bağlantısı yok';
-        await bekle(350);
-        api.yaz('\r');
-      } else {
-        const s = etkinlikRef.current.oturumlar[istek.id]?.soruAyrinti;
-        const hala = () => {
-          const e = etkinlikRef.current.oturumlar[istek.id];
-          return !!e && e.durum === 'bekliyor' && !!e.soruAyrinti?.cevaplanabilir && e.soruZamani === istek.damga;
-        };
-        if (!s || !hala() || istek.cevaplar.length !== s.sorular.length) {
-          console.warn('[gonder] soru değişti, cevap gönderilmedi: ' + o.ad);
-          return 'Soru değişti; terminalden cevapla';
-        }
-        for (let i = 0; i < s.sorular.length; i++) {
-          if (typeof istek.cevaplar[i] === 'number' && (istek.cevaplar[i] as number) >= s.sorular[i].secenekler.length) {
-            return 'Böyle bir seçenek yok';
-          }
-        }
-        // Tus dizisi; her adimdan once soru hala ayni mi bakilir.
-        const tuslar: string[] = [];
-        istek.cevaplar.forEach((c, i) => {
-          if (typeof c === 'number') tuslar.push(String(c + 1));
-          else tuslar.push(String(s.sorular[i].secenekler.length + 1), c, '\r');
-        });
-        if (s.sorular.length > 1) tuslar.push('1');
-        for (let i = 0; i < tuslar.length; i++) {
-          if (i > 0) await bekle(350);
-          if (!hala()) {
-            console.warn('[gonder] soru cevap sırasında değişti, kalan tuşlar gönderilmedi: ' + o.ad);
-            return 'Soru değişti; terminalden bak';
-          }
-          if (!api.yaz(tuslar[i])) return 'Terminal bağlantısı yok';
-        }
-      }
+      if (!api.yaz(istek.metin)) return 'Terminal bağlantısı yok';
+      await bekle(350);
+      api.yaz('\r');
     } finally {
       gonderiliyor.current.delete(istek.id);
     }
-    console.info('[gonder] ' + o.ad + ': ' + istek.tur + (istek.tur === 'cevap' ? ' (' + istek.cevaplar.length + ' soru)' : ''));
+    console.info('[gonder] ' + o.ad + ': ' + istek.tur);
     setOturumlar((l) => (l.some((x) => x.id === istek.id && x.dikkat) ? l.map((x) => (x.id === istek.id ? { ...x, dikkat: false } : x)) : l));
     return null;
   }, []);
-  // Ada'dan gelen gonderme istekleri (main dogruladi, burada oturum ve soru denetlenir).
-  useEffect(() => window.kokpit.oturumaGonderDinle((istek) => void oturumaGonder(istek)), [oturumaGonder]);
-  // Ada'da "Gördüm": bitti rozeti duser. "Seni bekliyor" dusmez: o, cevaplanana kadar kalir.
-  useEffect(
-    () =>
-      window.kokpit.oturumGordumDinle((id) =>
-        setOturumlar((l) =>
-          l.some((x) => x.id === id && x.dikkat && etkinlikRef.current.oturumlar[id]?.durum !== 'bekliyor')
-            ? l.map((x) => (x.id === id ? { ...x, dikkat: false } : x))
-            : l
-        )
-      ),
-    []
-  );
 
   // Rozet, kullanici o bolmeye BAKINCA duser: aktif grup + terminal gorunumu + pencere odakta.
   useEffect(() => {
@@ -1106,27 +1030,6 @@ export default function App() {
         grup: 'Eylem',
         baslik: okumaTema === 'acik' ? 'Okuma: koyu temaya geç' : 'Okuma: aydınlık temaya geç',
         calistir: () => setOkumaTema((t) => (t === 'acik' ? 'koyu' : 'acik')),
-      },
-      {
-        id: 'e-ada',
-        grup: 'Eylem',
-        baslik: adaAcik ? "Ada'yı kapat" : "Ada'yı aç",
-        ipucu: 'arka plandaki şerit',
-        calistir: () => {
-          const yeni = !adaAcik;
-          setAdaAcik(yeni);
-          window.kokpit.adaAyar(yeni);
-        },
-      },
-      {
-        id: 'e-ada-ekran',
-        grup: 'Eylem',
-        baslik: "Ada'yı sonraki ekrana taşı",
-        ipucu: 'üst ortaya koyar; sürükleyerek her yere taşınır',
-        calistir: () =>
-          void window.kokpit.adaSonrakiEkran().then(({ toplam, sira }) =>
-            setNotBildirimi(toplam > 1 ? `Ada ${sira}/${toplam}. ekranda, üst ortada` : 'Ada üst ortaya döndü')
-          ),
       }
     );
     for (const p of siraliProjeler) {
@@ -1178,7 +1081,7 @@ export default function App() {
     }
     k.push({ id: 'e-komutlar', grup: 'Eylem', baslik: 'Hızlı komutları düzenle', ipucu: 'komutlar.json', calistir: () => void window.kokpit.komutlarDuzenle() });
     return k;
-  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, adaAcik, saglayici, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur, gece, geceDegistir]);
+  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, saglayici, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur, gece, geceDegistir]);
 
   // Bağlam: statusline'dan (kesin, her turda) varsa o; yoksa transcript yoklamasi (20 sn).
   const baglamOku = (id: string) => {
@@ -1448,14 +1351,14 @@ export default function App() {
         {/* Projeler, envanter grubuna gore. Arsiv (olduğu gibi / donduruldu / birakildi)
             varsayilan kapali: Scryne 09-29'da eski projelere donmeme karari verdi, 15 satirin
             10'u her gun gozun onunde duruyordu. */}
-        <div className={'min-h-0 flex-1 overflow-y-auto px-2 pb-3 ' + (kenarAcik ? 'mt-4' : 'mt-4')}>
+        {kenarAcik && (
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 mt-4">
           {projeGruplari(durum?.projeler ?? []).map(({ grup, projeler }) => {
             const arsiv = grup === 'arsiv';
             const gorunur = !arsiv || arsivAcik;
             return (
-              <div key={grup} className={kenarAcik ? 'mb-3' : 'mb-2 border-b border-kenar pb-2 last:border-b-0'}>
-                {kenarAcik &&
-                  (arsiv ? (
+              <div key={grup} className="mb-3">
+                {arsiv ? (
                     <button
                       type="button"
                       onClick={() => setArsivAcik((a) => !a)}
@@ -1472,7 +1375,7 @@ export default function App() {
                     </button>
                   ) : (
                     <p className="etiket px-2.5 py-1">{GRUP_BASLIK[grup]}</p>
-                  ))}
+                  )}
                 {gorunur && (
                   <ul aria-label={GRUP_BASLIK[grup] + ' projeler'} id={arsiv ? 'kenar-arsiv' : undefined}>
                     {projeler.map((p) => {
@@ -1485,52 +1388,32 @@ export default function App() {
                             onClick={() => (oturum ? grubaGit(oturum.grupId, oturum.id) : sekmeAc(p))}
                             title={oturum ? p.ad + ' — açık oturuma git' : p.ad + ' klasöründe oturum aç'}
                             aria-label={oturum ? p.ad + ' — açık oturuma git' : p.ad + ' klasöründe oturum aç'}
-                            className={
-                              'group flex w-full cursor-pointer items-center gap-2 rounded-kontrol px-2.5 py-1.5 text-left transition-colors duration-[180ms] hover:bg-yuzey ' +
-                              (kenarAcik ? '' : 'justify-center')
-                            }
+                            className="group flex w-full cursor-pointer items-center gap-2 rounded-kontrol px-2.5 py-1.5 text-left transition-colors duration-[180ms] hover:bg-yuzey"
                           >
-                            {kenarAcik ? (
-                              <span
-                                className={
-                                  'size-1.5 shrink-0 rounded-full ' +
-                                  (dikkat
-                                    ? noktaSinifi({ durumu: 'acik', dikkat: true })
-                                    : oturum
-                                      ? 'bg-aksan'
-                                      : 'bg-kenar-guclu')
-                                }
+                            <span
+                              className={
+                                'size-1.5 shrink-0 rounded-full ' +
+                                (dikkat
+                                  ? noktaSinifi({ durumu: 'acik', dikkat: true })
+                                  : oturum
+                                    ? 'bg-aksan'
+                                    : 'bg-kenar-guclu')
+                              }
+                              aria-hidden="true"
+                            />
+                            <span
+                              className={
+                                'enstruman truncate text-xs group-hover:text-metin ' +
+                                (arsiv ? 'text-metin-soluk' : 'text-metin-ikincil')
+                              }
+                            >
+                              {p.ad}
+                            </span>
+                            {!oturum && (
+                              <Plus
+                                className="ml-auto size-3.5 shrink-0 text-transparent group-hover:text-metin-soluk"
                                 aria-hidden="true"
                               />
-                            ) : (
-                              // Daraltilmisken nokta hangi proje oldugunu soylemiyor; bas harf soyluyor.
-                              <span
-                                className={
-                                  'enstruman relative text-xs ' +
-                                  (oturum ? 'text-aksan' : 'text-metin-soluk')
-                                }
-                                aria-hidden="true"
-                              >
-                                {p.ad.charAt(0).toUpperCase()}
-                              </span>
-                            )}
-                            {kenarAcik && (
-                              <>
-                                <span
-                                  className={
-                                    'enstruman truncate text-xs group-hover:text-metin ' +
-                                    (arsiv ? 'text-metin-soluk' : 'text-metin-ikincil')
-                                  }
-                                >
-                                  {p.ad}
-                                </span>
-                                {!oturum && (
-                                  <Plus
-                                    className="ml-auto size-3.5 shrink-0 text-transparent group-hover:text-metin-soluk"
-                                    aria-hidden="true"
-                                  />
-                                )}
-                              </>
                             )}
                           </button>
                         </li>
@@ -1542,6 +1425,7 @@ export default function App() {
             );
           })}
         </div>
+        )}
 
         {kenarAcik && etkinlik.limitler && (
           <div className="border-t border-kenar px-4 py-3">

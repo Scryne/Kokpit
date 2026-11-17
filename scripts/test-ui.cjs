@@ -115,8 +115,7 @@ async function baslat() {
     stdio: ['ignore', 'pipe', 'pipe'],
     // KOKPIT_TEST_SECIM=0: kapatma diyalogunda "Guvenli kapat" secilmis sayilir (yerel
     // diyalog CDP'den tiklanamaz).
-    // KOKPIT_TEST_ADA=1: ada penceresi de kurulur (v2.4 ada bolumu onu ayri CDP hedefi olarak surer).
-    env: { ...process.env, KOKPIT_DEV: '0', KOKPIT_TEST_KABUK: '1', KOKPIT_TEST_SECIM: '0', KOKPIT_TEST_ADA: '1', KOKPIT_DIZIN: TEST_DIZIN },
+    env: { ...process.env, KOKPIT_DEV: '0', KOKPIT_TEST_KABUK: '1', KOKPIT_TEST_SECIM: '0', KOKPIT_DIZIN: TEST_DIZIN },
   });
   app.stderr.on('data', () => {});
   app.stdout.on('data', () => {});
@@ -127,8 +126,6 @@ async function baslat() {
     try {
       const liste = await jsonGetir(`http://127.0.0.1:${PORT}/json`);
       hedefler = liste.filter((t) => t.type === 'page' && !t.url.startsWith('devtools'));
-      // Iki pencere: ana ve ada (#ada). Ikisi de gelene kadar beklenir.
-      if (!hedefler.some((t) => t.url.endsWith('#ada')) || !hedefler.some((t) => !t.url.endsWith('#ada'))) hedefler = null;
     } catch { /* henuz dinlemiyor */ }
   }
   if (!hedefler) throw new Error('CDP hedefi bulunamadi');
@@ -139,9 +136,8 @@ async function baslat() {
     await c.gonder('Runtime.enable');
     return c;
   };
-  const cdp = await baglan(hedefler.find((t) => !t.url.endsWith('#ada')));
-  const adaCdp = await baglan(hedefler.find((t) => t.url.endsWith('#ada')));
-  return { app, cdp, adaCdp };
+  const cdp = await baglan(hedefler[0]);
+  return { app, cdp };
 }
 
 /**
@@ -190,7 +186,7 @@ async function main() {
     process.exit(2);
   }
 
-  let { app, cdp, adaCdp } = await baslat();
+  let { app, cdp } = await baslat();
   try {
     console.log('Pano');
     await cdp.bekle(`document.querySelectorAll('table tbody tr').length > 0`, 20000, 'proje tablosu');
@@ -271,219 +267,7 @@ async function main() {
     const yazildi = await (async () => { for (let i = 0; i < 40; i++) { if (fs.existsSync(gonderDosyasi)) return true; await uyu(250); } return false; })();
     kontrol('komut kabuga yazildi ve Enter ile calisti (dosya olustu)', yazildi, gonderDosyasi);
 
-    console.log('Soruya cevap (v2.3): ada yolu, damga denetimi');
-    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
-    await cdp.yaz(
-      "k '{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"t\"}';" +
-        "k '{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"t\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"Hangi renk?\",\"header\":\"Renk\",\"multiSelect\":false,\"options\":[{\"label\":\"Kirmizi\"},{\"label\":\"Mavi\"},{\"label\":\"Yesil\"}]}]}}'; cls"
-    );
-    await cdp.tus('Enter');
-    await cdp.bekle(`document.body.innerText.includes('Seni bekliyor') && document.body.innerText.includes('Hangi renk?')`, 15000, 'serit seni bekliyor');
-    kontrol('serit: Seni bekliyor + soru metni', true);
-    const soru = await cdp.js(`window.kokpit.etkinlikAnlik().then(a => { const [id, e] = Object.entries(a.oturumlar).find(([, e]) => e.durum === 'bekliyor') ?? []; return id ? { id, damga: e.soruZamani, ayrinti: e.soruAyrinti } : null; })`);
-    kontrol('kanca durumunda secenekler ve cevaplanabilir', !!soru && soru.ayrinti?.cevaplanabilir === true && soru.ayrinti.sorular[0].secenekler.length === 3, JSON.stringify(soru));
-    // Bayat damga: soru degistiyse rakam gonderilmez.
-    await cdp.js(`(() => { window.kokpit.adaGonder({ id: ${JSON.stringify(soru?.id)}, tur: 'cevap', cevaplar: [1], damga: ${(soru?.damga ?? 0) - 5} }); return true; })()`);
-    kontrol('bayat damgali cevap reddedildi', await cdp.bekle(`true`, 100).then(async () => { for (let i = 0; i < 20; i++) { if (cdp.konsol.some((k) => k.includes('[gonder] soru değişti'))) return true; await uyu(150); } return false; }));
-    // Dogru damga: "2" (Mavi) kabuga gider. Test kabugu pwsh: arkasina " | Out-File" yazilinca
-    // gelen rakam dosyaya duser — rakamin gercekten PTY'ye ulastiginin kaniti.
-    const secimDosyasi = path.join(os.tmpdir(), 'kokpit-secim-' + Date.now().toString(36) + '.txt');
-    await cdp.js(`(() => { window.kokpit.adaGonder({ id: ${JSON.stringify(soru?.id)}, tur: 'cevap', cevaplar: [1], damga: ${soru?.damga ?? 0} }); return true; })()`);
-    await uyu(600);
-    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
-    await cdp.yaz(" | Out-File -FilePath '" + secimDosyasi + "'");
-    await cdp.tus('Enter');
-    const secim = await (async () => { for (let i = 0; i < 40; i++) { if (fs.existsSync(secimDosyasi)) return fs.readFileSync(secimDosyasi, 'utf8').replace(/\0|﻿/g, '').trim(); await uyu(250); } return null; })();
-    kontrol('ada yolu: 2. secenek rakam olarak kabuga gitti', secim === '2', secim);
-    for (const f of [gonderDosyasi, secimDosyasi]) try { fs.unlinkSync(f); } catch { /* yok */ }
-
-    console.log('Ada (v2.4): cok sorulu form, son soz, Gördüm, rakam tusu — ada penceresinin kendisi');
-    // Ada ayri bir pencere (KOKPIT_TEST_ADA=1); ayni kanca durumunu dinler. Cevap ada'dan main'e,
-    // oradan ana penceredeki PTY'ye gider. Kanit yine kabuk: tus dizisi pwsh satirina duser.
-    const kabugaYaz = async (satir) => {
-      await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
-      await cdp.yaz(satir);
-      await cdp.tus('Enter');
-    };
-    const dosyaBekle = async (f) => {
-      for (let i = 0; i < 40; i++) {
-        if (fs.existsSync(f)) return fs.readFileSync(f, 'utf8').replace(/\0|﻿/g, '').trim();
-        await uyu(250);
-      }
-      return null;
-    };
-    const adaDugme = (metin) =>
-      `(() => { const b = [...document.querySelectorAll('.ada-kart button')].find(x => x.textContent.trim() === ${JSON.stringify(metin)}); if (!b) return false; b.click(); return true; })()`;
-    // Imlec adanin ustune: kart acilir (onMouseEnter). Sonda disari cikarilir; yoksa ada penceresi
-    // fareyi yakalar halde kalir ve ekranin ust ortasi tiklanmaz olur.
-    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 230, y: 18 });
-    const cokDosya = path.join(os.tmpdir(), 'kokpit-cok-' + Date.now().toString(36) + '.txt');
-    const submitDosya = path.join(os.tmpdir(), 'kokpit-submit-' + Date.now().toString(36) + '.txt');
-    await kabugaYaz(
-      "k '{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"t\"}';" +
-        "k '{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"t\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[" +
-        "{\"question\":\"Hangi renk?\",\"header\":\"Renk\",\"multiSelect\":false,\"options\":[{\"label\":\"Kirmizi\"},{\"label\":\"Mavi\"},{\"label\":\"Yesil\"}]}," +
-        "{\"question\":\"Hangi boyut?\",\"header\":\"Boyut\",\"multiSelect\":false,\"options\":[{\"label\":\"Kucuk\"},{\"label\":\"Buyuk\"}]}]}}'; cls"
-    );
-    await adaCdp.bekle(`!!document.querySelector('[role="group"][aria-label*="soru 2: Hangi boyut?"]')`, 15000, 'ada: iki soru');
-    kontrol('ada: iki soru ayni anda, sayac 0/2', await adaCdp.js(`document.body.innerText.includes('0/2') && document.body.innerText.includes('2 soru')`));
-    kontrol('ada: cevaplar tamamlanmadan "Cevapları gönder" kapali', await adaCdp.js(`[...document.querySelectorAll('.ada-kart button')].find(b => b.textContent.includes('Cevapları gönder'))?.disabled === true`));
-    await uyu(1100); // SORU_HAZIR_MS: soru ekrani cizilmeden rakam gitmesin
-    kontrol('ada: 1. soruda Mavi secildi', await adaCdp.js(adaDugme('2Mavi')));
-    await adaCdp.bekle(`!!document.querySelector('[data-soru="0"] button[aria-pressed="true"]')`, 3000, 'secili isaret');
-    // Her sorunun kendi "Kendi cevabın…" satiri var; 2. sorununki.
-    kontrol('ada: 2. soruda "Kendi cevabın…" kutuyu acti', await adaCdp.js(`(() => { const b = [...document.querySelectorAll('[data-soru="1"] button')].find(x => x.textContent.trim() === 'Kendi cevabın…'); if (!b) return false; b.click(); return true; })()`));
-    await adaCdp.bekle(`!!document.querySelector('input[aria-label$="soru 2: kendi cevabın"]')`, 3000, 'serbest cevap kutusu');
-    // Serbest metin: kabukta "23" + bu metin tek satir olur -> rakamlar dosyaya yazilir.
-    await adaCdp.js(`(() => {
-      const i = document.querySelector('input[aria-label$="soru 2: kendi cevabın"]');
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${JSON.stringify("| Out-File -FilePath '" + cokDosya + "'")});
-      i.dispatchEvent(new Event('input', { bubbles: true }));
-      i.form.requestSubmit();
-      return true; })()`);
-    await adaCdp.bekle(`document.body.innerText.includes('2/2')`, 3000, 'sayac 2/2');
-    kontrol('ada: "Cevapları gönder" tikladi', await adaCdp.js(`(() => { const b = [...document.querySelectorAll('.ada-kart button')].find(x => x.textContent.includes('Cevapları gönder')); if (!b || b.disabled) return false; b.click(); return true; })()`));
-    // Dizi: "2" (Mavi), "3" (N+1 = Type something), metin, Enter, ardindan "1" (Review: Submit).
-    const cok = await dosyaBekle(cokDosya);
-    kontrol('ada: cok soru dizisi kabuga dogru sirayla gitti ("2","3",metin,Enter)', cok === '23', cok);
-    await uyu(800); // son "1" (Submit) 350 ms sonra gelir
-    await kabugaYaz(" | Out-File -FilePath '" + submitDosya + "'");
-    const submit = await dosyaBekle(submitDosya);
-    kontrol('ada: Review ekrani icin sonda "1" (Submit) gitti', submit === '1', submit);
-    kontrol('ada: gonderilince "Gönderildi" yazdi', await adaCdp.js(`document.body.innerText.includes('Gönderildi')`));
-
-    // Bitti + son soz + Gördüm. Ana pencere "bakmiyor" sayilir ki dikkat rozeti dussun.
-    await cdp.js(`(() => { document.hasFocus = () => false; return true; })()`);
-    await kabugaYaz("k '{\"hook_event_name\":\"Stop\",\"session_id\":\"t\",\"last_assistant_message\":\"**Faz 5** bitti; testler yesil.\"}'; cls");
-    await adaCdp.bekle(`document.body.innerText.includes('Faz 5 bitti; testler yesil.')`, 15000, 'ada: son soz');
-    kontrol('ada: bitti satirinda claude\'un son sozu (** temizlenmis)', true);
-    await adaCdp.bekle(`[...document.querySelectorAll('.ada-kart button')].some(b => b.textContent.trim() === 'Gördüm')`, 5000, 'Gördüm dugmesi');
-    kontrol('ada: bakilmamis bitti icin "Gördüm" var', true);
-    await adaCdp.js(adaDugme('Gördüm'));
-    await cdp.bekle(`!document.querySelector('[role="tab"][title*="dikkat bekliyor"]')`, 5000, 'Gördüm -> rozet dustu');
-    kontrol('ada: Gördüm Kokpit\'teki dikkat rozetini dusurdu (oturuma bir sey gitmeden)', true);
-    await adaCdp.bekle(`![...document.querySelectorAll('.ada-kart button')].some(b => b.textContent.trim() === 'Gördüm')`, 3000, 'Gördüm kalkti');
-    kontrol('ada: Gördüm sonrasi dugme kalkti, son soz durdu', await adaCdp.js(`document.body.innerText.includes('Faz 5 bitti')`));
-    await cdp.js(`(() => { document.hasFocus = () => true; return true; })()`);
-
-    // Goz (v2.5): hal, bakis ve alt ajan noktalari kanca durumundan.
-    const gozHali = `(() => { const g = document.querySelector('.ada-goz'); return g ? g.dataset.hal + '/' + (g.dataset.poz ?? '') + '/' + document.querySelectorAll('.ada-goz-altlar i').length : null; })()`;
-    await kabugaYaz(
-      "k '{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"t\"}';" +
-        "k '{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"t\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"C:/x/a.md\"}}';" +
-        "k '{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"t\",\"agent_id\":\"a1\",\"agent_type\":\"kasif\"}'; cls"
-    );
-    kontrol('goz: Read -> okuyor, 1 alt ajan noktasi', await adaCdp.bekle(`${gozHali} === 'calisiyor/oku/1'`, 8000, 'goz oku').catch(async () => false), await adaCdp.js(gozHali));
-    await kabugaYaz(
-      "k '{\"hook_event_name\":\"SubagentStop\",\"session_id\":\"t\",\"agent_id\":\"a1\",\"agent_type\":\"kasif\"}';" +
-        "k '{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"t\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"npm test\"}}'; cls"
-    );
-    kontrol('goz: SubagentStop noktayi dusurdu, Bash -> komut', await adaCdp.bekle(`${gozHali} === 'calisiyor/komut/0'`, 8000, 'goz komut').catch(async () => false), await adaCdp.js(gozHali));
-    await kabugaYaz("k '{\"hook_event_name\":\"Stop\",\"session_id\":\"t\",\"last_assistant_message\":\"ok\"}'; cls");
-    kontrol('goz: Stop -> kisa sevinc (mutlu)', await adaCdp.bekle(`${gozHali} === 'mutlu//0'`, 8000, 'goz mutlu').catch(async () => false), await adaCdp.js(gozHali));
-
-    // Tek soru + rakam tusu (klavye yolu): odak ilk secenekte, "3" basilir -> kabuga "3".
-    const rakamDosya = path.join(os.tmpdir(), 'kokpit-rakam-' + Date.now().toString(36) + '.txt');
-    await kabugaYaz(
-      "k '{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"t\"}';" +
-        "k '{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"t\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"Tek soru?\",\"header\":\"Tek\",\"multiSelect\":false,\"options\":[{\"label\":\"A\"},{\"label\":\"B\"},{\"label\":\"C\"}]}]}}'; cls"
-    );
-    await adaCdp.bekle(`!!document.querySelector('[role="group"][aria-label*="sorusu: Tek soru?"]')`, 15000, 'ada: tek soru');
-    kontrol('ada: yeni soru eski cevap durumunu tasimiyor (Gönderildi yok)', await adaCdp.js(`!document.body.innerText.includes('Gönderildi')`));
-    await uyu(1100);
-    // Kisayolun yaptigi gibi ada pencereye odak alir (ada.klavye -> odakla); tus olaylari ancak
-    // odakli pencereye gider. Sonra ilk secenek odaklanir ve "3" basilir.
-    await adaCdp.js(`(() => { window.kokpit.adaOdak(true); return true; })()`);
-    await uyu(300);
-    await adaCdp.js(`(() => { document.querySelector('[role="group"][aria-label*="Tek soru?"] button[data-eylem]').focus(); return true; })()`);
-    kontrol('ada: odak alinca klavye ipucu gorundu', await adaCdp.bekle(`document.body.innerText.includes('seçer') && document.body.innerText.includes('bırakır')`, 2000, 'ipucu').catch(() => false));
-    await adaCdp.tus('3');
-    await uyu(600);
-    await kabugaYaz(" | Out-File -FilePath '" + rakamDosya + "'");
-    const rakam = await dosyaBekle(rakamDosya);
-    kontrol('ada: rakam tusu (3) secenegi secti ve kabuga "3" gitti', rakam === '3', rakam);
-    kontrol('ada: gonderince odak birakildi (ipucu kalkti)', await adaCdp.bekle(`!document.body.innerText.includes('bırakır')`, 2000, 'odak birakildi').catch(() => false));
-    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 510 });
-    for (const f of [cokDosya, submitDosya, rakamDosya]) try { fs.unlinkSync(f); } catch { /* yok */ }
-
-    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
-    await cdp.yaz("k '{\"hook_event_name\":\"Stop\",\"session_id\":\"t\"}'; cls");
-    await cdp.tus('Enter');
-
-    console.log('Ada (v2.6/v2.8): surukle-birak, birakilan yerde kalir, ekran hatirlanir, sonraki ekran komutu');
-    // Pencere surukleme boyunca imlecle gider, birakinca orada kalir (v2.8). CDP fare olayinin
-    // screenX'i pencere konumundan turetilir: pencere kaydiktan sonra ayni ekran noktasi
-    // istemcide eski yerine duser.
-    const adaYeri = () => adaCdp.js(`({ x: window.screenX, y: window.screenY })`);
-    const hap = await adaCdp.js(`(() => { const b = document.querySelector('.ada-kart > button').getBoundingClientRect(); return { x: Math.round(b.x + 40), y: Math.round(b.y + b.height / 2) }; })()`);
-    const ilkYer = await adaYeri();
-    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mousePressed', ...hap, button: 'left', buttons: 1, clickCount: 1 });
-    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hap.x + 60, y: hap.y + 40, button: 'left', buttons: 1 });
-    await uyu(400);
-    const ortaYer = await adaYeri();
-    kontrol('ada: suruklerken pencere imlecle gitti (+60, +40)', ortaYer.x === ilkYer.x + 60 && ortaYer.y === ilkYer.y + 40, JSON.stringify({ ilkYer, ortaYer }));
-    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseReleased', ...hap, button: 'left', buttons: 0, clickCount: 1 });
-    await uyu(400);
-    const sonYer = await adaYeri();
-    kontrol('ada: birakilan yerde kaldi', sonYer.x === ortaYer.x && sonYer.y === ortaYer.y, JSON.stringify({ ortaYer, sonYer }));
-    const adaEkran = JSON.parse(fs.readFileSync(AYARLAR, 'utf8')).adaEkran;
-    kontrol("ada: ekran ve hap yeri ayarlar.json'a yazildi", !!adaEkran && Number.isFinite(adaEkran.id) && Number.isFinite(adaEkran.hap?.cx), JSON.stringify(adaEkran));
-    const sonraki = await cdp.js(`window.kokpit.adaSonrakiEkran()`);
-    if (sonraki.toplam > 1) {
-      await uyu(300);
-      const yeniYer = await adaYeri();
-      kontrol("ada: sonraki ekran komutu ada'yi o ekranin ust ortasina tasidi", yeniYer.x === Math.round(sonraki.alan.x + (sonraki.alan.width - 460) / 2) && yeniYer.y === sonraki.alan.y, JSON.stringify({ sonraki, yeniYer }));
-      for (let i = 1; i < sonraki.toplam; i++) await cdp.js(`window.kokpit.adaSonrakiEkran()`);
-      await uyu(300);
-      kontrol('ada: komut dongusu ilk ekranin ust ortasina dondu', JSON.stringify(await adaYeri()) === JSON.stringify(ilkYer), '');
-      // Ekranlar arasi surukleme: hap tutulur, imlec diger ekranin icine (ust ortanin 300 px
-      // altina) cekilir. Istemci koordinati = ekran noktasi - pencere konumu; pencere imlecle
-      // kaydiktan sonra ayni ekran noktasi istemcide yine `hap`a duser.
-      const hedef = { x: Math.round(sonraki.alan.x + sonraki.alan.width / 2), y: sonraki.alan.y + 300 };
-      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mousePressed', ...hap, button: 'left', buttons: 1, clickCount: 1 });
-      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hap.x + 30, y: hap.y + 10, button: 'left', buttons: 1 });
-      await uyu(150);
-      const kayanYer = await adaYeri(); // ilk adimda pencere zaten +30, +10 kaydi
-      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hedef.x - kayanYer.x, y: hedef.y - kayanYer.y, button: 'left', buttons: 1 });
-      await uyu(400);
-      const gecisYeri = await adaYeri();
-      kontrol('ada: ekranlar arasi suruklerken pencere diger ekrana gecti', gecisYeri.x === hedef.x - hap.x && gecisYeri.y === hedef.y - hap.y, JSON.stringify({ hedef, gecisYeri }));
-      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseReleased', ...hap, button: 'left', buttons: 0, clickCount: 1 });
-      await uyu(400);
-      const digerYer = await adaYeri();
-      const digerKayit = JSON.parse(fs.readFileSync(AYARLAR, 'utf8')).adaEkran;
-      kontrol('ada: diger ekrana birakinca orada kaldi ve o ekran kaydedildi', digerYer.x === gecisYeri.x && digerYer.y === gecisYeri.y && digerKayit?.id !== adaEkran.id, JSON.stringify({ gecisYeri, digerYer, digerKayit }));
-      // Sonraki bolumler ada'yi ilk ekranda bekler.
-      for (let i = 1; i < sonraki.toplam; i++) await cdp.js(`window.kokpit.adaSonrakiEkran()`);
-      await uyu(300);
-    } else {
-      kontrol('ada: tek ekran, sonraki ekran komutu ust ortaya dondurdu', sonraki.toplam === 1 && JSON.stringify(await adaYeri()) === JSON.stringify(ilkYer), JSON.stringify(sonraki));
-    }
-    // Ekranin altina birakilan ada yukari acilir: hap birakilan yerde kalir, pencere ekrandan
-    // tasmaz. Ada su an ilk ekranin ust ortasinda (ilkYer).
-    {
-      const alan = sonraki.toplam === 1 ? sonraki.alan : await adaCdp.js(`(() => ({ x: screen.availLeft, y: screen.availTop, width: screen.availWidth, height: screen.availHeight }))()`);
-      const asagi = alan.y + alan.height - 60 - (ilkYer.y + hap.y);
-      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mousePressed', ...hap, button: 'left', buttons: 1, clickCount: 1 });
-      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hap.x - 200, y: hap.y + asagi, button: 'left', buttons: 1 });
-      await uyu(300);
-      const hapUstu = async () => adaCdp.js(`(() => { const b = document.querySelector('.ada-kart > button').getBoundingClientRect(); return Math.round(b.top); })()`);
-      const suruklenen = (await adaYeri()).y + (await hapUstu());
-      await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseReleased', ...hap, button: 'left', buttons: 0, clickCount: 1 });
-      await uyu(400);
-      const altYer = await adaYeri();
-      const birakilan = altYer.y + (await hapUstu());
-      const yukari = await adaCdp.js(`!!document.querySelector('.ada-yukari')`);
-      kontrol(
-        'ada: ekranin altinda kart yukari acilir, hap birakilan yerde, pencere ekranda',
-        yukari && Math.abs(birakilan - suruklenen) <= 2 && altYer.y + 520 <= alan.y + alan.height,
-        JSON.stringify({ alan, altYer, suruklenen, birakilan, yukari })
-      );
-      for (let i = 0; i < sonraki.toplam; i++) await cdp.js(`window.kokpit.adaSonrakiEkran()`);
-      await uyu(300);
-      kontrol('ada: sonraki ekran komutu ust ortaya geri koydu (asagi acilir)', JSON.stringify(await adaYeri()) === JSON.stringify(ilkYer) && !(await adaCdp.js(`!!document.querySelector('.ada-yukari')`)), '');
-    }
-    await adaCdp.gonder('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 510 });
+    try { fs.unlinkSync(gonderDosyasi); } catch { /* yok */ }
 
     console.log('Calistir (v2.3): servis bolmesi claude sekmesinin yaninda, adres, yeniden baslat, durdur');
     const projeAdi = await cdp.js(`document.querySelector('[role="tab"] .enstruman')?.textContent ?? ''`);
@@ -694,7 +478,7 @@ async function main() {
     await cdp.tus('1', 2, 'Digit1');
     const kisayolLogu = fs.readFileSync(LOG('kokpit.log'), 'utf8').split('\n').filter((s) => s.includes('genel kisayol')).pop() ?? '';
     // Gercek Kokpit aciksa kisayol onda: test orneginde "KAYDEDILEMEDI" beklenen durum.
-    kontrol('genel kisayol kaydi denendi ve loglandi', /genel kisayol Control\+Alt\+Shift\+[NA] (kayitli|KAYDEDILEMEDI)/.test(kisayolLogu), kisayolLogu);
+    kontrol('genel kisayol kaydi denendi ve loglandi', /genel kisayol Control\+Alt\+Shift\+N (kayitli|KAYDEDILEMEDI)/.test(kisayolLogu), kisayolLogu);
 
     console.log('Inbox notu (Ctrl+Shift+N)');
     const d = new Date();
@@ -846,7 +630,7 @@ async function main() {
   kontrol('kapanista guvenli cikis tamamlandi (pty-server.log)', /guvenli cikis tamam/.test(kapanisLogu), kapanisLogu.slice(-300));
 
   console.log('Ikinci acilis: geri yukleme teklifi');
-  ({ app, cdp, adaCdp } = await baslat());
+  ({ app, cdp } = await baslat());
   try {
     await cdp.bekle(`!!document.querySelector('[role="status"] button')`, 20000, 'geri yukleme seridi');
     const metin = await cdp.js(`document.querySelector('[role="status"]')?.textContent ?? ''`);

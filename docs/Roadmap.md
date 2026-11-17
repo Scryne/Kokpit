@@ -57,6 +57,7 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | M6 | Mod: beyin/aşama enjeksiyonu devri | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17) |
 | M7 | Gece görevi → OS tetikleyicisi | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17) |
 | M8 | Electron kararı | ⛔ Emekli | Karar verildi (2026-11-17): Electron uygulamasında devam; Desktop geçişi durduruldu |
+| v3.1 | Sadeleştirme: Ada ve kenar harfleri kaldırıldı | ✅ Tamamlandı | Ada penceresi, kısayolu ve testleri kaldırıldı; daralmış kenar çubuğunda proje listesi artık gizleniyor |
 
 **Mod yolu (2026-11-04 → durduruldu 2026-11-17):** Kokpit'in değerini Claude Desktop'un mod (plugin)
 sistemiyle taşıma denemesi Kaan tarafından durduruldu; Electron uygulaması bir süre daha ana yüzey.
@@ -797,3 +798,9 @@ seçimi Kokpit'in kendi ayarıdır; kabuk ortam değişkenleri değiştirilmez.
   (env eşlemesi birim + PTY kapsam testiyle doğrulandı; Kaan'ın CLI maskesi zaten aynı). Sekme başına
   ayrı sağlayıcı yok; seçim global. `~/.claude/settings.json` `env` bloğu PTY env'ini ezebilir (README'de
   not); anahtar `saglayici.json` içinde düz metindir.
+
+### v3.1 (2026-11-17): Sadeleştirme
+
+Ada penceresi (hap, göz, cevaplama, sürükle-bırak, Ctrl+Alt+Shift+A) ve daralmış kenar çubuğundaki
+proje baş harfleri kaldırıldı. Kullanılmıyordu; bildirimler ve etkinlik şeridi yeterli. Önceki Ada
+fazlarının (15, 17, 20-24, 26, 28) geçmiş kaydı olduğu gibi duruyor.

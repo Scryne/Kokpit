@@ -111,7 +111,7 @@ kontrol('bittikten sonra izin bildirimi beklemeye cevirmez', r.durum.durum === '
 r = etkinlik.isle(d, P({ hook_event_name: 'BilinmeyenOlay' }), 4200);
 kontrol('bilinmeyen olay durumu degistirmez', r.degisti === false && r.durum === d);
 
-// --- 1b. Soru ayrintisi (v2.3, ada'dan cevap). Girdi sekli 2026-10-04 spike'indaki gercek
+// --- 1b. Soru ayrintisi (v2.3). Girdi sekli 2026-10-04 spike'indaki gercek
 // AskUserQuestion cagrisiyla ayni: questions[].{question, header, options[].{label, description}, multiSelect}.
 {
   const tekli = {
@@ -190,7 +190,7 @@ kontrol('bilinmeyen olay durumu degistirmez', r.degisti === false && r.durum ===
   s = etkinlik.isle(s, P({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Q?', options: [{ label: 'a' }] }] } }), 400).durum;
   kontrol('soruZamani: soru dogunca', s.soruZamani === 400 && s.durum === 'bekliyor', s.soruZamani);
   // Soru acikken: arka plan alt ajaninin araci ve 60 sn sonraki idle_prompt damgayi DEGISTIRMEZ
-  // (degistirseydi ada'da yarim secilen cevaplar sifirlanir, cevap "soru degisti" diye reddedilirdi).
+  // (degistirseydi cevabin damgasi bayatlardi).
   s = etkinlik.isle(s, P({ hook_event_name: 'PreToolUse', tool_name: 'Grep', agent_id: 'a1', agent_type: 'kasif', tool_input: { pattern: 'x' } }), 500).durum;
   s = etkinlik.isle(s, P({ hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'waiting' }), 61_000).durum;
   kontrol('soruZamani: alt ajan araci ve idle_prompt dokunmaz', s.soruZamani === 400 && s.durum === 'bekliyor' && s.degisti === 61_000, { z: s.soruZamani, d: s.durum });
@@ -226,7 +226,7 @@ kontrol('bilinmeyen olay durumu degistirmez', r.degisti === false && r.durum ===
   kontrol('son soz yok / bos / bozuk -> null', etkinlik.sonSoz(undefined) === null && etkinlik.sonSoz('  \n ') === null && etkinlik.sonSoz(42) === null);
 }
 
-// --- 1b3. Gonderme istegi bicimi (gonder-istegi.cjs; ada -> main) ---
+// --- 1b3. Gonderme istegi bicimi (gonder-istegi.cjs) ---
 {
   const { gonderIstegi } = require(path.join(KOK, 'electron', 'gonder-istegi.cjs'));
   const g = gonderIstegi({ id: 'Otomat-1', tur: 'cevap', cevaplar: [1, ' dev\r\nboy ', 0], damga: 5 });

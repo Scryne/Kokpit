@@ -171,8 +171,8 @@ export interface Oturum {
   /** Guvenli cikis suruyor: claude'a cikis tuslari gitti, SessionEnd bekleniyor. */
   kapaniyor?: boolean;
   /**
-   * Servis bolmesi (Calistir): claude degil, projenin kendi komutu (npm run dev...). Deftere,
-   * ada'ya ve kapatma onayina girmez; kapaninca surec agaci oldurulur.
+   * Servis bolmesi (Calistir): claude degil, projenin kendi komutu (npm run dev...). Deftere
+   * ve kapatma onayina girmez; kapaninca surec agaci oldurulur.
    */
   servis?: { komut: string; adres?: string };
 }
@@ -226,7 +226,6 @@ export interface Ayarlar {
   kenarAcik: boolean;
   yaziBoyutu: number;
   arsivAcik: boolean;
-  ada?: boolean;
   /** Okuma sayfasinin temasi (v2.9); geri kalan Kokpit simdilik hep koyu. */
   okumaTema?: OkumaTema;
 }
@@ -298,12 +297,9 @@ export interface SoruAyrintisi {
   sorular: Soru[];
   coklu: boolean;
   soruSayisi: number;
-  /** Hepsi tekli secim ve secenekli: Kokpit/ada'dan rakam tuslariyla cevaplanabilir. */
+  /** Hepsi tekli secim ve secenekli: rakam tuslariyla cevaplanabilir. */
   cevaplanabilir: boolean;
 }
-
-/** Bir sorunun cevabi: secenegin sirasi ya da serbest metin ("Type something"). */
-export type SoruCevabi = number | string;
 
 /** Projenin uygulamasini acan komut (electron/calistir.cjs). */
 export type CalistirTarifi =
@@ -316,13 +312,12 @@ export interface HizliKomut {
   metin: string;
 }
 
-/**
- * Oturuma gonderme: duz mesaj ya da acik sorunun cevabi. `damga` sorunun kanca durumundaki
- * `degisti` ani: cevap gidene kadar soru degistiyse istek dusurulur (bayat cevap yok).
- */
-export type GonderIstegi =
-  | { id: string; tur: 'metin'; metin: string }
-  | { id: string; tur: 'cevap'; cevaplar: SoruCevabi[]; damga: number };
+/** Oturuma gonderme: duz mesaj, klavyeden yazilmis gibi PTY'ye gider. */
+export interface GonderIstegi {
+  id: string;
+  tur: 'metin';
+  metin: string;
+}
 
 export interface OturumEtkinligi {
   durum: EtkinlikDurumu;
@@ -334,7 +329,7 @@ export interface OturumEtkinligi {
   sonSoz?: string | null;
   /** `durum`un en son degistigi an ("ne zamandir bekliyor"). */
   durumZamani?: number;
-  /** Acik sorunun dogdugu an; ada'dan cevabin damgasi. */
+  /** Acik sorunun dogdugu an; cevabin damgasi. */
   soruZamani?: number | null;
   /** Calisan alt ajanlar (SubagentStart..SubagentStop). */
   altlar?: Record<string, { tur: string; t: number }>;
@@ -373,20 +368,6 @@ export interface EtkinlikAnlik {
 }
 
 export type EtkinlikSinyali = { id: string; sinyal: 'bitti' | 'bekliyor'; durum?: OturumEtkinligi };
-
-/** Ada'nin pencere icindeki yeri (v2.8, electron/ada.cjs konum): hap hangi kenarda, kart ne yone acilir. */
-export interface AdaYerlesim {
-  yatay: 'orta' | 'sol' | 'sag';
-  dikey: 'asagi' | 'yukari';
-}
-
-/** Adaya giden oturum satiri (adlar ana pencerede yasar). */
-export interface AdaOturumu {
-  id: string;
-  ad: string;
-  baslangic: number | null;
-  dikkat: boolean;
-}
 
 /** Gece gorevi (electron/night.cjs): sekme basina durum, main yollar. */
 export type NightTabState = 'working' | 'asked' | 'confirmed' | 'closed';
@@ -516,30 +497,10 @@ declare global {
       etkinlikDinle: (cb: (a: EtkinlikAnlik) => void) => () => void;
       sinyalDinle: (cb: (s: EtkinlikSinyali) => void) => () => void;
       kimlikDinle: (cb: (k: { id: string; claude: string }) => void) => () => void;
-      adaListe: (liste: AdaOturumu[]) => void;
-      adaAyar: (acik: boolean) => void;
-      adaListeDinle: (cb: (l: AdaOturumu[]) => void) => () => void;
-      adaFare: (icinde: boolean) => void;
-      adaGit: (id: string) => void;
-      oturumaGitDinle: (cb: (id: string) => void) => () => void;
       calistirTarif: (yol: string) => Promise<CalistirTarifi>;
       calistirKaydet: (yol: string, komut: string) => Promise<boolean>;
       komutlarGetir: () => Promise<HizliKomut[]>;
       komutlarDuzenle: () => Promise<boolean>;
-      adaGonder: (istek: GonderIstegi) => void;
-      adaOdak: (istek: boolean) => void;
-      adaSurukle: (
-        asama: 'basla' | 'tasi' | 'bitir',
-        x: number,
-        y: number,
-        hap?: { sol: number; ust: number; sag: number; alt: number }
-      ) => void;
-      adaYerlesimDinle: (cb: (y: AdaYerlesim) => void) => () => void;
-      adaSonrakiEkran: () => Promise<{ toplam: number; sira: number; alan: { x: number; y: number; width: number; height: number } }>;
-      oturumaGonderDinle: (cb: (istek: GonderIstegi) => void) => () => void;
-      adaGordum: (id: string) => void;
-      oturumGordumDinle: (cb: (id: string) => void) => () => void;
-      adaKlavyeDinle: (cb: (k: { anaOdakta: boolean }) => void) => () => void;
       pencereOdakDinle: (cb: (odakta: boolean) => void) => () => void;
       nightToggle: (x: { id: string; on: boolean; name: string; claude?: string | null; resume?: boolean }) => void;
       nightCancel: () => void;

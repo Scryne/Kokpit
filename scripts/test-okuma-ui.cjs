@@ -101,7 +101,7 @@ async function baslat() {
   for (let i = 0; i < 60 && !hedef; i++) {
     await uyu(250);
     try {
-      hedef = (await jsonGetir(`http://127.0.0.1:${PORT}/json`)).find((t) => t.type === 'page' && !t.url.endsWith('#ada') && !t.url.startsWith('devtools'));
+      hedef = (await jsonGetir(`http://127.0.0.1:${PORT}/json`)).find((t) => t.type === 'page' && !t.url.startsWith('devtools'));
     } catch {
       /* henuz dinlemiyor */
     }
