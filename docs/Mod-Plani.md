@@ -1,7 +1,7 @@
 ---
 proje: Kokpit
 created: 2026-11-04
-modified: 2026-11-04
+modified: 2026-11-17
 type: plan
 status: durduruldu
 dayanak: "Keşif: 3 Explore ajanı + Plan ajanı + bağımsız gate incelemesi (2026-11-04)"
@@ -11,6 +11,11 @@ dayanak: "Keşif: 3 Explore ajanı + Plan ajanı + bağımsız gate incelemesi (
 > **DURDURULDU (2026-11-17, Kaan):** Claude Desktop'a geçiş resmen durduruldu; Kokpit bir süre
 > daha Electron uygulaması olarak devam ediyor. M0-M8 fazları emekli; bu dosya yalnız kayıt
 > olarak kalıyor. Yerine Electron hattında yeni fazlar işleniyor (bkz. Roadmap Faz 32+).
+>
+> **KALDIRILDI (2026-11-17):** `mod/kokpit-spike/` kaynağı (Pano Pane'i + M0 spike'ı) ve
+> `~/.claude/settings.json` içindeki `CLAUDE_CODE_PLUGIN_DIRS`/`CLAUDE_CODE_PLUGIN_DIR_WATCH`
+> kaydı silindi. Mod artık hiçbir oturuma yüklenmiyor; spike çıktısı `~/.kokpit/spike-sonuc.json`
+> kayıt olarak duruyor.
 
 ## Context
 
