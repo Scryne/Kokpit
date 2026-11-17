@@ -7,9 +7,11 @@ const { KOKPIT_DIZIN } = require('./config.cjs');
 
 const DOSYA = path.join(KOKPIT_DIZIN, 'saglayici.json');
 
-const SAGLAYICILAR = ['varsayilan', 'anthropic', 'deepseek', 'ozel'];
+const SAGLAYICILAR = ['varsayilan', 'anthropic', 'opencode', 'deepseek', 'ozel'];
 const EFORLAR = ['varsayilan', 'low', 'medium', 'high', 'xhigh', 'max'];
-const ANAHTARLI = ['anthropic', 'deepseek', 'ozel'];
+const ANAHTARLI = ['anthropic', 'opencode', 'deepseek', 'ozel'];
+// Base URL'li saglayicilar: ayni alanlar, ayni dogrulama ve ayni ortam yolu.
+const URLLI = ['opencode', 'deepseek', 'ozel'];
 
 // PTY ortamina mudahale ettigimiz tum adlar. ANTHROPIC_SMALL_FAST_MODEL deprecated: yalniz
 // silinir, asla yazilmaz (miras kalan deger yeni oturumlara sizmasin).
@@ -45,6 +47,14 @@ function varsayilan() {
     efor: 'varsayilan',
     saglayicilar: {
       anthropic: { anahtar: '' },
+      opencode: {
+        anahtar: '',
+        baseUrl: 'https://opencode.ai/inference/go/anthropic',
+        model: 'deepseek-v4.1-flash[1m]',
+        hafifModel: 'deepseek-v4.1-flash',
+        altModel: 'deepseek-v4.1-flash',
+        baglam: 786432,
+      },
       deepseek: {
         anahtar: '',
         baseUrl: 'https://api.deepseek.com/anthropic',
@@ -105,7 +115,7 @@ function oku() {
   if (hs.anthropic && typeof hs.anthropic === 'object' && anahtarGecerli(hs.anthropic.anahtar)) {
     sonuc.saglayicilar.anthropic.anahtar = hs.anthropic.anahtar;
   }
-  for (const ad of ['deepseek', 'ozel']) {
+  for (const ad of URLLI) {
     const kaynak = hs[ad];
     if (!kaynak || typeof kaynak !== 'object') continue;
     const hedef = sonuc.saglayicilar[ad];
@@ -139,28 +149,22 @@ function yaz(ayar) {
 
 /** Renderer'a giden gorunum: anahtarin kendisi DEGIL, yalniz var/yok bilgisi. */
 function disa(ayar) {
-  const d = ayar.saglayicilar.deepseek;
-  const o = ayar.saglayicilar.ozel;
+  const urlli = (ad) => {
+    const p = ayar.saglayicilar[ad];
+    return {
+      baseUrl: p.baseUrl,
+      anahtarVar: p.anahtar !== '',
+      model: p.model,
+      hafifModel: p.hafifModel,
+      altModel: p.altModel,
+      baglam: p.baglam,
+    };
+  };
   return {
     secili: ayar.secili,
     efor: ayar.efor,
     anthropic: { anahtarVar: ayar.saglayicilar.anthropic.anahtar !== '' },
-    deepseek: {
-      baseUrl: d.baseUrl,
-      anahtarVar: d.anahtar !== '',
-      model: d.model,
-      hafifModel: d.hafifModel,
-      altModel: d.altModel,
-      baglam: d.baglam,
-    },
-    ozel: {
-      baseUrl: o.baseUrl,
-      anahtarVar: o.anahtar !== '',
-      model: o.model,
-      hafifModel: o.hafifModel,
-      altModel: o.altModel,
-      baglam: o.baglam,
-    },
+    ...Object.fromEntries(URLLI.map((ad) => [ad, urlli(ad)])),
   };
 }
 
@@ -242,11 +246,11 @@ function kaydet(yama) {
   }
 
   // Etkin saglayici icin baseUrl zorunlu: bossa sessizce gercek Anthropic'e dusmesin.
-  if (yeni.secili === 'ozel' && yeni.saglayicilar.ozel.baseUrl === '') {
-    return { ok: false, hata: 'Özel API için Base URL gerekli.', gorunum: disa(mevcut) };
-  }
-  if (yeni.secili === 'deepseek' && yeni.saglayicilar.deepseek.baseUrl === '') {
-    return { ok: false, hata: 'DeepSeek için Base URL gerekli.', gorunum: disa(mevcut) };
+  const adlar = { opencode: 'OpenCode Go', deepseek: 'DeepSeek', ozel: 'Özel API' };
+  for (const ad of URLLI) {
+    if (yeni.secili === ad && yeni.saglayicilar[ad].baseUrl === '') {
+      return { ok: false, hata: adlar[ad] + ' için Base URL gerekli.', gorunum: disa(mevcut) };
+    }
   }
 
   try {
@@ -259,7 +263,7 @@ function kaydet(yama) {
 
 /**
  * PTY sunucusunun uygulayacagi ortam. `sil` temiz ORTAM'dan once silinir, `ekle` sonra yazilir.
- * DeepSeek/Ozel: anahtar bos -> miras AUTH_TOKEN/API_KEY korunur; dolu -> AUTH_TOKEN uzerine yazilir.
+ * DeepSeek/OpenCode Go/Ozel: anahtar bos -> miras AUTH_TOKEN/API_KEY korunur; dolu -> AUTH_TOKEN uzerine yazilir.
  * Donen nesnede anahtar degerleri vardir; yalniz PTY sunucusu kullanir, log'a yazilmaz.
  */
 function ortam() {
@@ -285,7 +289,7 @@ function ortam() {
     return { secili, efor: ayar.efor, model: '', sil, ekle };
   }
 
-  // deepseek / ozel: yonetilenler (API_KEY ve AUTH_TOKEN HARIC) silinir, secilenler yazilir.
+  // opencode / deepseek / ozel: yonetilenler (API_KEY ve AUTH_TOKEN HARIC) silinir, secilenler yazilir.
   // Anahtar alani bos = "ortamdan miras": miras AUTH_TOKEN korunur; doluysa Object.assign
   // ile uzerine yazilir. Turetilen anahtar yalniz AUTH_TOKEN (Bearer) olarak eklenir.
   // baseUrl bossa hata yok; o anahtar eklenmez (kaydet zaten bos baseUrl'i reddeder).

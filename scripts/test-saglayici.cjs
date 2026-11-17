@@ -38,8 +38,19 @@ kontrol(
     g0.deepseek.baglam === 786432
 );
 kontrol(
+  'opencode preset degerleri korunuyor',
+  g0.opencode.baseUrl === 'https://opencode.ai/inference/go/anthropic' &&
+    g0.opencode.model === 'deepseek-v4.1-flash[1m]' &&
+    g0.opencode.hafifModel === 'deepseek-v4.1-flash' &&
+    g0.opencode.altModel === 'deepseek-v4.1-flash' &&
+    g0.opencode.baglam === 786432
+);
+kontrol(
   'hicbir anahtar yok',
-  g0.anthropic.anahtarVar === false && g0.deepseek.anahtarVar === false && g0.ozel.anahtarVar === false
+  g0.anthropic.anahtarVar === false &&
+    g0.opencode.anahtarVar === false &&
+    g0.deepseek.anahtarVar === false &&
+    g0.ozel.anahtarVar === false
 );
 kontrol('DOSYA gecici dizinde', saglayici.DOSYA === DOSYA);
 
@@ -195,6 +206,50 @@ kontrol(
 );
 kontrol('dosya gecerli JSON (bos model)', gecerliJson());
 
+console.log('OpenCode Go');
+sonuc = saglayici.kaydet({ secili: 'opencode', opencode: { anahtar: KEY } });
+kontrol('opencode kaydi ok', sonuc.ok === true);
+kontrol('opencode gorunumu anahtar degeri tasimiyor', !JSON.stringify(sonuc.gorunum).includes(KEY));
+kontrol('opencode anahtarVar true', sonuc.gorunum.opencode.anahtarVar === true);
+kontrol(
+  'opencode gorunumunde preset baseUrl',
+  sonuc.gorunum.opencode.baseUrl === 'https://opencode.ai/inference/go/anthropic'
+);
+o = saglayici.ortam();
+kontrol('secili opencode', o.secili === 'opencode');
+kontrol('opencode BASE_URL presetten', o.ekle.ANTHROPIC_BASE_URL === 'https://opencode.ai/inference/go/anthropic');
+kontrol('opencode AUTH_TOKEN yazildi', o.ekle.ANTHROPIC_AUTH_TOKEN === KEY);
+kontrol(
+  'opencode MODEL + OPUS/SONNET/FABLE tam',
+  o.ekle.ANTHROPIC_MODEL === 'deepseek-v4.1-flash[1m]' &&
+    o.ekle.ANTHROPIC_DEFAULT_OPUS_MODEL === 'deepseek-v4.1-flash[1m]' &&
+    o.ekle.ANTHROPIC_DEFAULT_SONNET_MODEL === 'deepseek-v4.1-flash[1m]' &&
+    o.ekle.ANTHROPIC_DEFAULT_FABLE_MODEL === 'deepseek-v4.1-flash[1m]'
+);
+kontrol('opencode HAIKU hafif model', o.ekle.ANTHROPIC_DEFAULT_HAIKU_MODEL === 'deepseek-v4.1-flash');
+kontrol('opencode SUBAGENT alt model', o.ekle.CLAUDE_CODE_SUBAGENT_MODEL === 'deepseek-v4.1-flash');
+kontrol('opencode AUTO_COMPACT penceresi', o.ekle.CLAUDE_CODE_AUTO_COMPACT_WINDOW === '786432');
+kontrol('opencode API_KEY silinmiyor (miras korunur)', !o.sil.includes('ANTHROPIC_API_KEY'));
+kontrol('opencode AUTH_TOKEN silinmiyor (token saglayicilari)', !o.sil.includes('ANTHROPIC_AUTH_TOKEN'));
+kontrol('dosya gecerli JSON (opencode)', gecerliJson());
+
+sonuc = saglayici.kaydet({ opencode: { anahtar: '' } });
+kontrol('opencode bos anahtar kaydi ok', sonuc.ok === true);
+kontrol('opencode bos anahtar anahtarVar false', sonuc.gorunum.opencode.anahtarVar === false);
+o = saglayici.ortam();
+kontrol('opencode: bos anahtar AUTH_TOKEN silmiyor (miras korunur)', !o.sil.includes('ANTHROPIC_AUTH_TOKEN'));
+kontrol('opencode: bos anahtar AUTH_TOKEN eklemiyor', !('ANTHROPIC_AUTH_TOKEN' in o.ekle));
+
+sonuc = saglayici.kaydet({ opencode: { baseUrl: '' } });
+kontrol(
+  'opencode: bos baseUrl reddedildi',
+  sonuc.ok === false && sonuc.hata === 'OpenCode Go için Base URL gerekli.'
+);
+kontrol(
+  'opencode: ret sonrasi baseUrl korunuyor',
+  sonuc.gorunum.opencode.baseUrl === 'https://opencode.ai/inference/go/anthropic'
+);
+
 console.log('anahtarSil');
 saglayici.kaydet({ deepseek: { anahtar: KEY }, secili: 'ozel' });
 kontrol('anahtar yeniden yazildi', saglayici.gorunum().deepseek.anahtarVar === true);
@@ -203,6 +258,61 @@ kontrol('anahtarSil yazilan anahtari ezdi', sonuc.ok === true && saglayici.gorun
 kontrol('dosya gecerli JSON (anahtarSil)', gecerliJson());
 kontrol('gecici .tmp dosyasi kalmadi',
   !fs.readdirSync(TEST_DIZIN).some((ad) => ad.endsWith('.tmp')));
+
+console.log('Eski dosyadan gecis (opencode kaydi yok)');
+const ESKI_DIZIN = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-saglayici-eski-'));
+const ESKI_ANAHTAR = 'sk-eski-saglayici'; // ciktiya yazilmaz
+fs.writeFileSync(
+  path.join(ESKI_DIZIN, 'saglayici.json'),
+  JSON.stringify(
+    {
+      surum: 1,
+      secili: 'deepseek',
+      efor: 'varsayilan',
+      saglayicilar: {
+        anthropic: { anahtar: '' },
+        deepseek: {
+          anahtar: ESKI_ANAHTAR,
+          baseUrl: 'https://api.deepseek.com/anthropic',
+          model: 'deepseek-flash[1m]',
+          hafifModel: 'deepseek-flash',
+          altModel: 'deepseek-flash',
+          baglam: 786432,
+        },
+        ozel: { anahtar: '', baseUrl: '', model: '', hafifModel: '', altModel: '', baglam: 0 },
+      },
+    },
+    null,
+    2
+  )
+);
+const eskiDizin = process.env.KOKPIT_DIZIN;
+process.env.KOKPIT_DIZIN = ESKI_DIZIN;
+delete require.cache[require.resolve('../electron/config.cjs')];
+delete require.cache[require.resolve('../electron/saglayici.cjs')];
+const eski = require('../electron/saglayici.cjs');
+const ge = eski.gorunum();
+kontrol('eski dosyada secili korunuyor', ge.secili === 'deepseek');
+kontrol('eski dosyada deepseek anahtari korunuyor', ge.deepseek.anahtarVar === true);
+kontrol(
+  'opencode on tanimla geldi',
+  ge.opencode.baseUrl === 'https://opencode.ai/inference/go/anthropic' &&
+    ge.opencode.model === 'deepseek-v4.1-flash[1m]' &&
+    ge.opencode.hafifModel === 'deepseek-v4.1-flash' &&
+    ge.opencode.altModel === 'deepseek-v4.1-flash' &&
+    ge.opencode.baglam === 786432 &&
+    ge.opencode.anahtarVar === false
+);
+const eskiOrtam = eski.ortam();
+kontrol('eski deepseek anahtari ortama geciyor', eskiOrtam.ekle.ANTHROPIC_AUTH_TOKEN === ESKI_ANAHTAR);
+eski.kaydet({ efor: 'varsayilan' });
+const eskiYazilan = JSON.parse(fs.readFileSync(path.join(ESKI_DIZIN, 'saglayici.json'), 'utf8'));
+kontrol('surum 1 kaliyor', eskiYazilan.surum === 1);
+kontrol('opencode kaydi dosyaya islendi', eskiYazilan.saglayicilar.opencode.baseUrl === 'https://opencode.ai/inference/go/anthropic');
+process.env.KOKPIT_DIZIN = eskiDizin;
+delete require.cache[require.resolve('../electron/config.cjs')];
+delete require.cache[require.resolve('../electron/saglayici.cjs')];
+fs.rmSync(ESKI_DIZIN, { recursive: true, force: true });
 
 // Gecici dizin silinir; gercek ~/.kokpit'e hic dokunulmadi.
 try {

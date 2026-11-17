@@ -97,6 +97,7 @@ const GORUNUM_BASLIK: Record<Gorunum, string> = {
 const SAGLAYICI_ADI: Record<SaglayiciKimligi, string> = {
   varsayilan: 'Varsayılan',
   anthropic: 'Anthropic',
+  opencode: 'OpenCode Go',
   deepseek: 'DeepSeek',
   ozel: 'Özel API',
 };

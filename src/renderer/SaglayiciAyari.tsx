@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Server } from 'lucide-react';
 import type { Efor, SaglayiciGorunum, SaglayiciKimligi, SaglayiciYama } from './types';
 
-type Anahtarli = 'anthropic' | 'deepseek' | 'ozel';
+type Anahtarli = 'anthropic' | 'opencode' | 'deepseek' | 'ozel';
 
 interface Props {
   acik: boolean;
@@ -21,6 +21,11 @@ const SAGLAYICILAR: { id: SaglayiciKimligi; ad: string; aciklama: string }[] = [
     id: 'anthropic',
     ad: 'Anthropic',
     aciklama: 'Claude hesabı/anahtarı; DeepSeek yönlendirmesi kaldırılır.',
+  },
+  {
+    id: 'opencode',
+    ad: 'OpenCode Go',
+    aciklama: 'DeepSeek V4.1 Flash, OpenCode Go aboneliği.',
   },
   { id: 'deepseek', ad: 'DeepSeek', aciklama: 'Anthropic-uyumlu endpoint.' },
   { id: 'ozel', ad: 'Özel API', aciklama: 'Başka bir Anthropic-uyumlu servis ya da gateway.' },
@@ -106,19 +111,24 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
   const [efor, setEfor] = useState<Efor>('varsayilan');
   const [anahtarlar, setAnahtarlar] = useState<Record<Anahtarli, string>>({
     anthropic: '',
+    opencode: '',
     deepseek: '',
     ozel: '',
   });
   const [kayitli, setKayitli] = useState<Record<Anahtarli, boolean>>({
     anthropic: false,
+    opencode: false,
     deepseek: false,
     ozel: false,
   });
   const [silindi, setSilindi] = useState<Record<Anahtarli, boolean>>({
     anthropic: false,
+    opencode: false,
     deepseek: false,
     ozel: false,
   });
+  const [ocBaseUrl, setOcBaseUrl] = useState('');
+  const [oc, setOc] = useState({ model: '', hafifModel: '', altModel: '', baglam: '' });
   const [dsBaseUrl, setDsBaseUrl] = useState('');
   const [ds, setDs] = useState({ model: '', hafifModel: '', altModel: '', baglam: '' });
   const [oz, setOz] = useState({ baseUrl: '', model: '', hafifModel: '', altModel: '', baglam: '' });
@@ -132,12 +142,20 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
       const g = gorunum;
       setSecili(g?.secili ?? 'varsayilan');
       setEfor(g?.efor ?? 'varsayilan');
-      setAnahtarlar({ anthropic: '', deepseek: '', ozel: '' });
-      setSilindi({ anthropic: false, deepseek: false, ozel: false });
+      setAnahtarlar({ anthropic: '', opencode: '', deepseek: '', ozel: '' });
+      setSilindi({ anthropic: false, opencode: false, deepseek: false, ozel: false });
       setKayitli({
         anthropic: g?.anthropic.anahtarVar ?? false,
+        opencode: g?.opencode.anahtarVar ?? false,
         deepseek: g?.deepseek.anahtarVar ?? false,
         ozel: g?.ozel.anahtarVar ?? false,
+      });
+      setOcBaseUrl(g?.opencode.baseUrl ?? '');
+      setOc({
+        model: g?.opencode.model ?? '',
+        hafifModel: g?.opencode.hafifModel ?? '',
+        altModel: g?.opencode.altModel ?? '',
+        baglam: g && g.opencode.baglam > 0 ? String(g.opencode.baglam) : '',
       });
       setDsBaseUrl(g?.deepseek.baseUrl ?? '');
       setDs({
@@ -242,6 +260,20 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
     const yama: SaglayiciYama = { secili, efor };
     if (secili === 'anthropic') {
       yama.anthropic = anahtarYamasi('anthropic');
+    } else if (secili === 'opencode') {
+      const baglam = baglamSayisi(oc.baglam);
+      if (baglam === null) {
+        setHata('Bağlam penceresi 100000 ile 1000000 arasında bir tam sayı olmalı.');
+        return;
+      }
+      // Base URL OpenCode Go preset'inden gelir ve burada duzenlenmez; yama gonderilmez.
+      yama.opencode = {
+        ...anahtarYamasi('opencode'),
+        model: oc.model,
+        hafifModel: oc.hafifModel,
+        altModel: oc.altModel,
+        baglam,
+      };
     } else if (secili === 'deepseek') {
       const baglam = baglamSayisi(ds.baglam);
       if (baglam === null) {
@@ -375,6 +407,67 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
                   <span className="enstruman">ANTHROPIC_API_KEY</span> değerin kullanılır.
                 </>
               )}
+
+            {secili === 'opencode' && (
+              <>
+                <div>
+                  <p className="text-xs text-metin-ikincil">Base URL</p>
+                  <p
+                    className="enstruman mt-1 truncate rounded-kontrol border border-kenar bg-terminal px-3 py-2 text-xs text-metin-soluk"
+                    title={ocBaseUrl}
+                  >
+                    {ocBaseUrl || 'Ayarlı değil'}
+                  </p>
+                </div>
+                {anahtarAlani(
+                  'opencode',
+                  <>
+                    Boşsa ortamdan miras alınan{' '}
+                    <span className="enstruman">ANTHROPIC_AUTH_TOKEN</span> kullanılır; yoksa sağlayıcı
+                    isteği reddeder.
+                  </>
+                )}
+                <Alan
+                  id="saglayici-opencode-model"
+                  etiket="Ana model"
+                  deger={oc.model}
+                  onDegis={(model) => setOc((o) => ({ ...o, model }))}
+                  ipucu="Boş bırakılırsa model env'i yazılmaz; Claude Code'un varsayılan model adları sağlayıcıya gider."
+                  ipucuId="saglayici-opencode-model-ipucu"
+                  placeholder="deepseek-v4.1-flash[1m]"
+                />
+                <Alan
+                  id="saglayici-opencode-hafif"
+                  etiket="Hafif model"
+                  deger={oc.hafifModel}
+                  onDegis={(hafifModel) => setOc((o) => ({ ...o, hafifModel }))}
+                  ipucu="Küçük işler (Haiku yuvası). Boşsa ana model kullanılır."
+                  ipucuId="saglayici-opencode-hafif-ipucu"
+                  placeholder="deepseek-v4.1-flash"
+                />
+                <Alan
+                  id="saglayici-opencode-alt"
+                  etiket="Alt ajan modeli"
+                  deger={oc.altModel}
+                  onDegis={(altModel) => setOc((o) => ({ ...o, altModel }))}
+                  ipucu="Alt ajanlar. Boşsa hafif model, o da boşsa ana model kullanılır."
+                  ipucuId="saglayici-opencode-alt-ipucu"
+                  placeholder="deepseek-v4.1-flash"
+                />
+                <Alan
+                  id="saglayici-opencode-baglam"
+                  etiket="Bağlam penceresi (token)"
+                  deger={oc.baglam}
+                  onDegis={(baglam) => setOc((o) => ({ ...o, baglam }))}
+                  ipucu="100000–1000000 arası. Boş = varsayılan."
+                  ipucuId="saglayici-opencode-baglam-ipucu"
+                  placeholder="786432"
+                  tip="number"
+                  min={100000}
+                  max={1000000}
+                />
+              </>
+            )}
 
             {secili === 'deepseek' && (
               <>

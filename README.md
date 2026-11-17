@@ -62,29 +62,36 @@ Projeler ("en son ne oldu": son oturumun kararları ve yapılacakları, son notl
 linkler içeride açılır, Alt+Sol geri. Sağ üstte "Aydınlık": sayfa kâğıt temaya geçer, seçim hatırlanır.
 Pano'nun Beyin bloğunda okunmamış not sayısı. Kokpit vault'a yazmaz; okundu bilgisi `~/.kokpit/okuma.json`.
 
-**Model sağlayıcısı (v3.0):** Claude Code CLI'sini farklı bir Anthropic-uyumlu API'ye (özellikle DeepSeek)
-yönlendirir. Komut paletinden (Ctrl+Shift+P → "Model sağlayıcısı") ya da başlıktaki sağlayıcı rozetine
-tıklanarak açılır. Seçim `~/.kokpit/saglayici.json`'a yazılır; **API anahtarı bu dosyada düz metindir** ve
-kullanıcı profiline özeldir (renderer'a, loga ve hata metinlerine dönmez). Yalnız **yeni açılan** claude
-sekmelerine uygulanır; açık sekmeler eski bağlantıyla devam eder. Varsayılan "Ortamdan miras" bugünkü
-davranıştır. Diyalogda yapılan düzenlemeler (anahtar yazma, "Sil") **yalnız Kaydet'e basınca** diske iner;
-Vazgeç/Esc hiçbir şey yazmaz.
+**Model sağlayıcısı (v3.0):** Claude Code CLI'sini farklı bir Anthropic-uyumlu API'ye (DeepSeek, OpenCode Go
+ya da özel gateway) yönlendirir. Komut paletinden (Ctrl+Shift+P → "Model sağlayıcısı") ya da başlıktaki
+sağlayıcı rozetine tıklanarak açılır. Seçim `~/.kokpit/saglayici.json`'a yazılır; **API anahtarı bu dosyada
+düz metindir** ve kullanıcı profiline özeldir (renderer'a, loga ve hata metinlerine dönmez). Yalnız **yeni
+açılan** claude sekmelerine uygulanır; açık sekmeler eski bağlantıyla devam eder. Varsayılan "Ortamdan miras"
+bugünkü davranıştır. Diyalogda yapılan düzenlemeler (anahtar yazma, "Sil") **yalnız Kaydet'e basınca** diske
+iner; Vazgeç/Esc hiçbir şey yazmaz.
 
 | Seçim | PTY'ye eklenen |
 | --- | --- |
 | Varsayılan | yalnız `CLAUDE_CODE_EFFORT_LEVEL` (efor seçiliyse) |
 | Anthropic | anahtar yazıldıysa `ANTHROPIC_API_KEY` (x-api-key); miras alınan API_KEY korunur; `BASE_URL`/`AUTH_TOKEN`/model alias'ları silinir |
-| DeepSeek / Özel | `ANTHROPIC_BASE_URL` (zorunlu), `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL` + `DEFAULT_OPUS`/`DEFAULT_SONNET`/`DEFAULT_FABLE`, `DEFAULT_HAIKU` (hafif yoksa ana), `CLAUDE_CODE_SUBAGENT_MODEL` (alt yoksa hafif → ana), `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (100000–1000000, düz sayı), efor varsa `CLAUDE_CODE_EFFORT_LEVEL` |
+| OpenCode Go / DeepSeek / Özel | `ANTHROPIC_BASE_URL` (zorunlu), `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL` + `DEFAULT_OPUS`/`DEFAULT_SONNET`/`DEFAULT_FABLE`, `DEFAULT_HAIKU` (hafif yoksa ana), `CLAUDE_CODE_SUBAGENT_MODEL` (alt yoksa hafif → ana), `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (100000–1000000, düz sayı), efor varsa `CLAUDE_CODE_EFFORT_LEVEL` |
 
-`ANTHROPIC_API_KEY` hiçbir sağlayıcıda silinmez; DeepSeek/Özel'de `ANTHROPIC_AUTH_TOKEN` da silinmez.
-Anahtar alanı boşsa ortamdan miras alınan AUTH_TOKEN (DeepSeek/Özel) ya da API_KEY (Anthropic) kullanılır;
-doldurulursa üzerine yazılır (DeepSeek/Özel AUTH_TOKEN/Bearer, Anthropic API_KEY/x-api-key). Anthropic'te
+**OpenCode Go:** OpenCode aboneliğinin DeepSeek V4.1 Flash modellerine Anthropic-uyumlu köprüsü. Ön tanımlı
+değerler: `https://opencode.ai/inference/go/anthropic`, ana model `deepseek-v4.1-flash[1m]`, hafif ve alt
+model `deepseek-v4.1-flash`, bağlam 786432. Kullanıcının yapması gereken iki şey: (1) opencode.ai Console'da
+Go aboneliği olan workspace'ten API anahtarı üretmek (`oc_sk_...`) ve Kokpit'e yazmak, (2) Settings ›
+Privacy › Regions ayarını **Global** yapmak — aksi halde DeepSeek modelleri çalışmaz.
+
+`ANTHROPIC_API_KEY` hiçbir sağlayıcıda silinmez; Base URL'li sağlayıcılarda (OpenCode Go/DeepSeek/Özel)
+`ANTHROPIC_AUTH_TOKEN` da silinmez.
+Anahtar alanı boşsa ortamdan miras alınan AUTH_TOKEN (OpenCode Go/DeepSeek/Özel) ya da API_KEY (Anthropic)
+kullanılır; doldurulursa üzerine yazılır (AUTH_TOKEN/Bearer, Anthropic API_KEY/x-api-key). Anthropic'te
 BASE_URL/AUTH_TOKEN/model alias'ları silinir. Claude Code'da AUTH_TOKEN, API_KEY'den önceliklidir (ikisi
 birlikte başlangıç uyarısı verebilir). `ANTHROPIC_SMALL_FAST_MODEL` deprecated: yalnız silinir, yazılmaz.
 
-Özel API ve DeepSeek için Base URL zorunludur; boşsa Kaydet reddedilir. Anahtar alanı boş ve miras anahtar
-da yoksa sağlayıcı isteği reddeder. Ana model boş bırakılırsa model env'i yazılmaz; Claude Code'un
-varsayılan model adları sağlayıcıya gider.
+OpenCode Go, DeepSeek ve Özel API için Base URL zorunludur; boşsa Kaydet reddedilir. Anahtar alanı boş ve
+miras anahtar da yoksa sağlayıcı isteği reddeder. Ana model boş bırakılırsa model env'i yazılmaz; Claude
+Code'un varsayılan model adları sağlayıcıya gider.
 
 **Efor:** low · medium · high · xhigh · max ("Varsayılan" = hiç gönderilmez). Desteklenmeyen seviyede Claude
 Code sessizce en yakın alt seviyeye düşer. **Uyarı:** PTY'ye verilen env, `~/.claude/settings.json` içindeki
@@ -152,7 +159,7 @@ npm run test:kanca   # kanca köprüsü, soru/son söz/istek/komut/tarif/adres/k
 npm run test:ui      # gerçek Electron + CDP ile arayüz testi (önce build)
 npm run test:okuyucu # Okuma sayfasının ana süreç modülü, sahte vault ile (61 kontrol; CI'da)
 npm run test:okuma-ui # Okuma sayfası gerçek Electron'da, sahte vault ile (26 kontrol, önce build)
-npm run test:saglayici # Model sağlayıcısı ayarı, saf Node (73 kontrol; Electron/claude yok)
+npm run test:saglayici # Model sağlayıcısı ayarı, saf Node (100 kontrol; Electron/claude yok)
 npm run e2e:kanca    # GERÇEK claude ile hook zinciri + --session-id (11 kontrol; elle, plan kullanır)
 npm run typecheck
 npm run build

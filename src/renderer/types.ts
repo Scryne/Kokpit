@@ -389,12 +389,20 @@ export interface NightResumeTab {
 }
 
 /** Model saglayicisi (electron/saglayici.cjs). Anahtar renderer'a hic gelmez. */
-export type SaglayiciKimligi = 'varsayilan' | 'anthropic' | 'deepseek' | 'ozel';
+export type SaglayiciKimligi = 'varsayilan' | 'anthropic' | 'opencode' | 'deepseek' | 'ozel';
 export type Efor = 'varsayilan' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export interface SaglayiciGorunum {
   secili: SaglayiciKimligi;
   efor: Efor;
   anthropic: { anahtarVar: boolean };
+  opencode: {
+    baseUrl: string;
+    anahtarVar: boolean;
+    model: string;
+    hafifModel: string;
+    altModel: string;
+    baglam: number;
+  };
   deepseek: {
     baseUrl: string;
     anahtarVar: boolean;
@@ -419,6 +427,15 @@ export interface SaglayiciYama {
   /** Secili saglayicinin anahtarini siler (ust duzey kisayol). */
   anahtarSil?: boolean;
   anthropic?: { anahtar?: string; anahtarSil?: boolean };
+  opencode?: {
+    anahtar?: string;
+    anahtarSil?: boolean;
+    baseUrl?: string;
+    model?: string;
+    hafifModel?: string;
+    altModel?: string;
+    baglam?: number | null;
+  };
   deepseek?: {
     anahtar?: string;
     anahtarSil?: boolean;
