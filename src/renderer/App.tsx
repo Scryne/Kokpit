@@ -15,11 +15,13 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Settings,
   SplitSquareHorizontal,
   TerminalSquare,
   X,
 } from 'lucide-react';
 import type {
+  AyarBolumu,
   Durum,
   Efor,
   EtkinlikAnlik,
@@ -44,7 +46,7 @@ import Saglik from './Saglik';
 import Envanter from './Envanter';
 import Okuma from './Okuma';
 import NotKutusu from './NotKutusu';
-import SaglayiciAyari from './SaglayiciAyari';
+import Ayarlar from './Ayarlar';
 import ProjeSecici from './ProjeSecici';
 import TerminalOturumu, { type OturumApi } from './TerminalOturumu';
 import KomutPaleti, { type Komut } from './KomutPaleti';
@@ -84,13 +86,14 @@ const GECE_DURUMU: Record<NightTabState, string> = {
   closed: 'kapandı',
 };
 
-type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter' | 'okuma';
+type Gorunum = 'pano' | 'terminal' | 'saglik' | 'envanter' | 'okuma' | 'ayarlar';
 const GORUNUM_BASLIK: Record<Gorunum, string> = {
   pano: 'Pano',
   terminal: 'Terminaller',
   saglik: 'Sağlık',
   envanter: 'Envanter',
   okuma: 'Okuma',
+  ayarlar: 'Ayarlar',
 };
 
 // Baslik rozeti ve komut paleti ipucu (model saglayicisi, v3.0).
@@ -176,6 +179,12 @@ export default function App() {
     setOkumaIstegi((i) => ({ bolum, n: (i?.n ?? 0) + 1 }));
     setGorunum('okuma');
   }, []);
+  // Ayarlar sayfasi (v3.2): palet ve baslik rozeti belirli bir bolumu acar.
+  const [ayarIstegi, setAyarIstegi] = useState<{ bolum: AyarBolumu; n: number } | null>(null);
+  const ayarlaraGit = useCallback((bolum: AyarBolumu) => {
+    setAyarIstegi((i) => ({ bolum, n: (i?.n ?? 0) + 1 }));
+    setGorunum('ayarlar');
+  }, []);
   // Ayarlar diskten gelene kadar yazma; yoksa varsayilan degerler ustune yazilir.
   const ayarHazir = useRef(false);
 
@@ -193,7 +202,6 @@ export default function App() {
   const [notBildirimi, setNotBildirimi] = useState<string | null>(null);
   // Model saglayicisi (v3.0): yeni claude sekmeleri bununla acilir. Anahtar renderer'a gelmez.
   const [saglayici, setSaglayici] = useState<SaglayiciGorunum | null>(null);
-  const [saglayiciAcik, setSaglayiciAcik] = useState(false);
   useEffect(() => {
     void window.kokpit.saglayiciGetir().then(setSaglayici).catch(() => {});
   }, []);
@@ -991,6 +999,7 @@ export default function App() {
       { id: 's-saglik', grup: 'Sayfa', baslik: 'Sağlık', ipucu: 'Ctrl+3', calistir: () => setGorunum('saglik') },
       { id: 's-env', grup: 'Sayfa', baslik: 'Envanter', ipucu: 'Ctrl+4', calistir: () => setGorunum('envanter') },
       { id: 's-okuma', grup: 'Sayfa', baslik: 'Okuma', ipucu: 'Ctrl+5', calistir: () => setGorunum('okuma') },
+      { id: 's-ayarlar', grup: 'Sayfa', baslik: 'Ayarlar', ipucu: 'Ctrl+6', calistir: () => setGorunum('ayarlar') },
       { id: 's-okuma-proje', grup: 'Sayfa', baslik: 'Okuma: projelerde en son ne oldu', calistir: () => okumayaGit('projeler') },
       { id: 's-okuma-son', grup: 'Sayfa', baslik: 'Okuma: Defter ve Threads', calistir: () => okumayaGit('companion') },
     ];
@@ -1021,7 +1030,7 @@ export default function App() {
         grup: 'Eylem',
         baslik: 'Model sağlayıcısı',
         ipucu: saglayici && saglayici.secili !== 'varsayilan' ? SAGLAYICI_ADI[saglayici.secili] : 'ortam',
-        calistir: () => setSaglayiciAcik(true),
+        calistir: () => ayarlaraGit('saglayici'),
       },
       { id: 'e-tazele', grup: 'Eylem', baslik: 'Durumu tazele', calistir: () => void tazele('elle') },
       { id: 'e-kenar', grup: 'Eylem', baslik: 'Kenar çubuğunu aç/kapat', ipucu: 'Ctrl+B', calistir: () => setKenarAcik((a) => !a) },
@@ -1082,7 +1091,7 @@ export default function App() {
     }
     k.push({ id: 'e-komutlar', grup: 'Eylem', baslik: 'Hızlı komutları düzenle', ipucu: 'komutlar.json', calistir: () => void window.kokpit.komutlarDuzenle() });
     return k;
-  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, saglayici, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur, gece, geceDegistir]);
+  }, [siraliProjeler, oturumlar, durum, oncekiler, arsivAcik, saglayici, ayarlaraGit, grubaGit, sekmeAc, geriYukle, tazele, hizliKomutlar, aktifOturumId, oturumaGonder, calistirIste, sonOturumlar, surdur, gece, geceDegistir]);
 
   // Bağlam: statusline'dan (kesin, her turda) varsa o; yoksa transcript yoklamasi (20 sn).
   const baglamOku = (id: string) => {
@@ -1126,6 +1135,9 @@ export default function App() {
       } else if (e.key === '5') {
         e.preventDefault();
         setGorunum('okuma');
+      } else if (e.key === '6') {
+        e.preventDefault();
+        setGorunum('ayarlar');
       } else if (e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         // Ctrl+Shift+P: komut paleti. Ctrl+K degil: claude'da satir sonuna kadar siler.
         e.preventDefault();
@@ -1445,6 +1457,27 @@ export default function App() {
             </p>
           </div>
         )}
+
+        {/* Ayarlar sayfa listesinden ayri, rayin en altinda; daralmis halde de altta kalir. */}
+        <div className="mt-auto border-t border-kenar px-2 py-2">
+          <button
+            type="button"
+            onClick={() => setGorunum('ayarlar')}
+            title="Ayarlar (Ctrl+6)"
+            aria-label="Ayarlar"
+            aria-current={gorunum === 'ayarlar' ? 'page' : undefined}
+            className={
+              'flex w-full cursor-pointer items-center gap-2.5 rounded-kontrol px-2.5 py-2 text-sm transition-colors duration-[180ms] ' +
+              (kenarAcik ? '' : 'justify-center ') +
+              (gorunum === 'ayarlar'
+                ? 'bg-yuzey text-metin'
+                : 'text-metin-ikincil hover:bg-yuzey hover:text-metin')
+            }
+          >
+            <Settings className="size-4 shrink-0" aria-hidden="true" />
+            {kenarAcik && 'Ayarlar'}
+          </button>
+        </div>
       </aside>
 
       {/* ---- Ana alan ---- */}
@@ -1469,7 +1502,7 @@ export default function App() {
             {saglayici && saglayici.secili !== 'varsayilan' && (
               <button
                 type="button"
-                onClick={() => setSaglayiciAcik(true)}
+                onClick={() => ayarlaraGit('saglayici')}
                 title="Model sağlayıcısı — değiştir"
                 className="shrink-0 cursor-pointer rounded-rozet border border-kenar px-2 py-0.5 text-xs text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin"
               >
@@ -1559,16 +1592,6 @@ export default function App() {
           }}
         />
 
-        <SaglayiciAyari
-          acik={saglayiciAcik}
-          gorunum={saglayici}
-          onKapat={() => setSaglayiciAcik(false)}
-          onKaydedildi={(g) => {
-            setSaglayici(g);
-            setSaglayiciAcik(false);
-          }}
-        />
-
         {/* Pano: gizlenir, sokulmez — tazeleme durumu korunur. */}
         <main
           className={
@@ -1647,6 +1670,26 @@ export default function App() {
             projeler={durum?.projeler ?? []}
             onOkunmamis={setOkunmamisNot}
             istek={okumaIstegi}
+          />
+        </section>
+
+        {/* Ayarlar: gizlenir, sokulmez; saglayici formu gorunurluk degisince sifirlanir. */}
+        <section
+          aria-label="Ayarlar"
+          className={(gorunum === 'ayarlar' ? 'flex' : 'hidden') + ' min-h-0 flex-1 flex-col'}
+        >
+          <Ayarlar
+            aktif={gorunum === 'ayarlar'}
+            istek={ayarIstegi}
+            saglayici={saglayici}
+            onSaglayiciKaydedildi={setSaglayici}
+            yaziBoyutu={yaziBoyutu}
+            yaziSiniri={YAZI_BOYUTU}
+            onYaziBoyutu={yaziBoyutuDegistir}
+            okumaTema={okumaTema}
+            onOkumaTema={setOkumaTema}
+            arsivAcik={arsivAcik}
+            onArsivAcik={setArsivAcik}
           />
         </section>
 

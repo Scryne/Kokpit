@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useState, type ReactNode } from 'react';
 import { Server } from 'lucide-react';
 import type { Efor, SaglayiciGorunum, SaglayiciKimligi, SaglayiciYama } from './types';
 
 type Anahtarli = 'anthropic' | 'opencode' | 'deepseek' | 'ozel';
+type ModelAlani = 'model' | 'hafifModel' | 'altModel' | 'baglam';
 
 interface Props {
-  acik: boolean;
+  /** Ayarlar sayfasi gorunur mu. Gizlenince ya da yeniden gorununce form kayitli duruma doner. */
+  aktif: boolean;
   gorunum: SaglayiciGorunum | null;
-  onKapat: () => void;
   onKaydedildi: (gorunum: SaglayiciGorunum) => void;
 }
 
@@ -40,11 +41,161 @@ const EFORLAR: { deger: Efor; ad: string }[] = [
   { deger: 'max', ad: 'En yüksek (max)' },
 ];
 
-const KUTU =
+export const KUTU =
   'rounded-kontrol border border-kenar bg-terminal px-3 py-2 text-sm text-metin outline-none placeholder:text-metin-soluk focus-visible:border-aksan';
-const IPUCU = 'mt-1 text-xs text-metin-soluk';
-const DUGME =
-  'cursor-pointer rounded-kontrol border border-kenar px-3 py-1.5 text-xs text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin';
+export const IPUCU = 'mt-1 text-xs text-metin-soluk';
+export const DUGME =
+  'cursor-pointer rounded-kontrol border border-kenar px-3 py-1.5 text-xs text-metin-ikincil transition-colors duration-[180ms] hover:border-kenar-guclu hover:text-metin disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-kenar disabled:hover:text-metin-ikincil';
+
+const MIRAS_ANAHTAR = (
+  <>
+    Boşsa ortamdan miras alınan <span className="enstruman">ANTHROPIC_AUTH_TOKEN</span> kullanılır; yoksa
+    sağlayıcı isteği reddeder.
+  </>
+);
+
+/** Saglayici basina fark VERIDIR: ayni kod bes saglayiciyi de cizer. */
+interface Kurulum {
+  /** yok: Base URL alani yok; salt: preset'ten gelir, duzenlenmez; zorunlu: elle yazilir. */
+  baseUrl: 'yok' | 'salt' | 'zorunlu';
+  modelAlanlari: boolean;
+  anahtarIpucu: ReactNode;
+  yer: Partial<Record<ModelAlani, string>>;
+  yardim?: ReactNode;
+}
+
+const KURULUM: Record<Anahtarli, Kurulum> = {
+  anthropic: {
+    baseUrl: 'yok',
+    modelAlanlari: false,
+    anahtarIpucu: (
+      <>
+        Opsiyonel. Boşsa oturum açmış hesap ya da kendi <span className="enstruman">ANTHROPIC_API_KEY</span>{' '}
+        değerin kullanılır.
+      </>
+    ),
+    yer: {},
+  },
+  opencode: {
+    baseUrl: 'salt',
+    modelAlanlari: true,
+    anahtarIpucu: MIRAS_ANAHTAR,
+    yer: {
+      model: 'deepseek-v4.1-flash[1m]',
+      hafifModel: 'deepseek-v4.1-flash',
+      altModel: 'deepseek-v4.1-flash',
+      baglam: '786432',
+    },
+    yardim: (
+      <>
+        Anahtarı opencode.ai Console'dan al (Go aboneliği olan workspace'ten). DeepSeek modelleri için
+        Settings › Privacy › Regions ayarı <span className="text-metin">Global</span> olmalı.
+      </>
+    ),
+  },
+  deepseek: {
+    baseUrl: 'salt',
+    modelAlanlari: true,
+    anahtarIpucu: MIRAS_ANAHTAR,
+    yer: {
+      model: 'deepseek-flash[1m]',
+      hafifModel: 'deepseek-flash',
+      altModel: 'deepseek-flash',
+      baglam: '786432',
+    },
+  },
+  ozel: {
+    baseUrl: 'zorunlu',
+    modelAlanlari: true,
+    anahtarIpucu: MIRAS_ANAHTAR,
+    yer: { baglam: '1000000' },
+  },
+};
+
+const MODEL_ALANLARI: { alan: ModelAlani; son: string; etiket: string; ipucu: string }[] = [
+  {
+    alan: 'model',
+    son: 'model',
+    etiket: 'Ana model',
+    ipucu: "Boş bırakılırsa model env'i yazılmaz; Claude Code'un varsayılan model adları sağlayıcıya gider.",
+  },
+  {
+    alan: 'hafifModel',
+    son: 'hafif',
+    etiket: 'Hafif model',
+    ipucu: 'Küçük işler (Haiku yuvası). Boşsa ana model kullanılır.',
+  },
+  {
+    alan: 'altModel',
+    son: 'alt',
+    etiket: 'Alt ajan modeli',
+    ipucu: 'Alt ajanlar. Boşsa hafif model, o da boşsa ana model kullanılır.',
+  },
+  {
+    alan: 'baglam',
+    son: 'baglam',
+    etiket: 'Bağlam penceresi (token)',
+    ipucu: '100000–1000000 arası. Boş = varsayılan.',
+  },
+];
+
+/** Bir saglayicinin form durumu. `anahtar` diske hic inmemis, yazilmakta olan degerdir. */
+interface AlanDurumu {
+  baseUrl: string;
+  model: string;
+  hafifModel: string;
+  altModel: string;
+  baglam: string;
+  anahtar: string;
+  anahtarVar: boolean;
+  anahtarSilindi: boolean;
+}
+
+interface Form {
+  secili: SaglayiciKimligi;
+  efor: Efor;
+  alanlar: Record<Anahtarli, AlanDurumu>;
+}
+
+type Ham = {
+  anahtarVar: boolean;
+  baseUrl?: string;
+  model?: string;
+  hafifModel?: string;
+  altModel?: string;
+  baglam?: number;
+};
+
+const alanDurumu = (h?: Ham): AlanDurumu => ({
+  baseUrl: h?.baseUrl ?? '',
+  model: h?.model ?? '',
+  hafifModel: h?.hafifModel ?? '',
+  altModel: h?.altModel ?? '',
+  baglam: h?.baglam && h.baglam > 0 ? String(h.baglam) : '',
+  anahtar: '',
+  anahtarVar: h?.anahtarVar ?? false,
+  anahtarSilindi: false,
+});
+
+/** Kayitli gorunumden form: anahtar kutulari bos, durum "Kayitli/Yok". */
+const formdan = (g: SaglayiciGorunum | null): Form => ({
+  secili: g?.secili ?? 'varsayilan',
+  efor: g?.efor ?? 'varsayilan',
+  alanlar: {
+    anthropic: alanDurumu(g?.anthropic),
+    opencode: alanDurumu(g?.opencode),
+    deepseek: alanDurumu(g?.deepseek),
+    ozel: alanDurumu(g?.ozel),
+  },
+});
+
+/** Bos = 0 (varsayilan); doluysa 100000..1000000 tam sayi. Gecersizse null. */
+const baglamSayisi = (deger: string): number | null => {
+  const t = deger.trim();
+  if (t === '') return 0;
+  const n = Number(t);
+  return Number.isInteger(n) && n >= 100000 && n <= 1000000 ? n : null;
+};
 
 function Alan({
   id,
@@ -52,7 +203,6 @@ function Alan({
   deger,
   onDegis,
   ipucu,
-  ipucuId,
   placeholder,
   tip = 'text',
   min,
@@ -64,13 +214,13 @@ function Alan({
   deger: string;
   onDegis: (deger: string) => void;
   ipucu: string;
-  ipucuId: string;
   placeholder?: string;
   tip?: string;
   min?: number;
   max?: number;
   zorunlu?: boolean;
 }) {
+  const ipucuId = id + '-ipucu';
   return (
     <div>
       <label htmlFor={id} className="text-xs text-metin-ikincil">
@@ -98,94 +248,44 @@ function Alan({
 }
 
 /**
- * Model sağlayıcısı (v3.0). Yerel <dialog>: odak tuzağı ve Escape tarayıcıdan gelir
- * (not kutusuyla aynı desen). Anahtar kutusu açılışta daima boştur; kayıtlı anahtar
- * yalnız "Kayıtlı" olarak görünür ve renderer'a hiç gelmez.
+ * Model saglayicisi (v3.0; v3.2'de diyalogdan Ayarlar sayfasinin bolumune tasindi). Anahtar kutusu
+ * her gorunumde bostur; kayitli anahtar yalniz "Kayıtlı" olarak gorunur ve renderer'a hic gelmez.
  *
- * KURAL: açma, yazma ve "Sil" yalnız yerel state'i değiştirir; IPC/disk yazımı YOKTUR.
- * Diske yalnız "Kaydet" yazar (window.kokpit.saglayiciKaydet). Vazgeç/Esc hiçbir şey yazmaz.
+ * KURAL: yazma, secme ve "Sil" yalniz yerel state'i degistirir; IPC/disk yazimi YOKTUR. Diske yalniz
+ * "Kaydet" yazar (window.kokpit.saglayiciKaydet). "Vazgeç" formu kayitli duruma dondurur.
+ *
+ * Sayfa unmount edilmez (gizlenir): bu yuzden form, sayfa her gizlendiginde/gorundugunde kayitli
+ * duruma sifirlanir; yazilmis ama kaydedilmemis bir anahtar gizli DOM'da beklemez.
  */
-export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }: Props) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const [secili, setSecili] = useState<SaglayiciKimligi>('varsayilan');
-  const [efor, setEfor] = useState<Efor>('varsayilan');
-  const [anahtarlar, setAnahtarlar] = useState<Record<Anahtarli, string>>({
-    anthropic: '',
-    opencode: '',
-    deepseek: '',
-    ozel: '',
-  });
-  const [kayitli, setKayitli] = useState<Record<Anahtarli, boolean>>({
-    anthropic: false,
-    opencode: false,
-    deepseek: false,
-    ozel: false,
-  });
-  const [silindi, setSilindi] = useState<Record<Anahtarli, boolean>>({
-    anthropic: false,
-    opencode: false,
-    deepseek: false,
-    ozel: false,
-  });
-  const [ocBaseUrl, setOcBaseUrl] = useState('');
-  const [oc, setOc] = useState({ model: '', hafifModel: '', altModel: '', baglam: '' });
-  const [dsBaseUrl, setDsBaseUrl] = useState('');
-  const [ds, setDs] = useState({ model: '', hafifModel: '', altModel: '', baglam: '' });
-  const [oz, setOz] = useState({ baseUrl: '', model: '', hafifModel: '', altModel: '', baglam: '' });
+export default function SaglayiciAyari({ aktif, gorunum, onKaydedildi }: Props) {
+  const [form, setForm] = useState<Form>(() => formdan(gorunum));
   const [hata, setHata] = useState<string | null>(null);
+  const [mesaj, setMesaj] = useState<string | null>(null);
   const [kaydediliyor, setKaydediliyor] = useState(false);
 
-  useEffect(() => {
-    const d = dialogRef.current;
-    if (!d) return;
-    if (acik && !d.open) {
-      const g = gorunum;
-      setSecili(g?.secili ?? 'varsayilan');
-      setEfor(g?.efor ?? 'varsayilan');
-      setAnahtarlar({ anthropic: '', opencode: '', deepseek: '', ozel: '' });
-      setSilindi({ anthropic: false, opencode: false, deepseek: false, ozel: false });
-      setKayitli({
-        anthropic: g?.anthropic.anahtarVar ?? false,
-        opencode: g?.opencode.anahtarVar ?? false,
-        deepseek: g?.deepseek.anahtarVar ?? false,
-        ozel: g?.ozel.anahtarVar ?? false,
-      });
-      setOcBaseUrl(g?.opencode.baseUrl ?? '');
-      setOc({
-        model: g?.opencode.model ?? '',
-        hafifModel: g?.opencode.hafifModel ?? '',
-        altModel: g?.opencode.altModel ?? '',
-        baglam: g && g.opencode.baglam > 0 ? String(g.opencode.baglam) : '',
-      });
-      setDsBaseUrl(g?.deepseek.baseUrl ?? '');
-      setDs({
-        model: g?.deepseek.model ?? '',
-        hafifModel: g?.deepseek.hafifModel ?? '',
-        altModel: g?.deepseek.altModel ?? '',
-        baglam: g && g.deepseek.baglam > 0 ? String(g.deepseek.baglam) : '',
-      });
-      setOz({
-        baseUrl: g?.ozel.baseUrl ?? '',
-        model: g?.ozel.model ?? '',
-        hafifModel: g?.ozel.hafifModel ?? '',
-        altModel: g?.ozel.altModel ?? '',
-        baglam: g && g.ozel.baglam > 0 ? String(g.ozel.baglam) : '',
-      });
-      setHata(null);
-      setKaydediliyor(false);
-      d.showModal();
-    } else if (!acik && d.open) {
-      d.close();
-    }
-  }, [acik, gorunum]);
+  // Sayfa gorunurlugu degisince ya da kayitli gorunum degisince (ilk yukleme, Kaydet) form
+  // kayitli duruma doner. Layout effect: yeniden gorunen sayfada eski anahtar bir kare bile cizilmez.
+  useLayoutEffect(() => {
+    setForm(formdan(gorunum));
+    setKaydediliyor(false);
+  }, [aktif, gorunum]);
+  useLayoutEffect(() => {
+    setHata(null);
+    setMesaj(null);
+  }, [aktif]);
 
-  const anahtarSil = (kimlik: Anahtarli) => {
-    setAnahtarlar((a) => ({ ...a, [kimlik]: '' }));
-    setSilindi((s) => ({ ...s, [kimlik]: true }));
-    setKayitli((k) => ({ ...k, [kimlik]: false }));
+  const degistir = (yeni: (f: Form) => Form) => {
+    setMesaj(null);
+    setForm(yeni);
   };
+  const alanDegistir = (kimlik: Anahtarli, yama: Partial<AlanDurumu>) =>
+    degistir((f) => ({ ...f, alanlar: { ...f.alanlar, [kimlik]: { ...f.alanlar[kimlik], ...yama } } }));
 
-  const anahtarAlani = (kimlik: Anahtarli, ipucu: ReactNode) => {
+  const kirli = JSON.stringify(form) !== JSON.stringify(formdan(gorunum));
+  const { secili, efor } = form;
+
+  const anahtarAlani = (kimlik: Anahtarli) => {
+    const a = form.alanlar[kimlik];
     const durumId = 'saglayici-anahtar-durum-' + kimlik;
     const ipucuId = 'saglayici-anahtar-ipucu-' + kimlik;
     return (
@@ -200,26 +300,26 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
             aria-live="polite"
             className="text-xs text-metin-soluk"
           >
-            {kayitli[kimlik] ? 'Kayıtlı' : 'Yok'}
+            {a.anahtarVar ? 'Kayıtlı' : 'Yok'}
           </span>
         </div>
         <div className="mt-1 flex gap-2">
           <input
             id={'saglayici-anahtar-' + kimlik}
             type="password"
-            value={anahtarlar[kimlik]}
-            onChange={(e) => setAnahtarlar((a) => ({ ...a, [kimlik]: e.target.value }))}
-            placeholder={kayitli[kimlik] ? 'Kayıtlı — değiştirmek için yaz' : 'API anahtarı'}
+            value={a.anahtar}
+            onChange={(e) => alanDegistir(kimlik, { anahtar: e.target.value })}
+            placeholder={a.anahtarVar ? 'Kayıtlı — değiştirmek için yaz' : 'API anahtarı'}
             autoComplete="off"
             spellCheck={false}
             aria-describedby={durumId + ' ' + ipucuId}
             className={'mt-0 min-w-0 flex-1 ' + KUTU}
           />
-          {kayitli[kimlik] && (
+          {a.anahtarVar && (
             <button
               type="button"
               title="Kaydedince silinir"
-              onClick={() => anahtarSil(kimlik)}
+              onClick={() => alanDegistir(kimlik, { anahtar: '', anahtarSilindi: true, anahtarVar: false })}
               className={DUGME + ' shrink-0'}
             >
               Sil
@@ -227,81 +327,54 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
           )}
         </div>
         <p id={ipucuId} className={IPUCU}>
-          {ipucu}
+          {KURULUM[kimlik].anahtarIpucu}
         </p>
       </div>
     );
   };
 
-  /** Bos = 0 (varsayilan); doluysa 100000..1000000 tam sayi. Gecersizse null. */
-  const baglamSayisi = (deger: string): number | null => {
-    const t = deger.trim();
-    if (t === '') return 0;
-    const n = Number(t);
-    return Number.isInteger(n) && n >= 100000 && n <= 1000000 ? n : null;
-  };
-
   const kaydet = async () => {
     if (kaydediliyor) return;
     setHata(null);
+    setMesaj(null);
+
+    const k = secili === 'varsayilan' ? null : KURULUM[secili];
+    const a = secili === 'varsayilan' ? null : form.alanlar[secili];
 
     // Sunucu da reddeder; burada IPC'ye hic gitmeden ayni metni gosteriyoruz.
-    if (secili === 'ozel' && oz.baseUrl.trim() === '') {
+    if (k?.baseUrl === 'zorunlu' && a?.baseUrl.trim() === '') {
       setHata('Özel API için Base URL gerekli.');
       return;
     }
 
-    const anahtarYamasi = (kimlik: Anahtarli): { anahtar?: string; anahtarSil?: boolean } => {
-      if (silindi[kimlik] && anahtarlar[kimlik] === '') return { anahtarSil: true };
-      if (anahtarlar[kimlik] !== '') return { anahtar: anahtarlar[kimlik] };
-      return {};
-    };
-
+    // Yama yalniz secili saglayici icin kurulur; digerlerinin formdaki degerleri diske gitmez.
     const yama: SaglayiciYama = { secili, efor };
-    if (secili === 'anthropic') {
-      yama.anthropic = anahtarYamasi('anthropic');
-    } else if (secili === 'opencode') {
-      const baglam = baglamSayisi(oc.baglam);
-      if (baglam === null) {
-        setHata('Bağlam penceresi 100000 ile 1000000 arasında bir tam sayı olmalı.');
-        return;
+    const yamaSaglayici = yama as Record<string, unknown>;
+    if (k && a && secili !== 'varsayilan') {
+      const anahtar =
+        a.anahtarSilindi && a.anahtar === ''
+          ? { anahtarSil: true }
+          : a.anahtar !== ''
+            ? { anahtar: a.anahtar }
+            : {};
+      if (!k.modelAlanlari) {
+        yamaSaglayici[secili] = anahtar;
+      } else {
+        const baglam = baglamSayisi(a.baglam);
+        if (baglam === null) {
+          setHata('Bağlam penceresi 100000 ile 1000000 arasında bir tam sayı olmalı.');
+          return;
+        }
+        // Salt okunur Base URL preset'ten gelir ve duzenlenmez; yama gonderilmez.
+        yamaSaglayici[secili] = {
+          ...anahtar,
+          ...(k.baseUrl === 'zorunlu' ? { baseUrl: a.baseUrl } : {}),
+          model: a.model,
+          hafifModel: a.hafifModel,
+          altModel: a.altModel,
+          baglam,
+        };
       }
-      // Base URL OpenCode Go preset'inden gelir ve burada duzenlenmez; yama gonderilmez.
-      yama.opencode = {
-        ...anahtarYamasi('opencode'),
-        model: oc.model,
-        hafifModel: oc.hafifModel,
-        altModel: oc.altModel,
-        baglam,
-      };
-    } else if (secili === 'deepseek') {
-      const baglam = baglamSayisi(ds.baglam);
-      if (baglam === null) {
-        setHata('Bağlam penceresi 100000 ile 1000000 arasında bir tam sayı olmalı.');
-        return;
-      }
-      // Base URL DeepSeek preset'inden gelir ve burada duzenlenmez; yama gonderilmez.
-      yama.deepseek = {
-        ...anahtarYamasi('deepseek'),
-        model: ds.model,
-        hafifModel: ds.hafifModel,
-        altModel: ds.altModel,
-        baglam,
-      };
-    } else if (secili === 'ozel') {
-      const baglam = baglamSayisi(oz.baglam);
-      if (baglam === null) {
-        setHata('Bağlam penceresi 100000 ile 1000000 arasında bir tam sayı olmalı.');
-        return;
-      }
-      yama.ozel = {
-        ...anahtarYamasi('ozel'),
-        baseUrl: oz.baseUrl,
-        model: oz.model,
-        hafifModel: oz.hafifModel,
-        altModel: oz.altModel,
-        baglam,
-      };
     }
 
     setKaydediliyor(true);
@@ -311,29 +384,24 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
       setHata(sonuc.hata ?? 'Kaydedilemedi.');
       return;
     }
+    setForm(formdan(sonuc.gorunum));
     onKaydedildi(sonuc.gorunum);
+    setMesaj('Kaydedildi. Yalnız yeni açılan sekmelere uygulanır.');
   };
 
+  const kurulum = secili === 'varsayilan' ? null : KURULUM[secili];
+  const alan = secili === 'varsayilan' ? null : form.alanlar[secili];
+
   return (
-    <dialog
-      ref={dialogRef}
-      onClose={onKapat}
-      onCancel={(e) => {
+    <form
+      onSubmit={(e) => {
         e.preventDefault();
-        onKapat();
+        void kaydet();
       }}
-      aria-labelledby="saglayici-baslik"
-      className="halka m-auto w-[min(36rem,calc(100vw-2rem))] rounded-base bg-bg-base p-0 text-metin shadow-2xl shadow-black/60 backdrop:bg-black/50"
+      className="flex min-h-0 flex-1 flex-col"
     >
-      <form
-        method="dialog"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void kaydet();
-        }}
-        className="flex max-h-[min(80vh,44rem)] flex-col bg-yuzey-guclu"
-      >
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="w-full max-w-2xl px-6 py-6">
           <h2 id="saglayici-baslik" className="flex items-center gap-2 text-sm font-medium">
             <Server className="size-4 text-metin-soluk" aria-hidden="true" />
             Model sağlayıcısı
@@ -350,7 +418,7 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
                   key={s.id}
                   className={
                     'flex cursor-pointer items-start gap-2.5 rounded-kontrol border px-3 py-2 transition-colors duration-[180ms] ' +
-                    (secili === s.id ? 'border-kenar-guclu bg-yuzey' : 'border-kenar hover:border-kenar-guclu')
+                    (secili === s.id ? 'border-kenar-guclu bg-yuzey-guclu' : 'border-kenar hover:border-kenar-guclu')
                   }
                 >
                   <input
@@ -358,8 +426,8 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
                     name="saglayici-secim"
                     value={s.id}
                     checked={secili === s.id}
-                    onChange={() => setSecili(s.id)}
-                    className="mt-0.5 accent-aksan"
+                    onChange={() => degistir((f) => ({ ...f, secili: s.id }))}
+                    className="mt-0.5 accent-aksan [color-scheme:dark]"
                   />
                   <span className="min-w-0">
                     <span className="block text-xs text-metin">{s.ad}</span>
@@ -377,7 +445,7 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
             <select
               id="saglayici-efor"
               value={efor}
-              onChange={(e) => setEfor(e.target.value as Efor)}
+              onChange={(e) => degistir((f) => ({ ...f, efor: e.target.value as Efor }))}
               aria-describedby="saglayici-efor-ipucu"
               className={'mt-1 w-full ' + KUTU}
             >
@@ -393,211 +461,87 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
           </div>
 
           <div className="mt-4 space-y-3 border-t border-kenar pt-4">
-            {secili === 'varsayilan' && (
+            {!kurulum || !alan || secili === 'varsayilan' ? (
               <p className="text-xs text-metin-soluk">
                 Ortam değişkenleri olduğu gibi kalır; yalnızca seçilen efor uygulanır.
               </p>
-            )}
-
-            {secili === 'anthropic' &&
-              anahtarAlani(
-                'anthropic',
-                <>
-                  Opsiyonel. Boşsa oturum açmış hesap ya da kendi{' '}
-                  <span className="enstruman">ANTHROPIC_API_KEY</span> değerin kullanılır.
-                </>
-              )}
-
-            {secili === 'opencode' && (
+            ) : (
               <>
-                <div>
-                  <p className="text-xs text-metin-ikincil">Base URL</p>
-                  <p
-                    className="enstruman mt-1 truncate rounded-kontrol border border-kenar bg-terminal px-3 py-2 text-xs text-metin-soluk"
-                    title={ocBaseUrl}
-                  >
-                    {ocBaseUrl || 'Ayarlı değil'}
-                  </p>
-                </div>
-                {anahtarAlani(
-                  'opencode',
-                  <>
-                    Boşsa ortamdan miras alınan{' '}
-                    <span className="enstruman">ANTHROPIC_AUTH_TOKEN</span> kullanılır; yoksa sağlayıcı
-                    isteği reddeder.
-                  </>
-                )}
-                <Alan
-                  id="saglayici-opencode-model"
-                  etiket="Ana model"
-                  deger={oc.model}
-                  onDegis={(model) => setOc((o) => ({ ...o, model }))}
-                  ipucu="Boş bırakılırsa model env'i yazılmaz; Claude Code'un varsayılan model adları sağlayıcıya gider."
-                  ipucuId="saglayici-opencode-model-ipucu"
-                  placeholder="deepseek-v4.1-flash[1m]"
-                />
-                <Alan
-                  id="saglayici-opencode-hafif"
-                  etiket="Hafif model"
-                  deger={oc.hafifModel}
-                  onDegis={(hafifModel) => setOc((o) => ({ ...o, hafifModel }))}
-                  ipucu="Küçük işler (Haiku yuvası). Boşsa ana model kullanılır."
-                  ipucuId="saglayici-opencode-hafif-ipucu"
-                  placeholder="deepseek-v4.1-flash"
-                />
-                <Alan
-                  id="saglayici-opencode-alt"
-                  etiket="Alt ajan modeli"
-                  deger={oc.altModel}
-                  onDegis={(altModel) => setOc((o) => ({ ...o, altModel }))}
-                  ipucu="Alt ajanlar. Boşsa hafif model, o da boşsa ana model kullanılır."
-                  ipucuId="saglayici-opencode-alt-ipucu"
-                  placeholder="deepseek-v4.1-flash"
-                />
-                <Alan
-                  id="saglayici-opencode-baglam"
-                  etiket="Bağlam penceresi (token)"
-                  deger={oc.baglam}
-                  onDegis={(baglam) => setOc((o) => ({ ...o, baglam }))}
-                  ipucu="100000–1000000 arası. Boş = varsayılan."
-                  ipucuId="saglayici-opencode-baglam-ipucu"
-                  placeholder="786432"
-                  tip="number"
-                  min={100000}
-                  max={1000000}
-                />
-              </>
-            )}
+                {kurulum.yardim && <p className="text-xs text-metin-ikincil">{kurulum.yardim}</p>}
 
-            {secili === 'deepseek' && (
-              <>
-                <div>
-                  <p className="text-xs text-metin-ikincil">Base URL</p>
-                  <p
-                    className="enstruman mt-1 truncate rounded-kontrol border border-kenar bg-terminal px-3 py-2 text-xs text-metin-soluk"
-                    title={dsBaseUrl}
-                  >
-                    {dsBaseUrl || 'Ayarlı değil'}
-                  </p>
-                </div>
-                {anahtarAlani(
-                  'deepseek',
-                  <>
-                    Boşsa ortamdan miras alınan{' '}
-                    <span className="enstruman">ANTHROPIC_AUTH_TOKEN</span> kullanılır; yoksa sağlayıcı
-                    isteği reddeder.
-                  </>
+                {kurulum.baseUrl === 'salt' && (
+                  <div>
+                    <p className="text-xs text-metin-ikincil">Base URL</p>
+                    <p
+                      className="enstruman mt-1 truncate rounded-kontrol border border-kenar bg-terminal px-3 py-2 text-xs text-metin-soluk"
+                      title={alan.baseUrl}
+                    >
+                      {alan.baseUrl || 'Ayarlı değil'}
+                    </p>
+                  </div>
                 )}
-                <Alan
-                  id="saglayici-deepseek-model"
-                  etiket="Ana model"
-                  deger={ds.model}
-                  onDegis={(model) => setDs((d) => ({ ...d, model }))}
-                  ipucu="Boş bırakılırsa model env'i yazılmaz; Claude Code'un varsayılan model adları sağlayıcıya gider."
-                  ipucuId="saglayici-deepseek-model-ipucu"
-                  placeholder="deepseek-flash[1m]"
-                />
-                <Alan
-                  id="saglayici-deepseek-hafif"
-                  etiket="Hafif model"
-                  deger={ds.hafifModel}
-                  onDegis={(hafifModel) => setDs((d) => ({ ...d, hafifModel }))}
-                  ipucu="Küçük işler (Haiku yuvası). Boşsa ana model kullanılır."
-                  ipucuId="saglayici-deepseek-hafif-ipucu"
-                  placeholder="deepseek-flash"
-                />
-                <Alan
-                  id="saglayici-deepseek-alt"
-                  etiket="Alt ajan modeli"
-                  deger={ds.altModel}
-                  onDegis={(altModel) => setDs((d) => ({ ...d, altModel }))}
-                  ipucu="Alt ajanlar. Boşsa hafif model, o da boşsa ana model kullanılır."
-                  ipucuId="saglayici-deepseek-alt-ipucu"
-                  placeholder="deepseek-flash"
-                />
-                <Alan
-                  id="saglayici-deepseek-baglam"
-                  etiket="Bağlam penceresi (token)"
-                  deger={ds.baglam}
-                  onDegis={(baglam) => setDs((d) => ({ ...d, baglam }))}
-                  ipucu="100000–1000000 arası. Boş = varsayılan."
-                  ipucuId="saglayici-deepseek-baglam-ipucu"
-                  placeholder="786432"
-                  tip="number"
-                  min={100000}
-                  max={1000000}
-                />
-              </>
-            )}
+                {kurulum.baseUrl === 'zorunlu' && (
+                  <Alan
+                    id={'saglayici-' + secili + '-baseurl'}
+                    etiket="Base URL (zorunlu)"
+                    deger={alan.baseUrl}
+                    onDegis={(baseUrl) => alanDegistir(secili, { baseUrl })}
+                    ipucu="Anthropic-uyumlu servisin http/https adresi."
+                    placeholder="https://gateway.example.com/anthropic"
+                    tip="url"
+                    zorunlu
+                  />
+                )}
 
-            {secili === 'ozel' && (
-              <>
-                <Alan
-                  id="saglayici-ozel-baseurl"
-                  etiket="Base URL (zorunlu)"
-                  deger={oz.baseUrl}
-                  onDegis={(baseUrl) => setOz((o) => ({ ...o, baseUrl }))}
-                  ipucu="Anthropic-uyumlu servisin http/https adresi."
-                  ipucuId="saglayici-ozel-baseurl-ipucu"
-                  placeholder="https://gateway.example.com/anthropic"
-                  tip="url"
-                  zorunlu
-                />
-                {anahtarAlani(
-                  'ozel',
-                  <>
-                    Boşsa ortamdan miras alınan{' '}
-                    <span className="enstruman">ANTHROPIC_AUTH_TOKEN</span> kullanılır; yoksa sağlayıcı
-                    isteği reddeder.
-                  </>
-                )}
-                <Alan
-                  id="saglayici-ozel-model"
-                  etiket="Ana model"
-                  deger={oz.model}
-                  onDegis={(model) => setOz((o) => ({ ...o, model }))}
-                  ipucu="Boş bırakılırsa model env'i yazılmaz; Claude Code'un varsayılan model adları sağlayıcıya gider."
-                  ipucuId="saglayici-ozel-model-ipucu"
-                />
-                <Alan
-                  id="saglayici-ozel-hafif"
-                  etiket="Hafif model"
-                  deger={oz.hafifModel}
-                  onDegis={(hafifModel) => setOz((o) => ({ ...o, hafifModel }))}
-                  ipucu="Küçük işler (Haiku yuvası). Boşsa ana model kullanılır."
-                  ipucuId="saglayici-ozel-hafif-ipucu"
-                />
-                <Alan
-                  id="saglayici-ozel-alt"
-                  etiket="Alt ajan modeli"
-                  deger={oz.altModel}
-                  onDegis={(altModel) => setOz((o) => ({ ...o, altModel }))}
-                  ipucu="Alt ajanlar. Boşsa hafif model, o da boşsa ana model kullanılır."
-                  ipucuId="saglayici-ozel-alt-ipucu"
-                />
-                <Alan
-                  id="saglayici-ozel-baglam"
-                  etiket="Bağlam penceresi (token)"
-                  deger={oz.baglam}
-                  onDegis={(baglam) => setOz((o) => ({ ...o, baglam }))}
-                  ipucu="100000–1000000 arası. Boş = varsayılan."
-                  ipucuId="saglayici-ozel-baglam-ipucu"
-                  placeholder="1000000"
-                  tip="number"
-                  min={100000}
-                  max={1000000}
-                />
+                {anahtarAlani(secili)}
+
+                {kurulum.modelAlanlari &&
+                  MODEL_ALANLARI.map((m) => (
+                    <Alan
+                      key={m.alan}
+                      id={'saglayici-' + secili + '-' + m.son}
+                      etiket={m.etiket}
+                      deger={alan[m.alan]}
+                      onDegis={(deger) => alanDegistir(secili, { [m.alan]: deger })}
+                      ipucu={m.ipucu}
+                      placeholder={kurulum.yer[m.alan]}
+                      tip={m.alan === 'baglam' ? 'number' : 'text'}
+                      min={m.alan === 'baglam' ? 100000 : undefined}
+                      max={m.alan === 'baglam' ? 1000000 : undefined}
+                    />
+                  ))}
               </>
             )}
           </div>
         </div>
+      </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-kenar px-5 py-3">
-          <p className="enstruman truncate text-xs text-metin-soluk" title="~/.kokpit/saglayici.json">
-            ~/.kokpit/saglayici.json
-          </p>
+      <div className="shrink-0 border-t border-kenar">
+        <div className="flex w-full max-w-2xl items-center justify-between gap-3 px-6 py-3">
+          {hata ? (
+            <p role="alert" className="min-w-0 text-xs text-hata-metin">
+              {hata}
+            </p>
+          ) : mesaj ? (
+            <p role="status" className="min-w-0 text-xs text-metin-ikincil">
+              {mesaj}
+            </p>
+          ) : (
+            <p className="enstruman truncate text-xs text-metin-soluk" title="~/.kokpit/saglayici.json">
+              ~/.kokpit/saglayici.json
+            </p>
+          )}
           <div className="flex shrink-0 gap-2">
-            <button type="button" onClick={onKapat} className={DUGME}>
+            <button
+              type="button"
+              disabled={!kirli}
+              onClick={() => {
+                setForm(formdan(gorunum));
+                setHata(null);
+                setMesaj(null);
+              }}
+              className={DUGME}
+            >
               Vazgeç
             </button>
             <button
@@ -609,12 +553,7 @@ export default function SaglayiciAyari({ acik, gorunum, onKapat, onKaydedildi }:
             </button>
           </div>
         </div>
-        {hata && (
-          <p role="alert" className="px-5 pb-3 text-xs text-hata-metin">
-            {hata}
-          </p>
-        )}
-      </form>
-    </dialog>
+      </div>
+    </form>
   );
 }

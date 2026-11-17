@@ -142,7 +142,7 @@ Sayisal veri her zaman `tabular-nums`.
 **Kabuk mimarisi:** solda yuzen cam nav paneli (kenara yapisik degil, 12px bosluklu ve
 yuvarlak koseli), ustte ince baslik seridi, altta icerik. Pano ve terminaller birbirinin
 yerine gecmez; ikisi de her an bir tik uzakta. **Daralmis kenar cubugu** yalniz bes sayfa
-ikonunu ve "K" logosunu tasir; proje listesi yalniz acik halde gorunur (v3.1'de daralmis
+ikonunu, altta Ayarlar disli dugmesini ve "K" logosunu tasir; proje listesi yalniz acik halde gorunur (v3.1'de daralmis
 haldeki bas harf gosterimi kaldirildi).
 
 **Oturumlar App seviyesinde yasar ve gorunum degisince UNMOUNT EDILMEZ.** Bu bir tasarim
@@ -256,6 +256,21 @@ Pano bir enstruman, Okuma bir okuma odasi. Yogunluk dashboard-dense degil, nefes
 - **Gecis:** tema degisimi ani (yalniz renk); kagit yuzey sayfa icinde kalir, nav ve sekme
   seridi koyu kalir. Butun Kokpit'in aydinlik modu ayri faz (Roadmap 30).
 
+## Ayarlar (2026-11-17, v3.2)
+
+Kokpit'in kendi ayarları tek sayfada: Model sağlayıcısı, Görünüm, Hızlı komutlar. Okuma ile aynı iç bölüm
+deseni: üstte bölüm rayı (`bg-yuzey-guclu` seçili), altında tek sütun (en fazla `max-w-2xl`, sola yaslı; ayar
+sayfası okuma odası değil, form). Yüzey `yuzey` + `halka`, yeni renk ve cam yok.
+
+- **Neden diyalog değil sayfa:** sağlayıcı formu beş seçenek, efor, model alanları ve anahtar taşıyor; 36rem'lik
+  bir kutuya sığmıyor, ikinci ve üçüncü ayar grubu da gelince diyalog yığını olacaktı. Kenar çubuğu dişlisi
+  (rayın en altı, sayfa listesinden `border-t` ile ayrık) ve Ctrl+6 tek giriş. Palet ve başlık rozeti hâlâ
+  doğrudan Model sağlayıcısı bölümünü açar.
+- **Kayıt kuralı iki çeşit, ikisi de görünür:** Sağlayıcı bölümünün altında sabit bir alt şerit (Vazgeç + Kaydet);
+  yalnız Kaydet diske yazar, Vazgeç formu kayıtlı duruma döndürür. Görünüm bölümü anında uygular, düğme yok.
+- Sayfa unmount edilmez; sağlayıcı formu sayfa her gizlendiğinde/görünür olduğunda sıfırlanır (anahtar kutusu
+  boş, durum "Kayıtlı/Yok").
+
 ## Components
 
 - **Pano = olcum seridi + proje tablosu + beyin blogu.** Esit agirlikli kart izgarasi yasak;
@@ -270,7 +285,8 @@ Pano bir enstruman, Okuma bir okuma odasi. Yogunluk dashboard-dense degil, nefes
   satir sayisi kabuga yanlis bildirilir ve TUI kayar. `document.fonts.ready` beklenir.
 - **Ikon seti: lucide**, `currentColor` ile inline SVG. Emoji yasak — roadmap verisindeki
   isaretler arayuzde ikona cevrilir, oldugu gibi basilmaz.
-- **Sağlayıcı ayarı** — not kutusuyla aynı desen (yerel `<dialog>`).
+- **Sağlayıcı ayarı** — Ayarlar sayfasının ilk bölümü (aşağıda). v3.0-v3.1'de not kutusuyla aynı desende yerel
+  `<dialog>` idi; v3.2'de sayfaya taşındı.
 
 ## Do's and Don'ts
 

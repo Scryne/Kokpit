@@ -63,12 +63,14 @@ linkler içeride açılır, Alt+Sol geri. Sağ üstte "Aydınlık": sayfa kâğ�
 Pano'nun Beyin bloğunda okunmamış not sayısı. Kokpit vault'a yazmaz; okundu bilgisi `~/.kokpit/okuma.json`.
 
 **Model sağlayıcısı (v3.0):** Claude Code CLI'sini farklı bir Anthropic-uyumlu API'ye (DeepSeek, OpenCode Go
-ya da özel gateway) yönlendirir. Komut paletinden (Ctrl+Shift+P → "Model sağlayıcısı") ya da başlıktaki
-sağlayıcı rozetine tıklanarak açılır. Seçim `~/.kokpit/saglayici.json`'a yazılır; **API anahtarı bu dosyada
+ya da özel gateway) yönlendirir. **Ayarlar** sayfasında (Ctrl+6, kenar çubuğunun altındaki dişli) "Model
+sağlayıcısı" bölümünden ayarlanır; komut paleti ("Model sağlayıcısı") ve başlıktaki sağlayıcı rozeti aynı
+bölümü doğrudan açar. Aynı sayfada Görünüm (terminal yazı boyutu, okuma teması, arşivi göster; anında uygulanır)
+ve Hızlı komutlar (`komutlar.json`'u açar) bölümleri var. Seçim `~/.kokpit/saglayici.json`'a yazılır; **API anahtarı bu dosyada
 düz metindir** ve kullanıcı profiline özeldir (renderer'a, loga ve hata metinlerine dönmez). Yalnız **yeni
 açılan** claude sekmelerine uygulanır; açık sekmeler eski bağlantıyla devam eder. Varsayılan "Ortamdan miras"
-bugünkü davranıştır. Diyalogda yapılan düzenlemeler (anahtar yazma, "Sil") **yalnız Kaydet'e basınca** diske
-iner; Vazgeç/Esc hiçbir şey yazmaz.
+bugünkü davranıştır. Sağlayıcı formundaki düzenlemeler (anahtar yazma, "Sil") **yalnız Kaydet'e basınca** diske
+iner; Vazgeç formu kayıtlı duruma döndürür ve hiçbir şey yazmaz. Sayfa her yeniden görününce anahtar kutuları boştur.
 
 | Seçim | PTY'ye eklenen |
 | --- | --- |
@@ -117,7 +119,7 @@ olabilirdi). Sağlık/Pano'daki "beyne düştü" ve bağlam göstergesi de tahmi
 reddeder; Kokpit'te o klasörde açık oturum varken düğme kapalı. `--doldur` bilerek kullanılmaz:
 o, dizindeki açık oturumları da erken doldururdu.
 
-**Klavye:** Ctrl+Shift+P komut paleti (sayfa, proje aç/git, klasör, eylemler) · Ctrl+B kenar
+**Klavye:** Ctrl+1…Ctrl+6 sayfalar (Ctrl+6 Ayarlar) · Ctrl+Shift+P komut paleti (sayfa, proje aç/git, klasör, eylemler) · Ctrl+B kenar
 çubuğu · Ctrl+Tab / Ctrl+Shift+Tab sekme döngüsü · Ctrl+Shift+W bölmeyi kapat · Ctrl+Shift+N
 Inbox'a not · **Ctrl+Alt+Shift+K her yerden Kokpit'i çağır / küçült** · **Ctrl+Alt+Shift+N her yerden Inbox notu** (Kokpit arka plandayken de; Ctrl+Alt
 Türkçe klavyede AltGr olduğu için üç değiştirici) · sekme şeridinde ← →, bölme ayırıcısında ← →

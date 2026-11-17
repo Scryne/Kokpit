@@ -58,6 +58,7 @@ gerçek veri gösterir; Faz 2'de içinde gerçek terminal çalışır. Vitrin fa
 | M7 | Gece görevi → OS tetikleyicisi | ⛔ Emekli | Claude Desktop geçişi durduruldu (2026-11-17) |
 | M8 | Electron kararı | ⛔ Emekli | Karar verildi (2026-11-17): Electron uygulamasında devam; Desktop geçişi durduruldu |
 | v3.1 | Sadeleştirme: Ada ve kenar harfleri kaldırıldı | ✅ Tamamlandı | Ada penceresi, kısayolu ve testleri kaldırıldı; daralmış kenar çubuğunda proje listesi artık gizleniyor |
+| v3.2 | OpenCode Go ve Ayarlar sayfası | ✅ Tamamlandı | OpenCode Go sağlayıcısı; sağlayıcı diyaloğu Ayarlar sayfasına (Ctrl+6) taşındı, Görünüm ve Hızlı komutlar bölümleriyle; `test:saglayici` 100, `test:pty` 28, `test:ui` 111, `test:okuma-ui` 26 geçti |
 
 **Mod yolu (2026-11-04 → durduruldu 2026-11-17):** Kokpit'in değerini Claude Desktop'un mod (plugin)
 sistemiyle taşıma denemesi Kaan tarafından durduruldu; Electron uygulaması bir süre daha ana yüzey.
@@ -804,3 +805,13 @@ seçimi Kokpit'in kendi ayarıdır; kabuk ortam değişkenleri değiştirilmez.
 Ada penceresi (hap, göz, cevaplama, sürükle-bırak, Ctrl+Alt+Shift+A) ve daralmış kenar çubuğundaki
 proje baş harfleri kaldırıldı. Kullanılmıyordu; bildirimler ve etkinlik şeridi yeterli. Önceki Ada
 fazlarının (15, 17, 20-24, 26, 28) geçmiş kaydı olduğu gibi duruyor.
+
+### v3.2 (2026-11-17): OpenCode Go ve Ayarlar sayfası
+
+OpenCode Go (`deepseek` kalıbında: Base URL salt okunur, ana/hafif/alt model ve bağlam) beşinci sağlayıcı oldu.
+Sağlayıcı diyaloğu kaldırıldı; yerine kenar çubuğunun altındaki dişliden ya da Ctrl+6 ile açılan **Ayarlar**
+sayfası geldi (iç bölümler Okuma'daki desenle): Model sağlayıcısı, Görünüm (terminal yazı boyutu, okuma teması,
+arşivi göster; anında uygulanır, mevcut state ve IPC), Hızlı komutlar (`komutlar.json`'u açar). Palet komutu ve
+başlık rozeti doğrudan Model sağlayıcısı bölümünü açar. Kaydet-yalnız-yazar kuralı aynen duruyor; Vazgeç formu
+kayıtlı duruma döndürür, sayfa her görününce anahtar kutuları boş. Ekran görüntüleriyle üç bölüm ve daralmış
+kenar çubuğu kontrol edildi. **Ölçülmedi:** gerçek OpenCode Go anahtarıyla canlı tur.

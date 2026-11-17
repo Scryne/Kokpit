@@ -235,6 +235,9 @@ export interface Ayarlar {
 export type OkumaTema = 'koyu' | 'acik';
 export type OkumaBolumu = 'akis' | 'companion' | 'gunluk' | 'bilgi' | 'projeler';
 
+/** Ayarlar sayfasinin ic bolumleri (v3.2). */
+export type AyarBolumu = 'saglayici' | 'gorunum' | 'komutlar';
+
 export interface VaultNotu {
   /** Vault'a goreli, ileri egik cizgili yol. */
   yol: string;
