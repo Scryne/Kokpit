@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState, type ReactNode } from 'react';
-import { Server } from 'lucide-react';
+import { ChevronDown, Server } from 'lucide-react';
 import type { Efor, SaglayiciGorunum, SaglayiciKimligi, SaglayiciYama } from './types';
 
 type Anahtarli = 'anthropic' | 'opencode' | 'deepseek' | 'ozel';
@@ -442,19 +442,28 @@ export default function SaglayiciAyari({ aktif, gorunum, onKaydedildi }: Props) 
             <label htmlFor="saglayici-efor" className="text-xs text-metin-ikincil">
               Efor
             </label>
-            <select
-              id="saglayici-efor"
-              value={efor}
-              onChange={(e) => degistir((f) => ({ ...f, efor: e.target.value as Efor }))}
-              aria-describedby="saglayici-efor-ipucu"
-              className={'mt-1 w-full ' + KUTU}
-            >
-              {EFORLAR.map((e) => (
-                <option key={e.deger} value={e.deger}>
-                  {e.ad}
-                </option>
-              ))}
-            </select>
+            {/* Gorunum temizlenir: yerel <select> kendi satir kutusunu cizer ve ayni siniflara
+                ragmen yuksekligi/yazi olcusu <input>'lardan ayrisiyordu (olculdu: 37 vs 38 px,
+                line-height normal vs 20px). Ok yerine kendi simgemiz cizilir. */}
+            <div className="relative mt-1">
+              <select
+                id="saglayici-efor"
+                value={efor}
+                onChange={(e) => degistir((f) => ({ ...f, efor: e.target.value as Efor }))}
+                aria-describedby="saglayici-efor-ipucu"
+                className={'w-full appearance-none pr-9 ' + KUTU}
+              >
+                {EFORLAR.map((e) => (
+                  <option key={e.deger} value={e.deger}>
+                    {e.ad}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute top-1/2 right-3 size-3.5 -translate-y-1/2 text-metin-soluk"
+                aria-hidden="true"
+              />
+            </div>
             <p id="saglayici-efor-ipucu" className={IPUCU}>
               Model desteklemiyorsa Claude Code en yakın alt seviyeye düşer.
             </p>

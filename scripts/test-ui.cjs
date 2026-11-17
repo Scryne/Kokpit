@@ -269,6 +269,20 @@ async function main() {
 
     try { fs.unlinkSync(gonderDosyasi); } catch { /* yok */ }
 
+    console.log('Soru (kanca): serit Seni bekliyor + cevaplanabilir ayrinti');
+    // Ada penceresi ve adaGonder yolu kaldirildi (v3.1): yalniz ana pencerenin seridi ve kancanin
+    // urettigi ayrinti sinanir; cevap gonderme ve damga denetimi geri gelmez.
+    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+    await cdp.yaz(
+      "k '{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"t\"}';" +
+        "k '{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"t\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"Hangi renk?\",\"header\":\"Renk\",\"multiSelect\":false,\"options\":[{\"label\":\"Kirmizi\"},{\"label\":\"Mavi\"},{\"label\":\"Yesil\"}]}]}}'; cls"
+    );
+    await cdp.tus('Enter');
+    await cdp.bekle(`document.body.innerText.includes('Seni bekliyor') && document.body.innerText.includes('Hangi renk?')`, 15000, 'serit seni bekliyor');
+    kontrol('serit: Seni bekliyor + soru metni', true);
+    const soru = await cdp.js(`window.kokpit.etkinlikAnlik().then(a => { const [, e] = Object.entries(a.oturumlar).find(([, x]) => x.durum === 'bekliyor') ?? []; return e ? { ayrinti: e.soruAyrinti } : null; })`);
+    kontrol('kanca durumunda secenekler ve cevaplanabilir', !!soru && soru.ayrinti?.cevaplanabilir === true && soru.ayrinti.sorular[0].secenekler.length === 3, JSON.stringify(soru));
+
     console.log('Calistir (v2.3): servis bolmesi claude sekmesinin yaninda, adres, yeniden baslat, durdur');
     const projeAdi = await cdp.js(`document.querySelector('[role="tab"] .enstruman')?.textContent ?? ''`);
     const projeYolu = await cdp.js(`window.kokpit.durumGetir().then(d => d.veri.projeler.find(p => p.ad === ${JSON.stringify(projeAdi)})?.yol ?? null)`);
@@ -351,6 +365,14 @@ async function main() {
     await cdp.tus('2', 2, 'Digit2');
     await uyu(200);
     kontrol('Ctrl+2 Terminaller\'e dondu', await cdp.js(`document.querySelector('h1')?.textContent !== 'Pano'`));
+    // Terminal odaktayken de uygulama kisayolu: xterm 6'yi kendisi islerse claude'a kontrol
+    // karakteri gider ve sayfa degismez (TerminalOturumu uygulamaninKisayolu listesi).
+    await cdp.js(`(() => { document.querySelector('.xterm-helper-textarea')?.focus(); return true; })()`);
+    await cdp.tus('6', 2, 'Digit6');
+    await cdp.bekle(`document.querySelector('h1')?.textContent === 'Ayarlar'`, 3000, 'ayarlar (terminal odakta)');
+    kontrol('terminal odaktayken Ctrl+6 Ayarlar sayfasini acti', true);
+    await cdp.tus('2', 2, 'Digit2');
+    await uyu(200);
 
     console.log('Yapistirma (v2.6): Ctrl+V metin, resimde ^V, fare modunda sag tik tek');
     // PTY'ye giden her 'veri' mesaji sayilir; fare modu sunucudan gelmis gibi enjekte edilir

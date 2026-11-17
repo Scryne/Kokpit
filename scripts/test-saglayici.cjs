@@ -314,6 +314,51 @@ delete require.cache[require.resolve('../electron/config.cjs')];
 delete require.cache[require.resolve('../electron/saglayici.cjs')];
 fs.rmSync(ESKI_DIZIN, { recursive: true, force: true });
 
+console.log('Diskte bos Base URL: on tanimli saglayicida presete doner');
+// Arayuz opencode/deepseek Base URL'ini salt okunur gosterir ve yamaya koymaz. Diskte bos
+// deger okunursa kullanici onu duzeltemezdi; okuma yolu bosu "yazilmamis" sayar. ozel'in on
+// tanimi bos oldugu icin onda bos deger gecerli kalir.
+const BOS_DIZIN = fs.mkdtempSync(path.join(os.tmpdir(), 'kokpit-saglayici-bos-'));
+fs.writeFileSync(
+  path.join(BOS_DIZIN, 'saglayici.json'),
+  JSON.stringify(
+    {
+      surum: 1,
+      secili: 'opencode',
+      efor: 'varsayilan',
+      saglayicilar: {
+        anthropic: { anahtar: '' },
+        opencode: { anahtar: '', baseUrl: '', model: '', hafifModel: '', altModel: '', baglam: 0 },
+        deepseek: { anahtar: '', baseUrl: '', model: '', hafifModel: '', altModel: '', baglam: 0 },
+        ozel: { anahtar: '', baseUrl: '', model: '', hafifModel: '', altModel: '', baglam: 0 },
+      },
+    },
+    null,
+    2
+  )
+);
+const bosDizin = process.env.KOKPIT_DIZIN;
+process.env.KOKPIT_DIZIN = BOS_DIZIN;
+delete require.cache[require.resolve('../electron/config.cjs')];
+delete require.cache[require.resolve('../electron/saglayici.cjs')];
+const bos = require('../electron/saglayici.cjs');
+const gb = bos.gorunum();
+kontrol(
+  'diskte opencode.baseUrl bos -> gorunumde on tanimli URL',
+  gb.opencode.baseUrl === 'https://opencode.ai/inference/go/anthropic',
+  gb.opencode.baseUrl
+);
+kontrol(
+  'diskte deepseek.baseUrl bos -> gorunumde on tanimli URL',
+  gb.deepseek.baseUrl === 'https://api.deepseek.com/anthropic',
+  gb.deepseek.baseUrl
+);
+kontrol('diskte ozel.baseUrl bos -> bos kalir', gb.ozel.baseUrl === '', JSON.stringify(gb.ozel.baseUrl));
+process.env.KOKPIT_DIZIN = bosDizin;
+delete require.cache[require.resolve('../electron/config.cjs')];
+delete require.cache[require.resolve('../electron/saglayici.cjs')];
+fs.rmSync(BOS_DIZIN, { recursive: true, force: true });
+
 // Gecici dizin silinir; gercek ~/.kokpit'e hic dokunulmadi.
 try {
   fs.rmSync(TEST_DIZIN, { recursive: true, force: true });

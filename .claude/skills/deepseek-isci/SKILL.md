@@ -30,6 +30,10 @@ Brifi scratchpad'e yaz, sonra PowerShell aracıyla `run_in_background: true` ile
 
 ```
 pwsh -File scripts/ds-isci.ps1 -Brif <brif.md> -Dizin <repo> -Cikti <cikti.json>
+# Varsayılan izin listesi dar: npm run typecheck|build|test:*|design:lint, npx tsc, node --check,
+# git status/diff/log/rm/mv. Başka kabul komutu gereken projede -IzinliAraclar ile ver.
+# İşçi package.json'ı düzenleyebildiği için test:* yine de keyfi komut kapısıdır: commit/push
+# yasağı güvenlik sınırı değil kuraldır. Her paketten sonra git log ve git status ile doğrula.
 ```
 
 Bitince çıktı JSON'unun `result` alanını ve `git diff --stat`'ı oku. Betik son satırda sağlayıcı, model, çıkış kodu ve çıktı yolunu yazar; hata ayrıntısı `<cikti>.err` içindedir.

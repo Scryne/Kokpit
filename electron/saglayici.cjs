@@ -120,8 +120,11 @@ function oku() {
     if (!kaynak || typeof kaynak !== 'object') continue;
     const hedef = sonuc.saglayicilar[ad];
     if (anahtarGecerli(kaynak.anahtar)) hedef.anahtar = kaynak.anahtar;
-    if (typeof kaynak.baseUrl === 'string' && kaynak.baseUrl.length <= 500 &&
-        (kaynak.baseUrl === '' || urlGecerli(kaynak.baseUrl))) {
+    // Bos deger ozel bir durum degil, "yazilmamis" sayilir: on tanimi dolu saglayicida (opencode,
+    // deepseek) preset korunur — arayuz Base URL'i salt okunur gosterir ve yamaya koymaz, diskteki
+    // bos deger aksi halde kullaniciyi cikissiz birakirdi. On tanimi bos saglayicida (ozel) hedef
+    // zaten bos kalir; kullanici kendisi doldurur.
+    if (typeof kaynak.baseUrl === 'string' && kaynak.baseUrl.length <= 500 && urlGecerli(kaynak.baseUrl)) {
       hedef.baseUrl = kaynak.baseUrl;
     }
     for (const alan of ['model', 'hafifModel', 'altModel']) {
