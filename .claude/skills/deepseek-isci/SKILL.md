@@ -43,7 +43,7 @@ pwsh -File scripts/ds-isci.ps1 -Brif <brif.md> -Dizin <repo> -Cikti <cikti.json>
 
 Bitince çıktı JSON'unun `result` alanını ve `git diff --stat`'ı oku. Betik son satırda sağlayıcı, model, çıkış kodu ve çıktı yolunu yazar; hata ayrıntısı `<cikti>.err` içindedir.
 
-İsteğe bağlı: `-Efor low|medium|high|xhigh|max`, `-Saglayici opencode|ozel|deepseek`, `-IzinliAraclar` (`git commit` ve `git push` her zaman kapalı). OpenCode Go'da `-Efor high` ile koşan turda düşünme token'ı 0 raporlandı (2026-11-17); eforun çeviriden geçtiği doğrulanmadı, ona güvenme.
+İsteğe bağlı: `-Efor low|medium|high|xhigh|max`, `-Saglayici opencode|ozel|deepseek`, `-IzinliAraclar` (`git commit` ve `git push` her zaman kapalı). OpenCode Go'da model düşünüyor (ham yanıtta `usage.opencode.tokens.reasoning` dolu, 2026-11-17) ama Claude Code'un çıktı JSON'u düşünme token'ını 0 raporluyor; `-Efor` seviyesinin düşünme miktarını değiştirdiği ölçülmedi.
 
 ## Anahtar ve sağlayıcı
 
