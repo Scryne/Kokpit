@@ -30,7 +30,7 @@ kaybolmaz — bu bir lens, depo değil.
 | Terminal taşıma | WebSocket, `127.0.0.1`, ephemeral port | Loopback, dışarı açık değil. Port ebeveyne stdout'tan bildirilir; sabit port yok → çakışma yok. |
 | Terminal görüntü | `xterm.js` + `@xterm/addon-fit` | Standart; ConPTY'nin ürettiği ANSI'yi doğru çizen tek olgun seçenek. |
 | Renderer | Vite + React 19 + TypeScript | Global sistemin `shadcn` MCP zinciri React istiyor; pano kart-ağırlıklı, iterasyon olacak. |
-| Stil | Tailwind v4 + shadcn/ui | Global frontend kontratı (`baseline-ui`, `tailwind-ui-refactor`) bu stack'i varsayıyor. |
+| Stil | Tailwind v4 + shadcn/ui | Global frontend araçları (`shadcn` skill'i, `bilesen-kaynaklari`) bu stack'i varsayıyor. |
 | Veri | `durum.py --json` (Python 3.12) | Katman 1 zaten dedupe/cache/şema-sürümleme dertlerini çözmüş. **İkinci toplayıcı yazılmayacak.** |
 
 ## Mimari
