@@ -847,11 +847,60 @@ export interface AdaAyarlari {
   ses: { stt: boolean; tts: boolean };
 }
 
+/** v4.1 Usta (OpenCode Go iscisi). Anahtarin kendisi renderer'a hic gelmez. */
+export interface UstaGorunum {
+  baseUrl: string;
+  varsayilanUrl: boolean;
+  anahtarVar: boolean;
+  /** Anahtarin son dort karakteri. */
+  ipucu: string;
+  kaydedildi: string | null;
+  model: string;
+  hafifModel: string;
+  modeller: { id: string; ad: string }[];
+  modellerZamani: string | null;
+  dogrulama: { durum: 'gecerli' | 'gecersiz' | 'ulasilamadi'; zaman: string } | null;
+}
+
+export interface UstaSonuc {
+  ok: boolean;
+  hata?: string;
+  gorunum: UstaGorunum;
+}
+
+export interface UstaIs {
+  id: string;
+  baslik: string;
+  proje: string;
+  model: string;
+  baslangic: string;
+  tur: number;
+  sureSn: number;
+  ciktiToken: number;
+  /** Son turun kabul komutlari: hepsi gecti / biri kaldi / komut yok (null). */
+  kabulGecti: boolean | null;
+  degisiklik: { dosya: number; ekleme: number; silme: number } | null;
+  karar: 'kabul' | 'duzeltip-kabul' | 'ret' | null;
+  calisiyor: boolean;
+}
+
+export interface UstaIsler {
+  isler: UstaIs[];
+  ozet: { model: string; is: number; kabul: number; duzeltip: number; ret: number; tur: number }[];
+}
+
 declare global {
   interface Window {
     kokpit: {
       durumGetir: () => Promise<DurumSonuc>;
       logYolu: () => Promise<string>;
+      ustaGetir: () => Promise<UstaGorunum>;
+      ustaAnahtarKaydet: (anahtar: string) => Promise<UstaSonuc>;
+      ustaAnahtarSina: () => Promise<UstaSonuc>;
+      ustaAnahtarSil: () => Promise<UstaSonuc>;
+      ustaAyar: (yama: { model?: string; hafifModel?: string; baseUrl?: string }) => Promise<UstaSonuc>;
+      ustaModeller: () => Promise<UstaSonuc>;
+      ustaIsler: () => Promise<UstaIsler>;
       klasorAc: (yol: string) => Promise<boolean>;
       ptyBilgi: () => Promise<PtyBilgiSonuc>;
       dosyaYolu: (dosya: File) => string;

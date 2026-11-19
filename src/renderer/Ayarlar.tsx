@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FileCog, ScrollText } from 'lucide-react';
 import type { AdaAyarlari } from './types';
 import { Anahtar, AyarSayfasi } from './ada/AyarSayfasi';
+import UstaAyari from './UstaAyari';
 
 // v4.0: Ayarlar (Ctrl+8). Bugune kadar ayarlar yalniz tepsi menusundeydi; kisayollari ve sesli komutlari
 // hatirlamanin yolu README'ydi. Bu sayfa uc seyi tek yere toplar: Ada'nin ayarlari (Ada'nin kendi Ayarlar
@@ -113,6 +114,8 @@ export default function Ayarlar() {
           </div>
         </section>
       </div>
+
+      <UstaAyari />
     </div>
   );
 }

@@ -11,6 +11,14 @@ function dinle(kanal, cb) {
 contextBridge.exposeInMainWorld('kokpit', {
   durumGetir: () => ipcRenderer.invoke('durum:getir'),
   logYolu: () => ipcRenderer.invoke('log:yol'),
+  // v4.1 Usta: anahtar yalniz gider, hicbir donuste geri gelmez.
+  ustaGetir: () => ipcRenderer.invoke('usta:getir'),
+  ustaAnahtarKaydet: (anahtar) => ipcRenderer.invoke('usta:anahtar-kaydet', anahtar),
+  ustaAnahtarSina: () => ipcRenderer.invoke('usta:anahtar-sina'),
+  ustaAnahtarSil: () => ipcRenderer.invoke('usta:anahtar-sil'),
+  ustaAyar: (yama) => ipcRenderer.invoke('usta:ayar', yama),
+  ustaModeller: () => ipcRenderer.invoke('usta:modeller'),
+  ustaIsler: () => ipcRenderer.invoke('usta:isler'),
   klasorAc: (yol) => ipcRenderer.invoke('klasor:ac', yol),
   // PTY sunucusunun portu ve token'i. Token olmadan sunucu surec baslatmaz.
   ptyBilgi: () => ipcRenderer.invoke('pty:bilgi'),

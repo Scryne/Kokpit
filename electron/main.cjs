@@ -36,6 +36,7 @@ const ariaArac = require('./aria-arac.cjs');
 const geceVardiyasi = require('./gece.cjs');
 const surum = require('./surum.cjs');
 const adaSayfalar = require('./ada-sayfalar.cjs');
+const ustaAyar = require('./usta-ayar.cjs');
 
 // Windows bildirimleri (toast) bir AppUserModelID ister; paketlenmemis uygulamada bu
 // verilmezse bildirim sessizce hic gorunmez.
@@ -912,6 +913,14 @@ ipcMain.on('brifing:ver', () => void brifingVer('palet').catch((e) => logHata('b
 ipcMain.handle('nobet:getir', async () => nobet.anlik() ?? (await nobet.tazele()));
 ipcMain.handle('nobet:tazele', async () => nobet.tazele());
 ipcMain.handle('log:yol', () => LOG_DOSYA);
+// v4.1 Usta (OpenCode Go iscisi): anahtar yalniz main'e girer, renderer'a var/yok + son dort karakter doner.
+ipcMain.handle('usta:getir', () => ustaAyar.gorunum());
+ipcMain.handle('usta:anahtar-kaydet', (_e, anahtar) => ustaAyar.anahtarKaydet(anahtar));
+ipcMain.handle('usta:anahtar-sina', () => ustaAyar.anahtarSina());
+ipcMain.handle('usta:anahtar-sil', () => ustaAyar.anahtarSil());
+ipcMain.handle('usta:ayar', (_e, yama) => ustaAyar.ayarKaydet(yama));
+ipcMain.handle('usta:modeller', () => ustaAyar.modelleriYenile());
+ipcMain.handle('usta:isler', () => ustaAyar.isler());
 ipcMain.handle('pty:bilgi', async () => {
   try {
     // Kanca koprusu once hazir olmali: PTY sunucusu claude'u onun ayar dosyasiyla acar.

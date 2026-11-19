@@ -1088,3 +1088,39 @@ Alınmayanlar: Windows bildirimlerini yansıtma (paket kimliği ister), futbol s
 - **Kontrol edilemeyen:** raftan dışarı sürükleme (`startDrag`; otomasyonla sürüklenemiyor), gerçek Spotify'a komut
   (Scryne'ın müziğine dokunulmadı; yalnız okuma gerçek oturumla sınandı), gerçek sesle yeni komutlar, çalışan Kokpit'te
   yeniden başlatma.
+
+### v4.1 — Usta: OpenCode Go işçisi (Faz 79–81, 2026-11-19)
+
+Scryne: "Oturumlar Claude'dan açılsın, Opus orkestra yapsın, kod yazımını (çoğunlukla backend) OpenCode Go'dan seçtiğim
+modele versin; limitim az gitsin, kalite Opus seviyesinde kalsın. Deneme yapmayalım, boş yere limit gitmesin." Bir
+arkadaşının `kayisu` dalı aynı fikri kurmuştu (`saglayici.cjs`, `ds-isci.ps1`, `deepseek-isci` skill'i). Dal **birleştirilmedi**:
+`master` ile ortak geçmişi yok (v2.6'dan ayrılmış, Ada'yı kaldırmış; v4.0'a karşı ~29 bin satır silme), anahtar düz metin,
+sağlayıcı seçimi tüm terminal sekmelerini ucuz modele çeviriyor, işçi ana ağaçta çalışıyor. Alınan: `claude -p` +
+Anthropic biçimli uç fikri ve ortam eşlemesi. Yeniden tasarlanan: DPAPI, worktree, kabul, günlük, Opus'un inceleme akışı.
+
+- **Faz 79, uç ve anahtar** (✅): OpenCode Go'nun Anthropic biçimli ucu `https://opencode.ai/inference/go/anthropic`. Claude Code
+  bu ucun "doğrulanmış istemcisi" (oturum başlığını kendisi yollar). Model listesi anahtarsız açık (31 model, hepsi
+  Anthropic ucunda), sahte anahtar 401 alıyor → anahtar **token harcamadan** doğrulanıyor. Anahtar DPAPI (kullanıcı kapsamı,
+  sabit entropi) ile `~/.kokpit/usta.json`'a iner: Node `koffi` ile şifreler, Python `ctypes` ile çözer (spike: çapraz tur
+  baytı baytına aynı). `safeStorage` seçilmedi: onu yalnız Chromium çözer, anahtarı okuyan ise Kokpit dışındaki işçi.
+  Renderer yalnız "var mı" + son dört karakter görür; reddedilen anahtar eskisinin yerine yazılmaz.
+- **Faz 80, işçi** (✅): `scripts/usta.py` (ver / devam / diff / al / birak / karar / liste / ayar). Her iş
+  `~/.kokpit/usta/agac/<id>`'de ayrı worktree (dal `usta/<id>`). `node_modules`/`.venv` junction'la bağlanır, temizlikte
+  junction'lar önce `rmdir` ile sökülür (hedef silinmez; testli). Ortamdan gerçek `ANTHROPIC_API_KEY` ve ebeveyn oturum izleri
+  silinir. Hook'lar kapalı (`disableAllHooks`): SessionEnd kancası worktree'de durum yazmasın, Ada işçiyi oturum sanmasın.
+  Bash yalnız kabul komutları + git okuma. Commit/push/reset/checkout `--settings` deny'da. Kabul komutlarını betik koşar.
+  `devam` aynı oturumu `--resume` ile sürdürür. `al` farkı ana ağaca commit'siz uygular (olmazsa `--3way`). `--kirli`
+  orkestratörün commit'lenmemiş işini taşır. Çıktıya sızan anahtar `[gizli]`.
+- **Faz 81, Kokpit + skill** (✅): Ayarlar'da Usta bölümü (anahtar, model/hafif model listeden, uç adresi, günlük: model
+  bazında kabul / düzeltip kabul / ret ve ortalama tur). Global `usta` skill'i: ne devredilir, brif şablonu, inceleme
+  kontrol listesi, iki tur kuralı. Global CLAUDE.md'deki "kod yazan işler devredilmez" kuralı Scryne kararıyla kalktı.
+- **Bulgular:** (1) Claude Code 401'i de 10 kez üssel bekleyerek yeniden deniyor: geçersiz anahtarla işçi 120 sn+ asılı
+  kaldı. Çözüm: başlatmadan önce `/v1/models` ön kontrolü, 1 sn'de düşüyor. (2) `.gitignore`'daki bir yolu pathspec'te
+  `:(exclude)` ile adıyla vermek `git add`'i düşürüyor. Junction yalnız yok sayılmıyorsa hariç tutuluyor. (3) Pilot yapılmadı
+  (Scryne kararı). Hangi modelin işe yaradığı günlükten ölçülecek; ≥5 işten önce model karşılaştırması yapılmaz.
+- **Testler:** `test:usta` 50 kontrol (gerçek uca karşı anahtar reddi + model listesi; sahte işçiyle worktree, ortam, kabul,
+  sızıntı, devam, al, birak, junction güvenliği, `--kirli`, günlük). Gerçek `claude` ikilisiyle sahte anahtar denemesi:
+  argümanlar ayrıştı, istek OpenCode'a gitti (401). `npm run ekran:usta`: 900/1280/1600 px taşma yok, konsol temiz, DOM'da
+  anahtar yok, sahte anahtar arayüzden girilince red uyarısı.
+- **Kontrol edilemeyen:** gerçek anahtarla uçtan uca bir iş (anahtar yok; Scryne pilotu istemedi). İlk gerçek iş bu
+  zinciri ilk kez baştan sona koşacak: arıza olursa `usta.py` çıktısındaki işçi stderr'i ve `~/.kokpit/usta/is/<id>/`.

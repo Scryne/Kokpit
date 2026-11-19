@@ -301,6 +301,20 @@ kapatılırsa bir sonraki açılışta "N oturum açıktı — Geri yükle" (her
 `claude --resume <kimlik>`; kimliği olmayan eski kayıtta `--continue`). Pano satırında "son oturum: dün · 42 dk ·
 beyne düştü ✓".
 
+**Usta (v4.1):** Opus'un kod işlerini devrettiği OpenCode Go işçisi. Ayarlar (Ctrl+8) > Usta'da anahtar girilir
+(kaydetmeden `/v1/models` ile doğrulanır, token harcamaz; DPAPI ile `~/.kokpit/usta.json`'a iner) ve kod yazan model
+seçilir. İşçi `scripts/usta.py`: ayrı bir `claude -p` süreci, ortamı yalnız kendisi için
+`https://opencode.ai/inference/go/anthropic`'e çevrilir, projenin ayrı git worktree'sinde (`~/.kokpit/usta/agac/<id>`)
+çalışır. Kabul komutlarını betik koşar; fark ana ağaca yalnız `usta.py al <id>` ile commit'siz iner. Kokpit'in terminal
+sekmeleri değişmez: ana oturumlar Claude'da. Opus'un akışı global `usta` skill'inde (`~/.claude/skills/usta`). Günlük
+(`~/.kokpit/usta/is/*/durum.json`) Ayarlar'da model bazında kabul oranıyla görünür.
+
+```bash
+python -I scripts/usta.py ayar                          # uç, model, anahtar var mı
+python -I scripts/usta.py ver --proje ../Proje --brif brif.md --kabul "uv run pytest -q"
+python -I scripts/usta.py diff <id>    # sonra: devam <id> --not not.md | al <id> | birak <id>
+```
+
 Üretimde arayüz `app://kokpit/` özel şemasından servis edilir — gerçek bir origin olduğu
 için CSP uygulanabiliyor. `file://` kullanılmaz: `onHeadersReceived` o istekler için
 tetiklenmiyor ve politika sessizce uygulanmamış oluyordu.
@@ -321,6 +335,8 @@ npm run ekran:goz    # Ada gözünün her hali, hap 4x (boşta, düşün, oku, y
 npm run test:sayfa   # v4.0: odak, liste (tarih ayıklama), sistem, hava, raf, sayfa sesli komutları (341 kontrol)
 npm run test:medya   # v4.0: medya yardımcısı (sahte) + şarkı sözleri; GERCEK=1 ile gerçek yardımcı duman testi (88 kontrol)
 npm run ekran:sayfa  # v4.0: Ada'nın sekiz sayfası, hap, minimal hap, Ayarlar; taşma ve konsol hatası denetler
+npm run test:usta    # v4.1: usta anahtarı (DPAPI, gerçek uçta red), usta.py sahte işçiyle uçtan uca (50 kontrol)
+npm run ekran:usta   # v4.1: Ayarlar > Usta; 3 genişlik, DOM'da anahtar yok, sahte anahtar red akışı (build ister)
 npm run typecheck
 npm run build
 npm run design:lint  # DESIGN.md spec denetimi
