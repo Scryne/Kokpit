@@ -142,6 +142,13 @@ export default function TerminalOturumu({
         cursorAccent: '#07080a',
         selectionBackground: 'rgba(195,206,219,0.24)',
       },
+      // OSC 8 hiperlinkleri (claude bunlari basar) WebLinksAddon'a degil buraya duser.
+      // Verilmezse xterm "could potentially be dangerous" onayi sorup window.open cagirir,
+      // o da main'de engellenir: link hic acilmaz. Ayni kapidan (http(s) dogrulamasi) gecer.
+      linkHandler: {
+        activate: (_e, uri) => void window.kokpit.linkAc(uri),
+        allowNonHttpProtocols: false,
+      },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
