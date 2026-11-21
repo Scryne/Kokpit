@@ -236,14 +236,23 @@ def claude_komutu() -> list[str]:
 
 def kavsak_kur(ana: Path, agac: Path) -> list[str]:
     """Ana agactaki node_modules/.venv'i worktree'ye junction olarak baglar (kurulum beklemeden test kosulsun).
-    Yalniz kok ve bir alt seviye. Donus: worktree'ye gore goreli yollar (temizlikte once bunlar kaldirilir)."""
+    Yalniz kok ve bir alt seviye. Donus: worktree'ye gore goreli yollar (temizlikte once bunlar kaldirilir).
+
+    pnpm deposunda node_modules junction'lanmaz: pnpm 12 junction'li node_modules'i reddediyor
+    (ERR_PNPM_UNSAFE_TASK_RUN_STATE_PATH), kurulum denemesi de junction uzerinden ana agacin
+    baglantilarini kiriyor; ic ice paketler (apps/worker) de iki seviye derinde. Onun yerine worktree'de
+    depodan cevrimdisi gercek kurulum yapilir (saniyeler surer, ana agaca dokunmaz)."""
+    pnpm_kuruldu = False
+    if (agac / "pnpm-lock.yaml").is_file() and shutil.which("pnpm"):
+        kod, _ = kos(["cmd", "/c", "pnpm", "install", "--frozen-lockfile", "--offline"], cwd=agac, zaman=600)
+        pnpm_kuruldu = kod == 0
     adaylar: list[Path] = []
-    for ad in ("node_modules", ".venv"):
+    for ad in ((".venv",) if pnpm_kuruldu else ("node_modules", ".venv")):
         adaylar.append(Path(ad))
     try:
         for alt in ana.iterdir():
             if alt.is_dir() and not alt.name.startswith(".") and alt.name not in ("node_modules",):
-                for ad in ("node_modules", ".venv"):
+                for ad in ((".venv",) if pnpm_kuruldu else ("node_modules", ".venv")):
                     adaylar.append(Path(alt.name) / ad)
     except OSError:
         pass
@@ -314,7 +323,9 @@ def agaci_kaldir(d: dict) -> None:
     kavsak_kaldir(agac, d.get("kavsaklar", []))
     kos(["git", "worktree", "remove", "--force", str(agac)], cwd=d["proje"])
     if agac.exists():
-        shutil.rmtree(agac, ignore_errors=True)
+        # pnpm'in .pnpm altindaki yollari MAX_PATH'i asar; uzun yol onekiyle silinir.
+        uzun = "\\\\?\\" + str(agac.resolve()) if os.name == "nt" else str(agac)
+        shutil.rmtree(uzun, ignore_errors=True)
     kos(["git", "worktree", "prune"], cwd=d["proje"])
     kos(["git", "branch", "-D", d["dal"]], cwd=d["proje"])
 
